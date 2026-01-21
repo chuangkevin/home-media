@@ -53,6 +53,27 @@ docker-compose up -d
 
 ### 本地開發
 
+#### Windows 用戶 (推薦)
+
+直接雙擊執行批次檔案：
+
+```bash
+# 啟動前後端服務
+local-dev-start.bat
+
+# 停止所有服務
+local-dev-stop.bat
+
+# 重啟服務
+local-dev-restart.bat
+```
+
+服務啟動後：
+- **前端**: http://localhost:5173
+- **後端 API**: http://localhost:3001
+
+#### 手動啟動
+
 ```bash
 # 安裝後端依賴
 cd backend

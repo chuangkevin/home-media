@@ -41,7 +41,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(corsMiddleware);
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -49,23 +49,28 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Import routes
+import youtubeRoutes from './routes/youtube.routes';
+
 // API Routes
-app.get('/api', (req, res) => {
+app.get('/api', (_req, res) => {
   res.json({
     message: '🎵 Home Media Center API',
     version: '1.0.0',
     endpoints: {
       health: '/health',
       search: '/api/search',
+      video: '/api/video/:videoId',
       stream: '/api/stream/:videoId',
       lyrics: '/api/lyrics/:videoId',
     },
   });
 });
 
+// YouTube routes
+app.use('/api', youtubeRoutes);
+
 // TODO: 加入其他路由
-// app.use('/api/search', searchRoutes);
-// app.use('/api/stream', streamRoutes);
 // app.use('/api/lyrics', lyricsRoutes);
 // app.use('/api/playlists', playlistRoutes);
 

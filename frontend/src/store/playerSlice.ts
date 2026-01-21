@@ -1,13 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import type { Track } from '../types/track.types';
 
-export interface Track {
-  id: string;
-  videoId: string;
-  title: string;
-  artist?: string;
-  duration: number;
-  thumbnail?: string;
-}
+export type DisplayMode = 'video' | 'lyrics' | 'visualizer';
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -18,6 +12,8 @@ interface PlayerState {
   queue: Track[];
   repeat: 'none' | 'one' | 'all';
   shuffle: boolean;
+  displayMode: DisplayMode;
+  seekTarget: number | null; // 用於手動 seek 操作
 }
 
 const initialState: PlayerState = {
@@ -29,6 +25,8 @@ const initialState: PlayerState = {
   queue: [],
   repeat: 'none',
   shuffle: false,
+  displayMode: 'lyrics', // 預設顯示歌詞模式
+  seekTarget: null,
 };
 
 const playerSlice = createSlice({
@@ -66,6 +64,16 @@ const playerSlice = createSlice({
     setShuffle(state, action: PayloadAction<boolean>) {
       state.shuffle = action.payload;
     },
+    setDisplayMode(state, action: PayloadAction<DisplayMode>) {
+      state.displayMode = action.payload;
+    },
+    seekTo(state, action: PayloadAction<number>) {
+      state.seekTarget = action.payload;
+      state.currentTime = action.payload;
+    },
+    clearSeekTarget(state) {
+      state.seekTarget = null;
+    },
   },
 });
 
@@ -80,6 +88,9 @@ export const {
   removeFromQueue,
   setRepeat,
   setShuffle,
+  setDisplayMode,
+  seekTo,
+  clearSeekTarget,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;
