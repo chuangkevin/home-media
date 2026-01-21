@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: home-media-backend
+    ports:
+      - "3001:3001"  # HTTP API
+      - "3002:3002"  # WebSocket (optional separate port)
+    volumes:
+      - ./data/cache:/app/data/cache
+      - ./data/db:/app/data/db
+      - ./backend/.env:/app/.env:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - WS_PORT=3002
+      - DB_PATH=/app/data/db/home-media.sqlite
+      - CACHE_DIR=/app/data/cache
+      - MAX_CACHE_TRACKS=50
+    restart: unless-stopped
+    networks:
+      - home-media-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:3001
+        - VITE_WS_URL=ws://localhost:3001
+    container_name: home-media-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - home-media-network
+
+networks:
+  home-media-network:
+    driver: bridge
+
+volumes:
+  cache-data:
+  db-data:

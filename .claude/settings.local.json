@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"D:\\\\Projects\\\\home-media\" log --oneline -10)",
+      "WebFetch(domain:vd6s.net)",
+      "Bash(git add:*)"
+    ]
+  }
+}
