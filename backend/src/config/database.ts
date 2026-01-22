@@ -81,10 +81,77 @@ export function initDatabase() {
     )
   `);
 
+  // 搜尋歷史表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS search_history (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL UNIQUE,
+      search_count INTEGER DEFAULT 1,
+      last_searched_at INTEGER NOT NULL,
+      first_searched_at INTEGER NOT NULL,
+      result_count INTEGER DEFAULT 0
+    )
+  `);
+
+  // 觀看頻道表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS watched_channels (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT,
+      channel_name TEXT NOT NULL UNIQUE,
+      channel_thumbnail TEXT,
+      watch_count INTEGER DEFAULT 1,
+      last_watched_at INTEGER NOT NULL,
+      first_watched_at INTEGER NOT NULL
+    )
+  `);
+
+  // 頻道影片快取表（24小時）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS channel_videos_cache (
+      channel_name TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      thumbnail TEXT,
+      duration INTEGER NOT NULL,
+      views INTEGER,
+      uploaded_at TEXT,
+      cached_at INTEGER NOT NULL,
+      PRIMARY KEY (channel_name, video_id)
+    )
+  `);
+
+  // 推薦結果快取表（6小時）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recommendations_cache (
+      id TEXT PRIMARY KEY,
+      channel_name TEXT NOT NULL,
+      videos_json TEXT NOT NULL,
+      cached_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    )
+  `);
+
+  // 為 cached_tracks 添加頻道資訊欄位（如果不存在）
+  // 使用 ALTER TABLE 的安全方式
+  const tableInfo = db.pragma('table_info(cached_tracks)') as Array<{ name: string }>;
+  const hasChannelName = tableInfo.some((col) => col.name === 'channel_name');
+
+  if (!hasChannelName) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN channel_name TEXT`);
+  }
+
   // 建立索引
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_cached_tracks_last_played ON cached_tracks(last_played);
+    CREATE INDEX IF NOT EXISTS idx_cached_tracks_channel ON cached_tracks(channel_name);
     CREATE INDEX IF NOT EXISTS idx_playlist_tracks_position ON playlist_tracks(playlist_id, position);
+    CREATE INDEX IF NOT EXISTS idx_search_history_last ON search_history(last_searched_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_search_history_count ON search_history(search_count DESC);
+    CREATE INDEX IF NOT EXISTS idx_watched_channels_last ON watched_channels(last_watched_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_watched_channels_count ON watched_channels(watch_count DESC);
+    CREATE INDEX IF NOT EXISTS idx_channel_cache ON channel_videos_cache(channel_name, cached_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_recommendations_cache ON recommendations_cache(expires_at);
   `);
 
   console.log('✅ Database initialized successfully');

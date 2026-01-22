@@ -54,6 +54,8 @@ app.get('/health', (_req, res) => {
 
 // Import routes
 import youtubeRoutes from './routes/youtube.routes';
+import historyRoutes from './routes/history.routes';
+import recommendationRoutes from './routes/recommendation.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -66,12 +68,28 @@ app.get('/api', (_req, res) => {
       video: '/api/video/:videoId',
       stream: '/api/stream/:videoId',
       lyrics: '/api/lyrics/:videoId',
+      history: {
+        searches: '/api/history/searches',
+        channels: '/api/history/channels',
+        stats: '/api/history/stats',
+      },
+      recommendations: {
+        channels: '/api/recommendations/channels',
+        channelVideos: '/api/recommendations/channel/:channelName',
+        stats: '/api/recommendations/stats',
+      },
     },
   });
 });
 
 // YouTube routes
 app.use('/api', youtubeRoutes);
+
+// History routes
+app.use('/api', historyRoutes);
+
+// Recommendation routes
+app.use('/api', recommendationRoutes);
 
 // TODO: 加入其他路由
 // app.use('/api/lyrics', lyricsRoutes);

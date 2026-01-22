@@ -63,6 +63,85 @@ class ApiService {
   async preloadMultiple(videoIds: string[]): Promise<void> {
     await Promise.all(videoIds.map(id => this.preloadAudio(id)));
   }
+
+  // ==================== 歷史記錄 ====================
+
+  /**
+   * 獲取搜尋歷史
+   */
+  async getSearchHistory(limit: number = 50, sortBy: 'recent' | 'popular' = 'recent') {
+    const response = await this.api.get('/history/searches', {
+      params: { limit, sortBy },
+    });
+    return response.data.history;
+  }
+
+  /**
+   * 記錄搜尋
+   */
+  async recordSearch(query: string, resultCount: number): Promise<void> {
+    await this.api.post('/history/search', { query, resultCount });
+  }
+
+  /**
+   * 清除搜尋歷史
+   */
+  async clearSearchHistory(): Promise<void> {
+    await this.api.delete('/history/searches');
+  }
+
+  /**
+   * 獲取觀看頻道
+   */
+  async getWatchedChannels(limit: number = 50, sortBy: 'recent' | 'popular' = 'recent') {
+    const response = await this.api.get('/history/channels', {
+      params: { limit, sortBy },
+    });
+    return response.data.channels;
+  }
+
+  /**
+   * 記錄頻道觀看
+   */
+  async recordChannelWatch(channelName: string, channelThumbnail: string = ''): Promise<void> {
+    await this.api.post('/history/channel', { channelName, channelThumbnail });
+  }
+
+  /**
+   * 清除頻道歷史
+   */
+  async clearChannelHistory(): Promise<void> {
+    await this.api.delete('/history/channels');
+  }
+
+  // ==================== 推薦系統 ====================
+
+  /**
+   * 獲取頻道推薦
+   */
+  async getChannelRecommendations(page: number = 0, pageSize: number = 5) {
+    const response = await this.api.get('/recommendations/channels', {
+      params: { page, pageSize },
+    });
+    return response.data.recommendations;
+  }
+
+  /**
+   * 獲取單一頻道影片
+   */
+  async getChannelVideos(channelName: string, limit: number = 20): Promise<Track[]> {
+    const response = await this.api.get(`/recommendations/channel/${encodeURIComponent(channelName)}`, {
+      params: { limit },
+    });
+    return response.data.videos;
+  }
+
+  /**
+   * 刷新推薦
+   */
+  async refreshRecommendations(): Promise<void> {
+    await this.api.post('/recommendations/refresh');
+  }
 }
 
 export default new ApiService();

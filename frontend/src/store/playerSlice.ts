@@ -25,7 +25,7 @@ const initialState: PlayerState = {
   duration: 0,
   volume: 0.7,
   queue: [],
-  repeat: 'none',
+  repeat: 'all', // 預設循環播放整個列表
   shuffle: false,
   displayMode: 'lyrics', // 預設顯示歌詞模式
   seekTarget: null,

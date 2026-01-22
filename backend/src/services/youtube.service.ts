@@ -259,6 +259,147 @@ class YouTubeService {
     }
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   }
+
+  /**
+   * 獲取頻道影片（使用搜尋過濾策略）
+   * @param channelName 頻道名稱
+   * @param limit 返回數量
+   * @returns 該頻道的影片列表
+   */
+  async getChannelVideos(channelName: string, limit: number = 20): Promise<YouTubeSearchResult[]> {
+    try {
+      // 1. 檢查 24 小時快取
+      const cached = this.getCachedChannelVideos(channelName, limit);
+      if (cached && cached.length > 0) {
+        const cacheAge = Math.floor((Date.now() - cached[0].cachedAt) / 1000 / 60);
+        console.log(`✅ 使用頻道影片快取: ${channelName} (快取時間: ${cacheAge}分鐘, ${cached.length} 個影片)`);
+        return cached.map(c => ({
+          id: c.videoId,
+          videoId: c.videoId,
+          title: c.title,
+          channel: channelName,
+          duration: c.duration,
+          thumbnail: c.thumbnail,
+          views: c.views,
+          uploadedAt: c.uploadedAt,
+        }));
+      }
+
+      console.log(`⏳ 獲取頻道影片: ${channelName} (需要搜尋...)`);
+
+      // 2. 使用 youtube-sr 搜尋 + 過濾
+      const results = await YouTube.search(channelName, {
+        limit: limit * 3, // 多取一些以便過濾
+        type: 'video',
+      });
+
+      // 3. 過濾出該頻道的影片
+      const channelVideos = results
+        .filter(video => video.channel?.name === channelName)
+        .slice(0, limit)
+        .map(video => ({
+          id: video.id || '',
+          videoId: video.id || '',
+          title: video.title || 'Unknown Title',
+          channel: channelName,
+          duration: this.parseDuration(video.duration),
+          thumbnail: video.thumbnail?.url || '',
+          views: video.views,
+          uploadedAt: video.uploadedAt,
+        }));
+
+      // 4. 快取結果
+      if (channelVideos.length > 0) {
+        this.cacheChannelVideos(channelName, channelVideos);
+        console.log(`✅ 獲取並快取頻道影片: ${channelName} (${channelVideos.length} 個影片)`);
+      }
+
+      return channelVideos;
+    } catch (error) {
+      logger.error(`Failed to get channel videos for ${channelName}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * 從資料庫獲取快取的頻道影片
+   */
+  private getCachedChannelVideos(channelName: string, limit: number): any[] {
+    try {
+      const { db } = require('../config/database');
+      const now = Date.now();
+      const cacheExpiry = 24 * 60 * 60 * 1000; // 24 小時
+
+      const stmt = db.prepare(
+        `SELECT video_id as videoId, title, thumbnail, duration, views, uploaded_at as uploadedAt, cached_at as cachedAt
+         FROM channel_videos_cache
+         WHERE channel_name = ? AND cached_at > ?
+         ORDER BY cached_at DESC
+         LIMIT ?`
+      );
+
+      return stmt.all(channelName, now - cacheExpiry, limit);
+    } catch (error) {
+      logger.warn('Failed to get cached channel videos:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 快取頻道影片到資料庫
+   */
+  private cacheChannelVideos(channelName: string, videos: YouTubeSearchResult[]): void {
+    try {
+      const { db } = require('../config/database');
+      const now = Date.now();
+
+      const stmt = db.prepare(
+        `INSERT OR REPLACE INTO channel_videos_cache
+         (channel_name, video_id, title, thumbnail, duration, views, uploaded_at, cached_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      const insertMany = db.transaction((videos: YouTubeSearchResult[]) => {
+        for (const video of videos) {
+          stmt.run(
+            channelName,
+            video.videoId,
+            video.title,
+            video.thumbnail,
+            video.duration,
+            video.views || 0,
+            video.uploadedAt || '',
+            now
+          );
+        }
+      });
+
+      insertMany(videos);
+    } catch (error) {
+      logger.warn('Failed to cache channel videos:', error);
+    }
+  }
+
+  /**
+   * 清理過期的頻道影片快取
+   */
+  cleanExpiredChannelCache(): void {
+    try {
+      const { db } = require('../config/database');
+      const now = Date.now();
+      const cacheExpiry = 24 * 60 * 60 * 1000; // 24 小時
+
+      const result = db.prepare(
+        'DELETE FROM channel_videos_cache WHERE cached_at <= ?'
+      ).run(now - cacheExpiry);
+
+      if (result.changes > 0) {
+        logger.info(`Cleaned ${result.changes} expired channel video cache entries`);
+      }
+    } catch (error) {
+      logger.warn('Failed to clean expired channel cache:', error);
+    }
+  }
 }
 
 export default new YouTubeService();

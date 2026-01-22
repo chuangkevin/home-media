@@ -15,6 +15,7 @@ import DisplayModeToggle from './components/Player/DisplayModeToggle';
 import VideoPlayer from './components/Player/VideoPlayer';
 import LyricsView from './components/Player/LyricsView';
 import VisualizerView from './components/Player/VisualizerView';
+import HomeRecommendations from './components/Home/HomeRecommendations';
 import { setCurrentTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
 import { RootState } from './store';
 import apiService from './services/api.service';
@@ -50,6 +51,11 @@ function App() {
 
     try {
       const results = await apiService.searchTracks(query, 20);
+
+      // 記錄搜尋歷史
+      apiService.recordSearch(query, results.length).catch(err => {
+        console.warn('Failed to record search:', err);
+      });
 
       // 設置播放列表
       dispatch(setPlaylist(results));
@@ -87,6 +93,11 @@ function App() {
   };
 
   const handlePlay = (track: Track) => {
+    // 記錄頻道觀看
+    apiService.recordChannelWatch(track.channel, track.thumbnail).catch(err => {
+      console.warn('Failed to record channel watch:', err);
+    });
+
     dispatch(setCurrentTrack(track));
     dispatch(setIsPlaying(true));
   };
@@ -151,27 +162,8 @@ function App() {
           />
         )}
 
-        {/* 初始提示 */}
-        {!loading && !hasSearched && (
-          <Paper
-            elevation={0}
-            sx={{
-              p: 6,
-              textAlign: 'center',
-              backgroundColor: 'background.default',
-            }}
-          >
-            <Typography variant="h5" gutterBottom>
-              開始探索音樂
-            </Typography>
-            <Typography variant="body1" color="text.secondary" paragraph>
-              在上方搜尋列輸入歌手名稱或歌曲標題
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              例如：「周杰倫 晴天」、「五月天」、「Taylor Swift」
-            </Typography>
-          </Paper>
-        )}
+        {/* 首頁推薦 */}
+        {!loading && !hasSearched && <HomeRecommendations />}
       </Container>
 
       {/* 播放器（固定在底部）*/}
