@@ -7,12 +7,12 @@ import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import { RootState } from '../../store';
-import { setIsPlaying, seekTo, setVolume } from '../../store/playerSlice';
+import { setIsPlaying, seekTo, setVolume, playNext, playPrevious } from '../../store/playerSlice';
 import { formatDuration } from '../../utils/formatTime';
 
 export default function PlayerControls() {
   const dispatch = useDispatch();
-  const { isPlaying, currentTime, duration, volume } = useSelector(
+  const { isPlaying, currentTime, duration, volume, playlist, currentIndex } = useSelector(
     (state: RootState) => state.player
   );
 
@@ -32,6 +32,18 @@ export default function PlayerControls() {
   const toggleMute = () => {
     dispatch(setVolume(volume > 0 ? 0 : 0.7));
   };
+
+  const handlePrevious = () => {
+    dispatch(playPrevious());
+  };
+
+  const handleNext = () => {
+    dispatch(playNext());
+  };
+
+  // 檢查是否有上一首/下一首
+  const hasPrevious = playlist.length > 0 && currentIndex > 0;
+  const hasNext = playlist.length > 0 && currentIndex < playlist.length - 1;
 
   return (
     <Box sx={{ width: '100%', mt: 1 }}>
@@ -56,13 +68,13 @@ export default function PlayerControls() {
       <Stack direction="row" spacing={1} alignItems="center">
         {/* 播放控制 */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <IconButton size="small" disabled>
+          <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious}>
             <SkipPreviousIcon />
           </IconButton>
           <IconButton onClick={handlePlayPause} color="primary" size="large">
             {isPlaying ? <PauseIcon fontSize="large" /> : <PlayArrowIcon fontSize="large" />}
           </IconButton>
-          <IconButton size="small" disabled>
+          <IconButton size="small" onClick={handleNext} disabled={!hasNext}>
             <SkipNextIcon />
           </IconButton>
         </Box>

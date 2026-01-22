@@ -14,6 +14,8 @@ interface PlayerState {
   shuffle: boolean;
   displayMode: DisplayMode;
   seekTarget: number | null; // 用於手動 seek 操作
+  playlist: Track[]; // 當前播放列表（搜尋結果）
+  currentIndex: number; // 當前播放的索引
 }
 
 const initialState: PlayerState = {
@@ -27,6 +29,8 @@ const initialState: PlayerState = {
   shuffle: false,
   displayMode: 'lyrics', // 預設顯示歌詞模式
   seekTarget: null,
+  playlist: [],
+  currentIndex: -1,
 };
 
 const playerSlice = createSlice({
@@ -36,6 +40,14 @@ const playerSlice = createSlice({
     setCurrentTrack(state, action: PayloadAction<Track | null>) {
       state.currentTrack = action.payload;
       state.currentTime = 0;
+
+      // 更新當前索引
+      if (action.payload && state.playlist.length > 0) {
+        const index = state.playlist.findIndex(t => t.id === action.payload!.id);
+        if (index !== -1) {
+          state.currentIndex = index;
+        }
+      }
     },
     setIsPlaying(state, action: PayloadAction<boolean>) {
       state.isPlaying = action.payload;
@@ -74,6 +86,61 @@ const playerSlice = createSlice({
     clearSeekTarget(state) {
       state.seekTarget = null;
     },
+    setPlaylist(state, action: PayloadAction<Track[]>) {
+      state.playlist = action.payload;
+    },
+    playNext(state) {
+      if (state.playlist.length === 0) return;
+
+      if (state.repeat === 'one') {
+        // 重複播放當前曲目，重置時間
+        state.currentTime = 0;
+        state.seekTarget = 0;
+        return;
+      }
+
+      let nextIndex = state.currentIndex + 1;
+
+      if (nextIndex >= state.playlist.length) {
+        if (state.repeat === 'all') {
+          nextIndex = 0; // 重頭開始
+        } else {
+          // 播放完畢，停止
+          state.isPlaying = false;
+          return;
+        }
+      }
+
+      state.currentIndex = nextIndex;
+      state.currentTrack = state.playlist[nextIndex];
+      state.currentTime = 0;
+      state.isPlaying = true; // 自動播放下一首
+    },
+    playPrevious(state) {
+      if (state.playlist.length === 0) return;
+
+      // 如果已經播放超過 3 秒，則重播當前歌曲
+      if (state.currentTime > 3) {
+        state.currentTime = 0;
+        state.seekTarget = 0;
+        return;
+      }
+
+      let prevIndex = state.currentIndex - 1;
+
+      if (prevIndex < 0) {
+        if (state.repeat === 'all') {
+          prevIndex = state.playlist.length - 1; // 跳到最後一首
+        } else {
+          prevIndex = 0; // 停在第一首
+        }
+      }
+
+      state.currentIndex = prevIndex;
+      state.currentTrack = state.playlist[prevIndex];
+      state.currentTime = 0;
+      state.isPlaying = true; // 自動播放
+    },
   },
 });
 
@@ -91,6 +158,9 @@ export const {
   setDisplayMode,
   seekTo,
   clearSeekTarget,
+  setPlaylist,
+  playNext,
+  playPrevious,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;

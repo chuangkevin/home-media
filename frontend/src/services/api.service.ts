@@ -35,6 +35,34 @@ class ApiService {
     const backendUrl = 'http://localhost:3001';
     return `${backendUrl}/api/stream/${videoId}?quality=${quality}`;
   }
+
+  /**
+   * 預加載音訊 URL（觸發後端緩存，立即返回）
+   */
+  async preloadAudio(videoId: string): Promise<void> {
+    try {
+      const backendUrl = 'http://localhost:3001';
+      await axios.post(`${backendUrl}/api/preload/${videoId}`, {}, { timeout: 30000 });
+    } catch (error) {
+      // 忽略預加載錯誤，不影響主流程
+      console.warn(`Preload failed for ${videoId}:`, error);
+    }
+  }
+
+  /**
+   * 預加載音訊 URL（等待完成，用於第一首）
+   */
+  async preloadAudioWait(videoId: string): Promise<void> {
+    const backendUrl = 'http://localhost:3001';
+    await axios.post(`${backendUrl}/api/preload-wait/${videoId}`, {}, { timeout: 60000 });
+  }
+
+  /**
+   * 批量預加載音訊
+   */
+  async preloadMultiple(videoIds: string[]): Promise<void> {
+    await Promise.all(videoIds.map(id => this.preloadAudio(id)));
+  }
 }
 
 export default new ApiService();

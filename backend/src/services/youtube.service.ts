@@ -4,18 +4,28 @@ import youtubedl from 'youtube-dl-exec';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
 
+interface CachedUrl {
+  url: string;
+  timestamp: number;
+}
+
 class YouTubeService {
+  private urlCache: Map<string, CachedUrl> = new Map();
+  private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
   /**
-   * 搜尋 YouTube 影片（使用爬蟲，無需 API Key）
+   * 搜尋 YouTube 影片（使用 youtube-sr 爬蟲）
    */
   async search(query: string, limit: number = 20): Promise<YouTubeSearchResult[]> {
     try {
+      console.log(`🔍 搜尋: ${query}`);
       logger.info(`Searching YouTube for: ${query}`);
 
+      const startTime = Date.now();
       const results = await YouTube.search(query, {
         limit,
         type: 'video',
       });
+      const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
       const tracks: YouTubeSearchResult[] = results.map((video) => ({
         id: video.id || '',
@@ -28,11 +38,41 @@ class YouTubeService {
         uploadedAt: video.uploadedAt,
       }));
 
-      logger.info(`Found ${tracks.length} results for: ${query}`);
+      console.log(`✅ 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
+      logger.info(`Found ${tracks.length} results for: ${query} in ${searchTime}s`);
       return tracks;
     } catch (error) {
+      console.error(`❌ 搜尋失敗:`, error);
       logger.error('YouTube search error:', error);
       throw new Error(`Failed to search YouTube: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * 解析時長字串為秒數
+   */
+  private parseDuration(duration: string | number | null): number {
+    if (!duration) return 0;
+
+    if (typeof duration === 'number') {
+      if (duration > 10000) {
+        return Math.floor(duration / 1000);
+      }
+      return duration;
+    }
+
+    try {
+      const parts = duration.toString().split(':').reverse();
+      let seconds = 0;
+
+      parts.forEach((part, index) => {
+        seconds += parseInt(part, 10) * Math.pow(60, index);
+      });
+
+      return seconds;
+    } catch (error) {
+      logger.warn(`Failed to parse duration: ${duration}`);
+      return 0;
     }
   }
 
@@ -65,12 +105,25 @@ class YouTubeService {
   }
 
   /**
-   * 獲取音訊串流（用於播放）- 使用 yt-dlp
+   * 獲取音訊串流（用於播放）- 使用 yt-dlp + 緩存
    */
   async getAudioStreamUrl(videoId: string): Promise<string> {
     try {
-      logger.info(`Getting audio URL via yt-dlp for: ${videoId}`);
+      // 檢查緩存
+      const cached = this.urlCache.get(videoId);
+      const now = Date.now();
 
+      if (cached && (now - cached.timestamp) < this.URL_CACHE_TTL) {
+        const ageMinutes = Math.floor((now - cached.timestamp) / 1000 / 60);
+        console.log(`✅ 使用緩存 URL: ${videoId} (快取時間: ${ageMinutes}分鐘)`);
+        logger.info(`Using cached audio URL for: ${videoId} (age: ${ageMinutes}min)`);
+        return cached.url;
+      }
+
+      console.log(`⏳ 首次播放，正在獲取 URL: ${videoId} (這需要幾秒鐘...)`);
+      logger.info(`Fetching fresh audio URL via yt-dlp for: ${videoId}`);
+
+      const startTime = Date.now();
       const result: any = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
         dumpSingleJson: true,
         noCheckCertificates: true,
@@ -79,6 +132,7 @@ class YouTubeService {
         addHeader: ['referer:youtube.com', 'user-agent:Mozilla/5.0'],
         format: 'bestaudio',
       });
+      const fetchTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
       // 從結果中獲取音訊 URL
       const audioUrl = result?.url || result?.formats?.find((f: any) => f.acodec !== 'none')?.url;
@@ -87,12 +141,51 @@ class YouTubeService {
         throw new Error('No audio URL found');
       }
 
-      logger.info(`Successfully got audio URL for ${videoId}`);
+      // 緩存 URL
+      this.urlCache.set(videoId, {
+        url: audioUrl,
+        timestamp: now,
+      });
+
+      console.log(`✅ URL 獲取成功並已緩存: ${videoId} (耗時: ${fetchTime}秒, 緩存數: ${this.urlCache.size})`);
+      logger.info(`Successfully got and cached audio URL for ${videoId} (took ${fetchTime}s, cache size: ${this.urlCache.size})`);
+
+      // 清理過期緩存
+      this.cleanExpiredCache();
+
       return audioUrl;
     } catch (error) {
+      console.error(`❌ 獲取 URL 失敗: ${videoId}`, error);
       logger.error(`yt-dlp failed for ${videoId}:`, error);
       throw new Error(`Failed to get audio URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /**
+   * 清理過期的 URL 緩存
+   */
+  private cleanExpiredCache(): void {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [videoId, cached] of this.urlCache.entries()) {
+      if (now - cached.timestamp >= this.URL_CACHE_TTL) {
+        this.urlCache.delete(videoId);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      logger.info(`Cleaned ${cleaned} expired URLs from cache (remaining: ${this.urlCache.size})`);
+    }
+  }
+
+  /**
+   * 清空所有緩存
+   */
+  clearCache(): void {
+    this.urlCache.clear();
+    logger.info('Cleared all URL cache');
   }
 
   /**
@@ -149,38 +242,6 @@ class YouTubeService {
       return ytdl.getVideoID(url);
     } catch (error) {
       return null;
-    }
-  }
-
-  /**
-   * 解析時長字串為秒數
-   * 例如: "3:45" -> 225, "1:02:30" -> 3750, 254320 (毫秒) -> 254
-   */
-  private parseDuration(duration: string | number | null): number {
-    if (!duration) return 0;
-
-    // 如果是數字
-    if (typeof duration === 'number') {
-      // youtube-sr 返回毫秒，如果數字很大（>10000），當作毫秒處理
-      if (duration > 10000) {
-        return Math.floor(duration / 1000);
-      }
-      return duration;
-    }
-
-    // 如果是字串，解析時間格式 (MM:SS 或 HH:MM:SS)
-    try {
-      const parts = duration.toString().split(':').reverse();
-      let seconds = 0;
-
-      parts.forEach((part, index) => {
-        seconds += parseInt(part, 10) * Math.pow(60, index);
-      });
-
-      return seconds;
-    } catch (error) {
-      logger.warn(`Failed to parse duration: ${duration}`);
-      return 0;
     }
   }
 

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Box } from '@mui/material';
 import type { Track } from '../../types/track.types';
-import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget } from '../../store/playerSlice';
+import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext } from '../../store/playerSlice';
 import { RootState } from '../../store';
 
 interface VideoPlayerProps {
@@ -51,8 +51,11 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
               dispatch(setDuration(event.target.getDuration()));
             },
             onStateChange: (event: any) => {
-              // 1 = playing, 2 = paused
-              if (event.data === 1) {
+              // 0 = ended, 1 = playing, 2 = paused
+              if (event.data === 0) {
+                // 播放結束，自動播放下一首
+                dispatch(playNext());
+              } else if (event.data === 1) {
                 dispatch(setIsPlaying(true));
               } else if (event.data === 2) {
                 dispatch(setIsPlaying(false));

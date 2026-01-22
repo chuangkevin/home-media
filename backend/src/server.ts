@@ -1,3 +1,6 @@
+// 在所有 import 之前設定 SSL 繞過（用於 yt-dlp 和 YouTube 爬蟲）
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 import express from 'express';
 import { Server } from 'socket.io';
 import http from 'http';
@@ -125,3 +128,4 @@ process.on('SIGTERM', () => {
 startServer();
 
 export { app, io };
+

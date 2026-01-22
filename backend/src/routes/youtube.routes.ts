@@ -12,4 +12,10 @@ router.get('/video/:videoId', (req, res) => youtubeController.getVideoInfo(req, 
 // 串流音訊
 router.get('/stream/:videoId', (req, res) => youtubeController.streamAudio(req, res));
 
+// 預加載音訊（觸發緩存，立即返回）
+router.post('/preload/:videoId', (req, res) => youtubeController.preloadAudio(req, res));
+
+// 預加載音訊（等待完成，用於第一首）
+router.post('/preload-wait/:videoId', (req, res) => youtubeController.preloadAudioWait(req, res));
+
 export default router;

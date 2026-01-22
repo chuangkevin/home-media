@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
@@ -15,9 +15,10 @@ import DisplayModeToggle from './components/Player/DisplayModeToggle';
 import VideoPlayer from './components/Player/VideoPlayer';
 import LyricsView from './components/Player/LyricsView';
 import VisualizerView from './components/Player/VisualizerView';
-import { setCurrentTrack, setIsPlaying, addToQueue } from './store/playerSlice';
+import { setCurrentTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
 import { RootState } from './store';
 import apiService from './services/api.service';
+import audioCacheService from './services/audio-cache.service';
 import type { Track } from './types/track.types';
 
 function App() {
@@ -30,6 +31,18 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
+  // 初始化音訊快取服務
+  useEffect(() => {
+    audioCacheService.init().then(() => {
+      // 顯示快取統計
+      audioCacheService.getStats().then(stats => {
+        console.log(`📊 Audio Cache: ${stats.count} files, ${stats.totalSizeMB}MB`);
+      });
+    }).catch(err => {
+      console.error('Failed to initialize audio cache:', err);
+    });
+  }, []);
+
   const handleSearch = async (query: string) => {
     setLoading(true);
     setError(null);
@@ -37,10 +50,37 @@ function App() {
 
     try {
       const results = await apiService.searchTracks(query, 20);
+
+      // 設置播放列表
+      dispatch(setPlaylist(results));
+
+      // 前端快取預加載：背景預加載前 3 首歌曲
+      if (results.length > 0) {
+        console.log(`🔄 預加載前 ${Math.min(3, results.length)} 首歌曲...`);
+
+        results.slice(0, 3).forEach(async (track, index) => {
+          const streamUrl = apiService.getStreamUrl(track.videoId);
+
+          // 檢查是否已快取
+          const cached = await audioCacheService.get(track.videoId);
+          if (cached) {
+            console.log(`✅ 第 ${index + 1} 首已在快取中: ${track.title}`);
+          } else {
+            // 背景預載
+            audioCacheService.preload(track.videoId, streamUrl).then(() => {
+              console.log(`✅ 第 ${index + 1} 首預載完成: ${track.title}`);
+            }).catch(err => {
+              console.warn(`⚠️ 第 ${index + 1} 首預載失敗: ${track.title}`, err);
+            });
+          }
+        });
+      }
+
       setSearchResults(results);
     } catch (err) {
       setError(err instanceof Error ? err.message : '搜尋失敗，請稍後再試');
       setSearchResults([]);
+      dispatch(setPlaylist([]));
     } finally {
       setLoading(false);
     }
@@ -56,7 +96,7 @@ function App() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', pb: 12 }}>
+    <Box sx={{ minHeight: '100vh', pb: 20 }}>
       <Container maxWidth="lg" sx={{ py: 4 }}>
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>

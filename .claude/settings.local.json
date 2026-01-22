@@ -13,7 +13,12 @@
       "Bash(npm install:*)",
       "Bash(npm update:*)",
       "Bash(netstat:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(git rm:*)",
+      "Bash(taskkill:*)",
+      "Bash(while read pid)",
+      "Bash(do taskkill //F //PID $pid)",
+      "Bash(done)"
     ]
   }
 }
