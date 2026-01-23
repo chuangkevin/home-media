@@ -5,6 +5,8 @@ export type DisplayMode = 'video' | 'lyrics' | 'visualizer';
 
 interface PlayerState {
   currentTrack: Track | null;
+  pendingTrack: Track | null; // 等待載入的曲目（UI 不切換直到載入完成）
+  isLoadingTrack: boolean; // 是否正在載入新曲目
   isPlaying: boolean;
   currentTime: number;
   duration: number;
@@ -20,6 +22,8 @@ interface PlayerState {
 
 const initialState: PlayerState = {
   currentTrack: null,
+  pendingTrack: null,
+  isLoadingTrack: false,
   isPlaying: false,
   currentTime: 0,
   duration: 0,
@@ -48,6 +52,38 @@ const playerSlice = createSlice({
           state.currentIndex = index;
         }
       }
+    },
+    // 設置等待載入的曲目（不立即切換 UI）
+    setPendingTrack(state, action: PayloadAction<Track | null>) {
+      state.pendingTrack = action.payload;
+      if (action.payload) {
+        state.isLoadingTrack = true;
+      }
+    },
+    setIsLoadingTrack(state, action: PayloadAction<boolean>) {
+      state.isLoadingTrack = action.payload;
+    },
+    // 確認切換到 pending 曲目（載入完成後調用）
+    confirmPendingTrack(state) {
+      if (state.pendingTrack) {
+        state.currentTrack = state.pendingTrack;
+        state.currentTime = 0;
+        state.pendingTrack = null;
+        state.isLoadingTrack = false;
+
+        // 更新當前索引
+        if (state.playlist.length > 0) {
+          const index = state.playlist.findIndex(t => t.id === state.currentTrack!.id);
+          if (index !== -1) {
+            state.currentIndex = index;
+          }
+        }
+      }
+    },
+    // 取消等待載入
+    cancelPendingTrack(state) {
+      state.pendingTrack = null;
+      state.isLoadingTrack = false;
     },
     setIsPlaying(state, action: PayloadAction<boolean>) {
       state.isPlaying = action.payload;
@@ -111,10 +147,10 @@ const playerSlice = createSlice({
         }
       }
 
-      state.currentIndex = nextIndex;
-      state.currentTrack = state.playlist[nextIndex];
-      state.currentTime = 0;
-      state.isPlaying = true; // 自動播放下一首
+      // 設置為 pending，等待載入完成後再切換
+      state.pendingTrack = state.playlist[nextIndex];
+      state.isLoadingTrack = true;
+      state.isPlaying = true; // 標記要播放
     },
     playPrevious(state) {
       if (state.playlist.length === 0) return;
@@ -136,16 +172,20 @@ const playerSlice = createSlice({
         }
       }
 
-      state.currentIndex = prevIndex;
-      state.currentTrack = state.playlist[prevIndex];
-      state.currentTime = 0;
-      state.isPlaying = true; // 自動播放
+      // 設置為 pending，等待載入完成後再切換
+      state.pendingTrack = state.playlist[prevIndex];
+      state.isLoadingTrack = true;
+      state.isPlaying = true; // 標記要播放
     },
   },
 });
 
 export const {
   setCurrentTrack,
+  setPendingTrack,
+  setIsLoadingTrack,
+  confirmPendingTrack,
+  cancelPendingTrack,
   setIsPlaying,
   setCurrentTime,
   setDuration,

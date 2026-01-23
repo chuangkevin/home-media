@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Track, SearchResponse } from '../types/track.types';
+import type { Lyrics } from '../types/lyrics.types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -62,6 +63,27 @@ class ApiService {
    */
   async preloadMultiple(videoIds: string[]): Promise<void> {
     await Promise.all(videoIds.map(id => this.preloadAudio(id)));
+  }
+
+  // ==================== 歌詞 ====================
+
+  /**
+   * 獲取歌詞
+   */
+  async getLyrics(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
+    try {
+      const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/${videoId}`, {
+        params: { title, artist },
+        timeout: 45000, // 歌詞獲取需要較長時間（yt-dlp 獲取字幕）
+      });
+      return response.data.lyrics;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        // 找不到歌詞，返回 null
+        return null;
+      }
+      throw error;
+    }
   }
 
   // ==================== 歷史記錄 ====================

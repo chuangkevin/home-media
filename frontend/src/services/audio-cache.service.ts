@@ -17,8 +17,9 @@ class AudioCacheService {
   private db: IDBDatabase | null = null;
 
   // 快取設置
-  private readonly MAX_CACHE_SIZE = 500 * 1024 * 1024; // 500MB 最大快取
-  private readonly CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 天快取期限
+  private readonly MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB 最大快取
+  private readonly MAX_ENTRIES = 200; // 最多儲存 200 首歌曲
+  private readonly CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 天快取期限
   private readonly PRELOAD_ENABLED = true;
 
   /**
@@ -187,34 +188,51 @@ class AudioCacheService {
   }
 
   /**
-   * 強制執行快取大小限制
+   * 強制執行快取限制（數量和大小）
    * 如果超過限制，刪除最舊的項目
    */
   private async enforceLimit(newSize: number): Promise<void> {
-    const totalSize = await this.getTotalSize();
+    const all = await this.getAll();
+    const totalSize = all.reduce((total, item) => total + item.size, 0);
+    const entryCount = all.length;
 
-    if (totalSize + newSize <= this.MAX_CACHE_SIZE) {
+    // 檢查是否需要清理（數量超過 200 或空間超過 2GB）
+    const needsSizeCleanup = totalSize + newSize > this.MAX_CACHE_SIZE;
+    const needsCountCleanup = entryCount >= this.MAX_ENTRIES;
+
+    if (!needsSizeCleanup && !needsCountCleanup) {
       return;
     }
 
-    console.log(`⚠️ Cache size limit exceeded, cleaning old entries...`);
+    console.log(`⚠️ Cache limit exceeded (${entryCount} entries, ${(totalSize / 1024 / 1024).toFixed(2)}MB), cleaning old entries...`);
 
-    // 獲取所有項目，按時間排序
-    const all = await this.getAll();
+    // 按時間排序（最舊的在前）
     all.sort((a, b) => a.timestamp - b.timestamp);
 
     let freedSize = 0;
-    let i = 0;
+    let deletedCount = 0;
 
-    // 刪除最舊的項目直到有足夠空間
-    while (freedSize < newSize && i < all.length) {
-      await this.delete(all[i].videoId);
-      freedSize += all[i].size;
-      i++;
+    // 刪除最舊的項目直到符合限制
+    for (const item of all) {
+      // 計算刪除後的狀態
+      const remainingCount = entryCount - deletedCount - 1;
+      const remainingSize = totalSize - freedSize - item.size;
+
+      // 檢查是否已經符合限制
+      const sizeOk = remainingSize + newSize <= this.MAX_CACHE_SIZE;
+      const countOk = remainingCount < this.MAX_ENTRIES;
+
+      if (sizeOk && countOk) {
+        break;
+      }
+
+      await this.delete(item.videoId);
+      freedSize += item.size;
+      deletedCount++;
     }
 
     const freedMB = (freedSize / 1024 / 1024).toFixed(2);
-    console.log(`✅ Freed ${freedMB}MB by removing ${i} old entries`);
+    console.log(`✅ Freed ${freedMB}MB by removing ${deletedCount} old entries`);
   }
 
   /**
@@ -244,14 +262,22 @@ class AudioCacheService {
   /**
    * 獲取快取統計資訊
    */
-  async getStats(): Promise<{ count: number; totalSize: number; totalSizeMB: string }> {
+  async getStats(): Promise<{
+    count: number;
+    maxCount: number;
+    totalSize: number;
+    totalSizeMB: string;
+    maxSizeMB: string;
+  }> {
     const all = await this.getAll();
     const totalSize = all.reduce((total, item) => total + item.size, 0);
 
     return {
       count: all.length,
+      maxCount: this.MAX_ENTRIES,
       totalSize,
       totalSizeMB: (totalSize / 1024 / 1024).toFixed(2),
+      maxSizeMB: (this.MAX_CACHE_SIZE / 1024 / 1024).toFixed(0),
     };
   }
 

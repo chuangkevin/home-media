@@ -1,5 +1,4 @@
 import ytdl from '@distube/ytdl-core';
-import YouTube from 'youtube-sr';
 import youtubedl from 'youtube-dl-exec';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
@@ -13,7 +12,7 @@ class YouTubeService {
   private urlCache: Map<string, CachedUrl> = new Map();
   private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
   /**
-   * 搜尋 YouTube 影片（使用 youtube-sr 爬蟲）
+   * 搜尋 YouTube 影片（使用 yt-dlp，支援中文標題）
    */
   async search(query: string, limit: number = 20): Promise<YouTubeSearchResult[]> {
     try {
@@ -21,21 +20,42 @@ class YouTubeService {
       logger.info(`Searching YouTube for: ${query}`);
 
       const startTime = Date.now();
-      const results = await YouTube.search(query, {
-        limit,
-        type: 'video',
-      });
+
+      // 使用 yt-dlp 搜尋，指定台灣地區以獲取中文標題
+      const result: any = await youtubedl(`ytsearch${limit}:${query}`, {
+        dumpSingleJson: true,
+        flatPlaylist: true,
+        noCheckCertificates: true,
+        noWarnings: true,
+        geoBypassCountry: 'TW', // 台灣地區
+        addHeader: [
+          'Accept-Language:zh-TW,zh;q=0.9',
+          'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        ],
+        extractorArgs: 'youtube:lang=zh-TW', // 強制使用繁體中文
+      } as any);
+
       const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
-      const tracks: YouTubeSearchResult[] = results.map((video) => ({
+      // yt-dlp 返回的是一個包含 entries 的物件
+      const entries = result?.entries || [];
+
+      // 過濾掉非影片結果（頻道 ID 以 UC 開頭，影片 ID 為 11 字元）
+      const videoEntries = entries.filter((video: any) => {
+        const id = video.id || '';
+        // 影片 ID 為 11 字元，且不以 UC 開頭（頻道）
+        return id.length === 11 && !id.startsWith('UC');
+      });
+
+      const tracks: YouTubeSearchResult[] = videoEntries.map((video: any) => ({
         id: video.id || '',
         videoId: video.id || '',
         title: video.title || 'Unknown Title',
-        channel: video.channel?.name || 'Unknown Channel',
-        duration: this.parseDuration(video.duration),
-        thumbnail: video.thumbnail?.url || '',
-        views: video.views,
-        uploadedAt: video.uploadedAt,
+        channel: video.channel || video.uploader || 'Unknown Channel',
+        duration: video.duration || 0,
+        thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
+        views: video.view_count,
+        uploadedAt: video.upload_date,
       }));
 
       console.log(`✅ 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
@@ -45,34 +65,6 @@ class YouTubeService {
       console.error(`❌ 搜尋失敗:`, error);
       logger.error('YouTube search error:', error);
       throw new Error(`Failed to search YouTube: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  /**
-   * 解析時長字串為秒數
-   */
-  private parseDuration(duration: string | number | null): number {
-    if (!duration) return 0;
-
-    if (typeof duration === 'number') {
-      if (duration > 10000) {
-        return Math.floor(duration / 1000);
-      }
-      return duration;
-    }
-
-    try {
-      const parts = duration.toString().split(':').reverse();
-      let seconds = 0;
-
-      parts.forEach((part, index) => {
-        seconds += parseInt(part, 10) * Math.pow(60, index);
-      });
-
-      return seconds;
-    } catch (error) {
-      logger.warn(`Failed to parse duration: ${duration}`);
-      return 0;
     }
   }
 
@@ -287,25 +279,41 @@ class YouTubeService {
 
       console.log(`⏳ 獲取頻道影片: ${channelName} (需要搜尋...)`);
 
-      // 2. 使用 youtube-sr 搜尋 + 過濾
-      const results = await YouTube.search(channelName, {
-        limit: limit * 3, // 多取一些以便過濾
-        type: 'video',
-      });
+      // 2. 使用 yt-dlp 搜尋 + 過濾
+      const result: any = await youtubedl(`ytsearch${limit * 3}:${channelName}`, {
+        dumpSingleJson: true,
+        flatPlaylist: true,
+        noCheckCertificates: true,
+        noWarnings: true,
+        geoBypassCountry: 'TW',
+        addHeader: [
+          'Accept-Language:zh-TW,zh;q=0.9',
+          'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        ],
+        extractorArgs: 'youtube:lang=zh-TW', // 強制使用繁體中文
+      } as any);
 
-      // 3. 過濾出該頻道的影片
-      const channelVideos = results
-        .filter(video => video.channel?.name === channelName)
+      const entries = result?.entries || [];
+
+      // 3. 過濾出該頻道的影片（排除頻道和播放清單）
+      const channelVideos = entries
+        .filter((video: any) => {
+          const id = video.id || '';
+          // 影片 ID 為 11 字元，且不以 UC 開頭（頻道）
+          const isVideo = id.length === 11 && !id.startsWith('UC');
+          const isFromChannel = (video.channel || video.uploader) === channelName;
+          return isVideo && isFromChannel;
+        })
         .slice(0, limit)
-        .map(video => ({
+        .map((video: any) => ({
           id: video.id || '',
           videoId: video.id || '',
           title: video.title || 'Unknown Title',
           channel: channelName,
-          duration: this.parseDuration(video.duration),
-          thumbnail: video.thumbnail?.url || '',
-          views: video.views,
-          uploadedAt: video.uploadedAt,
+          duration: video.duration || 0,
+          thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
+          views: video.view_count,
+          uploadedAt: video.upload_date,
         }));
 
       // 4. 快取結果

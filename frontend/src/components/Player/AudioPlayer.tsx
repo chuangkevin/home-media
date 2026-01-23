@@ -3,17 +3,20 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Box, Card, CardContent, Typography, CardMedia, CircularProgress } from '@mui/material';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
-import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext } from '../../store/playerSlice';
+import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, confirmPendingTrack, cancelPendingTrack } from '../../store/playerSlice';
+import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
+import lyricsCacheService from '../../services/lyrics-cache.service';
 
 export default function AudioPlayer() {
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { currentTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
+  const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const [isLoading, setIsLoading] = useState(false);
   const currentVideoIdRef = useRef<string | null>(null);
   const currentBlobUrlRef = useRef<string | null>(null);
+  const pendingBlobUrlRef = useRef<string | null>(null);
   const isPlayingRef = useRef(isPlaying);
 
   // 保持 isPlayingRef 同步
@@ -21,76 +24,79 @@ export default function AudioPlayer() {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
-  // 當曲目改變時，使用快取優先策略載入音訊
+  // 當有 pendingTrack 時，預載音訊（不切換 UI）
   useEffect(() => {
-    if (!currentTrack || !audioRef.current) return;
+    if (!pendingTrack || !audioRef.current) return;
 
-    const audio = audioRef.current;
-    const videoId = currentTrack.videoId;
+    const videoId = pendingTrack.videoId;
 
-    console.log(`🔄 Track changed: ${currentTrack.title} (${videoId}), isPlaying: ${isPlaying}`);
-
-    // 如果已經在播放相同的曲目，不重新載入
-    if (currentVideoIdRef.current === videoId) {
-      console.log(`⏭️ Same track, skipping reload: ${currentTrack.title}`);
+    // 如果 pending 和 current 相同，直接確認
+    if (currentTrack && currentVideoIdRef.current === videoId) {
+      console.log(`⏭️ Same track, confirming: ${pendingTrack.title}`);
+      dispatch(confirmPendingTrack());
       return;
     }
 
-    const loadAudio = async () => {
-      setIsLoading(true);
-      console.log(`📥 Starting to load: ${currentTrack.title}`);
+    console.log(`🔄 Pending track: ${pendingTrack.title} (${videoId}), preparing...`);
+    setIsLoading(true);
 
-      // 保存舊的 blob URL，稍後釋放
-      const oldBlobUrl = currentBlobUrlRef.current;
-
+    const loadPendingAudio = async () => {
       try {
-
-        // 優先使用快取
+        // 優先檢查快取
         const cached = await audioCacheService.get(videoId);
 
         let blobUrl: string;
 
         if (cached) {
-          // 使用快取的音訊
           blobUrl = URL.createObjectURL(cached);
-          console.log(`🎵 Playing from cache: ${currentTrack.title}`);
+          console.log(`🎵 Pending track cached: ${pendingTrack.title}`);
         } else {
           // 從後端下載並快取
-          console.log(`⏬ Downloading: ${currentTrack.title}`);
+          console.log(`⏬ Downloading pending: ${pendingTrack.title}`);
           const streamUrl = apiService.getStreamUrl(videoId);
           blobUrl = await audioCacheService.fetchAndCache(videoId, streamUrl);
         }
 
-        // 設置音訊源
+        // 儲存 pending blob URL
+        pendingBlobUrlRef.current = blobUrl;
+
+        // 音訊準備好了，現在確認切換
+        console.log(`✅ Pending track ready: ${pendingTrack.title}`);
+
+        // 保存舊的 blob URL，稍後釋放
+        const oldBlobUrl = currentBlobUrlRef.current;
+        const audio = audioRef.current!;
+
+        // 設置新音訊源
         audio.src = blobUrl;
         currentVideoIdRef.current = videoId;
         currentBlobUrlRef.current = blobUrl;
+        pendingBlobUrlRef.current = null;
 
-        console.log(`✅ Loaded new track: ${currentTrack.title} (${videoId})`);
-
-        // 等待音訊準備好
+        // 等待音訊準備好再確認切換
         const handleCanPlay = () => {
           const shouldPlay = isPlayingRef.current;
-          console.log(`🎵 Audio ready to play: ${currentTrack.title}, isPlaying: ${shouldPlay}`);
+          console.log(`🎵 Audio ready: ${pendingTrack.title}, isPlaying: ${shouldPlay}`);
           setIsLoading(false);
 
-          // 現在可以安全地釋放舊的 blob URL
+          // 確認切換（UI 現在更新）
+          dispatch(confirmPendingTrack());
+
+          // 釋放舊的 blob URL
           if (oldBlobUrl && oldBlobUrl !== blobUrl) {
             setTimeout(() => {
-              console.log(`🗑️ Revoking old blob URL after new track loaded`);
+              console.log(`🗑️ Revoking old blob URL`);
               URL.revokeObjectURL(oldBlobUrl);
-            }, 1000); // 延遲 1 秒確保舊的音訊不再被使用
+            }, 1000);
           }
 
-          // 自動播放新曲目
+          // 自動播放
           if (shouldPlay) {
-            console.log(`▶️ Auto-playing: ${currentTrack.title}`);
+            console.log(`▶️ Auto-playing: ${pendingTrack.title}`);
             audio.play().catch((error) => {
               console.error('Failed to auto-play:', error);
               dispatch(setIsPlaying(false));
             });
-          } else {
-            console.log(`⏸️ Not auto-playing (isPlaying: false)`);
           }
         };
 
@@ -102,26 +108,66 @@ export default function AudioPlayer() {
         audio.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
 
         audio.load();
+
+        // 並行獲取歌詞（先查本地快取，再查後端）
+        dispatch(setLyricsLoading(true));
+        (async () => {
+          try {
+            // 先檢查本地快取
+            const cachedLyrics = await lyricsCacheService.get(videoId);
+            if (cachedLyrics) {
+              console.log(`📝 歌詞從本地快取載入: ${pendingTrack.title} (來源: ${cachedLyrics.source})`);
+              dispatch(setCurrentLyrics(cachedLyrics));
+              dispatch(setLyricsLoading(false));
+              return;
+            }
+
+            // 從後端獲取
+            const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
+            if (lyrics) {
+              console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
+              dispatch(setCurrentLyrics(lyrics));
+              // 儲存到本地快取
+              lyricsCacheService.set(videoId, lyrics).catch(err => {
+                console.warn('Failed to cache lyrics:', err);
+              });
+            } else {
+              console.log(`⚠️ 找不到歌詞: ${pendingTrack.title}`);
+              dispatch(setLyricsError('找不到歌詞'));
+            }
+          } catch (error) {
+            console.error('獲取歌詞失敗:', error);
+            dispatch(setLyricsError('獲取歌詞失敗'));
+          } finally {
+            dispatch(setLyricsLoading(false));
+          }
+        })();
+
       } catch (error) {
-        console.error('Failed to load audio:', error);
+        console.error('Failed to load pending audio:', error);
         setIsLoading(false);
+        dispatch(cancelPendingTrack());
         dispatch(setIsPlaying(false));
       }
     };
 
-    loadAudio();
+    loadPendingAudio();
 
     // 清理函數
     return () => {
-      // 注意：不要在這裡釋放 blob URL，因為音訊可能還在播放
+      // 如果有未使用的 pending blob URL，釋放它
+      if (pendingBlobUrlRef.current) {
+        URL.revokeObjectURL(pendingBlobUrlRef.current);
+        pendingBlobUrlRef.current = null;
+      }
     };
-  }, [currentTrack, dispatch]);
+  }, [pendingTrack, dispatch]);
 
   // 當播放狀態改變時（影片模式下不播放音訊）
   useEffect(() => {
     if (audioRef.current && displayMode !== 'video') {
       const audio = audioRef.current;
-      if (isPlaying) {
+      if (isPlaying && !isLoadingTrack) {
         // 如果音訊已經準備好，直接播放
         if (audio.readyState >= 2) {
           audio.play().catch((error) => {
@@ -138,14 +184,14 @@ export default function AudioPlayer() {
           };
           audio.addEventListener('canplay', playWhenReady, { once: true });
         }
-      } else {
+      } else if (!isPlaying) {
         audio.pause();
       }
     } else if (audioRef.current && displayMode === 'video') {
       // 在影片模式下暫停音訊播放器
       audioRef.current.pause();
     }
-  }, [isPlaying, displayMode, dispatch]);
+  }, [isPlaying, isLoadingTrack, displayMode, dispatch]);
 
   // 當音量改變時
   useEffect(() => {
@@ -223,8 +269,17 @@ export default function AudioPlayer() {
     };
   }, [currentTrack, dispatch]);
 
-  if (!currentTrack) {
-    return null;
+  // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
+  // 以便 pendingTrack 可以使用它來載入音訊
+  if (!currentTrack && !pendingTrack) {
+    return <audio ref={audioRef} preload="auto" style={{ display: 'none' }} />;
+  }
+
+  // 有 pendingTrack 但沒有 currentTrack 時，顯示載入狀態
+  const displayTrack = currentTrack || pendingTrack;
+
+  if (!displayTrack) {
+    return <audio ref={audioRef} preload="auto" style={{ display: 'none' }} />;
   }
 
   return (
@@ -244,20 +299,20 @@ export default function AudioPlayer() {
           <CardMedia
             component="img"
             sx={{ width: 80, height: 80, borderRadius: 1 }}
-            image={currentTrack.thumbnail}
-            alt={currentTrack.title}
+            image={displayTrack.thumbnail}
+            alt={displayTrack.title}
           />
 
           {/* 曲目資訊與控制 */}
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, flexGrow: 1 }}>
-                {currentTrack.title}
+                {displayTrack.title}
               </Typography>
-              {isLoading && <CircularProgress size={16} />}
+              {(isLoading || isLoadingTrack) && <CircularProgress size={16} />}
             </Box>
             <Typography variant="body2" color="text.secondary" noWrap>
-              {currentTrack.channel}
+              {displayTrack.channel}
             </Typography>
 
             <PlayerControls />

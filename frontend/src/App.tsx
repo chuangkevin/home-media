@@ -6,7 +6,6 @@ import {
   Typography,
   Alert,
   CircularProgress,
-  Paper,
 } from '@mui/material';
 import SearchBar from './components/Search/SearchBar';
 import SearchResults from './components/Search/SearchResults';
@@ -16,7 +15,7 @@ import VideoPlayer from './components/Player/VideoPlayer';
 import LyricsView from './components/Player/LyricsView';
 import VisualizerView from './components/Player/VisualizerView';
 import HomeRecommendations from './components/Home/HomeRecommendations';
-import { setCurrentTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
+import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
 import { RootState } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
@@ -24,7 +23,7 @@ import type { Track } from './types/track.types';
 
 function App() {
   const dispatch = useDispatch();
-  const { currentTrack, isPlaying: playerIsPlaying, displayMode } = useSelector(
+  const { currentTrack, displayMode } = useSelector(
     (state: RootState) => state.player
   );
   const [searchResults, setSearchResults] = useState<Track[]>([]);
@@ -37,7 +36,7 @@ function App() {
     audioCacheService.init().then(() => {
       // 顯示快取統計
       audioCacheService.getStats().then(stats => {
-        console.log(`📊 Audio Cache: ${stats.count} files, ${stats.totalSizeMB}MB`);
+        console.log(`📊 Audio Cache: ${stats.count}/${stats.maxCount} files, ${stats.totalSizeMB}/${stats.maxSizeMB}MB`);
       });
     }).catch(err => {
       console.error('Failed to initialize audio cache:', err);
@@ -98,7 +97,7 @@ function App() {
       console.warn('Failed to record channel watch:', err);
     });
 
-    dispatch(setCurrentTrack(track));
+    dispatch(setPendingTrack(track)); // 使用 pending，等載入完成才切換 UI
     dispatch(setIsPlaying(true));
   };
 

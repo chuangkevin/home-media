@@ -4,14 +4,14 @@ import { Box, Typography, CircularProgress, Button } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { RootState, AppDispatch } from '../../store';
 import { fetchChannelRecommendations, loadMoreRecommendations, refreshRecommendations } from '../../store/recommendationSlice';
-import { setCurrentTrack, setIsPlaying, setQueue } from '../../store/playerSlice';
+import { setPendingTrack, setIsPlaying, setQueue, setPlaylist } from '../../store/playerSlice';
 import ChannelSection from './ChannelSection';
-import { Track } from '../../store/playerSlice';
+import type { Track } from '../../types/track.types';
 import apiService from '../../services/api.service';
 
 export default function HomeRecommendations() {
   const dispatch = useDispatch<AppDispatch>();
-  const { channelRecommendations, loading, hasMore, lastUpdated } = useSelector(
+  const { channelRecommendations, loading, hasMore } = useSelector(
     (state: RootState) => state.recommendation
   );
 
@@ -41,8 +41,9 @@ export default function HomeRecommendations() {
 
   const handlePlay = async (track: Track) => {
     await apiService.recordChannelWatch(track.channel, track.thumbnail);
-    dispatch(setCurrentTrack(track));
+    dispatch(setPlaylist([track]));
     dispatch(setQueue([track]));
+    dispatch(setPendingTrack(track)); // 使用 pending，等載入完成才切換 UI
     dispatch(setIsPlaying(true));
   };
 

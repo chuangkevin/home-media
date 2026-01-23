@@ -56,6 +56,7 @@ app.get('/health', (_req, res) => {
 import youtubeRoutes from './routes/youtube.routes';
 import historyRoutes from './routes/history.routes';
 import recommendationRoutes from './routes/recommendation.routes';
+import lyricsRoutes from './routes/lyrics.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -91,8 +92,10 @@ app.use('/api', historyRoutes);
 // Recommendation routes
 app.use('/api', recommendationRoutes);
 
+// Lyrics routes
+app.use('/api', lyricsRoutes);
+
 // TODO: 加入其他路由
-// app.use('/api/lyrics', lyricsRoutes);
 // app.use('/api/playlists', playlistRoutes);
 
 // Error handlers
@@ -147,3 +150,5 @@ startServer();
 
 export { app, io };
 
+
+// Force restart

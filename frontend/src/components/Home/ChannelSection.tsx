@@ -1,7 +1,7 @@
 import { Box, Typography, Avatar, Chip, Card, CardMedia, CardContent, IconButton } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { ChannelRecommendation } from '../../store/recommendationSlice';
-import { Track } from '../../store/playerSlice';
+import type { Track } from '../../types/track.types';
 
 interface ChannelSectionProps {
   channel: ChannelRecommendation;

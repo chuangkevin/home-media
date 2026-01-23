@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import type BetterSqlite3 from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import config from './environment';
@@ -10,7 +11,7 @@ if (!fs.existsSync(dbDir)) {
 }
 
 // 建立資料庫連接
-export const db = new Database(config.database.path, {
+export const db: BetterSqlite3.Database = new Database(config.database.path, {
   verbose: config.env === 'development' ? console.log : undefined,
 });
 

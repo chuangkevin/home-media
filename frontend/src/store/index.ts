@@ -2,14 +2,15 @@ import { configureStore } from '@reduxjs/toolkit';
 import playerReducer from './playerSlice';
 import historyReducer from './historySlice';
 import recommendationReducer from './recommendationSlice';
+import lyricsReducer from './lyricsSlice';
 
 export const store = configureStore({
   reducer: {
     player: playerReducer,
     history: historyReducer,
     recommendation: recommendationReducer,
+    lyrics: lyricsReducer,
     // TODO: 加入其他 slices
-    // lyrics: lyricsReducer,
     // playlist: playlistReducer,
     // theme: themeReducer,
   },

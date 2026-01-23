@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import apiService from '../services/api.service';
-import { Track } from './playerSlice';
+import type { Track } from '../types/track.types';
 
 export interface ChannelRecommendation {
   channelName: string;
