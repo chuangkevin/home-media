@@ -21,8 +21,11 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   const dispatch = useDispatch();
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { isPlaying, seekTarget } = useSelector((state: RootState) => state.player);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { isPlaying, seekTarget, currentTime } = useSelector((state: RootState) => state.player);
   const isSeekingRef = useRef(false);
+  // 記住切換到影片模式時的音訊播放位置
+  const initialTimeRef = useRef<number>(currentTime);
 
   // 載入 YouTube IFrame API
   useEffect(() => {
@@ -36,8 +39,12 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
 
   // 初始化 YouTube 播放器
   useEffect(() => {
+    let isMounted = true;
+
     const initPlayer = () => {
-      if (window.YT && window.YT.Player && containerRef.current) {
+      if (!isMounted || !containerRef.current) return;
+
+      if (window.YT && window.YT.Player) {
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId: track.videoId,
           playerVars: {
@@ -47,10 +54,17 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           },
           events: {
             onReady: (event: any) => {
-              event.target.playVideo();
+              if (!isMounted) return;
               dispatch(setDuration(event.target.getDuration()));
+              // 同步到切換前的音訊播放位置
+              if (initialTimeRef.current > 0) {
+                console.log(`🎬 影片同步到 ${initialTimeRef.current.toFixed(1)}s`);
+                event.target.seekTo(initialTimeRef.current, true);
+              }
+              event.target.playVideo();
             },
             onStateChange: (event: any) => {
+              if (!isMounted) return;
               // 0 = ended, 1 = playing, 2 = paused
               if (event.data === 0) {
                 // 播放結束，自動播放下一首
@@ -64,30 +78,41 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           },
         });
 
+        // 清除舊的 interval（如果有）
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+        }
+
         // 定期更新播放時間
-        const interval = setInterval(() => {
-          if (playerRef.current && playerRef.current.getCurrentTime) {
+        intervalRef.current = setInterval(() => {
+          if (playerRef.current && playerRef.current.getCurrentTime && isMounted) {
             const time = playerRef.current.getCurrentTime();
             if (!isSeekingRef.current) {
               dispatch(setCurrentTime(time));
             }
           }
-        }, 1000);
-
-        return () => {
-          clearInterval(interval);
-          if (playerRef.current && playerRef.current.destroy) {
-            playerRef.current.destroy();
-          }
-        };
+        }, 500); // 更頻繁更新以保持同步
       }
     };
 
     if (window.YT && window.YT.Player) {
-      return initPlayer();
+      initPlayer();
     } else {
       window.onYouTubeIframeAPIReady = initPlayer;
     }
+
+    // 清理函數
+    return () => {
+      isMounted = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      if (playerRef.current && playerRef.current.destroy) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
   }, [track.videoId, dispatch]);
 
   // 控制播放/暫停

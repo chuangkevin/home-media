@@ -9,6 +9,7 @@ import ChannelSection from './ChannelSection';
 import type { Track } from '../../types/track.types';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
+import lyricsCacheService from '../../services/lyrics-cache.service';
 
 export default function HomeRecommendations() {
   const dispatch = useDispatch<AppDispatch>();
@@ -25,25 +26,90 @@ export default function HomeRecommendations() {
     }
   }, [dispatch, channelRecommendations.length]);
 
-  // 檢查所有影片的快取狀態
+  // 檢查所有影片的快取狀態 + 自動預載未快取的音樂和歌詞
   useEffect(() => {
-    const checkCacheStatus = async () => {
-      const allVideoIds = channelRecommendations.flatMap(
-        (channel) => channel.videos.map((v) => v.videoId)
+    let isActive = true; // 用於取消預載
+
+    const checkAndPreload = async () => {
+      const allVideos = channelRecommendations.flatMap(
+        (channel) => channel.videos.map((v) => ({
+          videoId: v.videoId,
+          title: v.title,
+          channel: channel.channelName,
+        }))
       );
 
-      if (allVideoIds.length === 0) return;
+      if (allVideos.length === 0) return;
 
       try {
-        const statusMap = await audioCacheService.hasMany(allVideoIds);
-        setCacheStatus(statusMap);
-        console.log(`📊 快取狀態已更新: ${Array.from(statusMap.values()).filter(v => v).length}/${allVideoIds.length} 已快取`);
+        // 檢查音訊快取狀態
+        const allVideoIds = allVideos.map(v => v.videoId);
+        const audioStatusMap = await audioCacheService.hasMany(allVideoIds);
+        setCacheStatus(audioStatusMap);
+
+        const audioCachedCount = Array.from(audioStatusMap.values()).filter(v => v).length;
+        console.log(`📊 音訊快取狀態: ${audioCachedCount}/${allVideoIds.length} 已快取`);
+
+        // 檢查歌詞快取狀態
+        const lyricsStatusMap = await lyricsCacheService.hasMany(allVideoIds);
+        const lyricsCachedCount = Array.from(lyricsStatusMap.values()).filter(v => v).length;
+        console.log(`📝 歌詞快取狀態: ${lyricsCachedCount}/${allVideoIds.length} 已快取`);
+
+        // 找出未快取的音訊，逐個預載
+        const uncachedAudios = allVideos.filter(v => !audioStatusMap.get(v.videoId));
+
+        if (uncachedAudios.length > 0) {
+          console.log(`🔄 開始預載 ${uncachedAudios.length} 首未快取的音樂...`);
+
+          for (const video of uncachedAudios) {
+            if (!isActive) break;
+
+            const streamUrl = apiService.getStreamUrl(video.videoId);
+            try {
+              await audioCacheService.preload(video.videoId, streamUrl);
+              console.log(`✅ 音訊預載完成: ${video.title}`);
+            } catch (err) {
+              console.warn(`⚠️ 音訊預載失敗: ${video.title}`, err);
+            }
+          }
+
+          if (isActive) {
+            console.log(`🎉 所有推薦音樂預載完成！`);
+          }
+        }
+
+        // 找出未快取的歌詞，逐個預載
+        const uncachedLyrics = allVideos.filter(v => !lyricsStatusMap.get(v.videoId));
+
+        if (uncachedLyrics.length > 0 && isActive) {
+          console.log(`🔄 開始預載 ${uncachedLyrics.length} 首未快取的歌詞...`);
+
+          for (const video of uncachedLyrics) {
+            if (!isActive) break;
+
+            try {
+              const lyrics = await apiService.getLyrics(video.videoId, video.title, video.channel);
+              if (lyrics) {
+                await lyricsCacheService.set(video.videoId, lyrics);
+                console.log(`✅ 歌詞預載完成: ${video.title}`);
+              } else {
+                console.log(`⏭️ 無歌詞: ${video.title}`);
+              }
+            } catch (err) {
+              console.warn(`⚠️ 歌詞預載失敗: ${video.title}`, err);
+            }
+          }
+
+          if (isActive) {
+            console.log(`🎉 所有推薦歌詞預載完成！`);
+          }
+        }
       } catch (error) {
         console.error('檢查快取狀態失敗:', error);
       }
     };
 
-    checkCacheStatus();
+    checkAndPreload();
 
     // 監聽快取更新事件，即時更新顯示狀態
     const handleCacheUpdated = (event: CustomEvent<{ videoId: string }>) => {
@@ -53,11 +119,11 @@ export default function HomeRecommendations() {
         updated.set(videoId, true);
         return updated;
       });
-      console.log(`📊 快取狀態即時更新: ${videoId} -> 已快取`);
     };
 
     window.addEventListener('audio-cache-updated', handleCacheUpdated as EventListener);
     return () => {
+      isActive = false; // 取消預載
       window.removeEventListener('audio-cache-updated', handleCacheUpdated as EventListener);
     };
   }, [channelRecommendations]);
@@ -80,8 +146,32 @@ export default function HomeRecommendations() {
 
   const handlePlay = async (track: Track) => {
     await apiService.recordChannelWatch(track.channel, track.thumbnail);
-    dispatch(setPlaylist([track]));
-    dispatch(setQueue([track]));
+
+    // 找出該頻道的所有歌曲，設為 playlist（讓預載可以工作）
+    const channelData = channelRecommendations.find(ch =>
+      ch.videos.some(v => v.videoId === track.videoId)
+    );
+
+    if (channelData) {
+      // 將該頻道的所有歌曲轉換為 Track 格式
+      const channelTracks: Track[] = channelData.videos.map(v => ({
+        videoId: v.videoId,
+        title: v.title,
+        thumbnail: v.thumbnail,
+        channel: channelData.channelName,
+        duration: v.duration,
+      }));
+
+      // 找到當前歌曲在列表中的位置
+      const trackIndex = channelTracks.findIndex(t => t.videoId === track.videoId);
+
+      dispatch(setPlaylist(channelTracks));
+      dispatch(setQueue(channelTracks.slice(trackIndex)));
+    } else {
+      dispatch(setPlaylist([track]));
+      dispatch(setQueue([track]));
+    }
+
     dispatch(setPendingTrack(track)); // 使用 pending，等載入完成才切換 UI
     dispatch(setIsPlaying(true));
   };

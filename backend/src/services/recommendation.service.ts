@@ -100,22 +100,12 @@ class RecommendationService {
 
   /**
    * 計算頻道權重分數
-   * 混合時間衰減（60%）和觀看次數（40%）
+   * 純粹以最後觀看時間排序（最新的在前面）
    */
   private calculateChannelScore(channel: WatchedChannel): number {
-    const now = Date.now();
-    const daysSinceLastWatch = (now - channel.lastWatchedAt) / (24 * 60 * 60 * 1000);
-
-    // 時間衰減因子（7天半衰期）
-    const recencyScore = Math.exp(-daysSinceLastWatch / 7);
-
-    // 觀看次數對數化（避免極端值）
-    const popularityScore = Math.log(channel.watchCount + 1);
-
-    // 混合權重：60% 新鮮度 + 40% 流行度
-    const score = recencyScore * 0.6 + popularityScore * 0.4;
-
-    return score;
+    // 直接使用 lastWatchedAt 作為分數
+    // 時間戳越大（越新）分數越高，排序會放在前面
+    return channel.lastWatchedAt;
   }
 
   /**

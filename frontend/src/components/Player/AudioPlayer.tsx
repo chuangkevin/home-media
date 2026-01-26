@@ -271,15 +271,24 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
     }
 
     const handleTimeUpdate = () => {
-      dispatch(setCurrentTime(audio.currentTime));
+      // 影片模式時不更新時間（由 VideoPlayer 負責）
+      if (displayMode !== 'video') {
+        dispatch(setCurrentTime(audio.currentTime));
+      }
     };
 
     const handleDurationChange = () => {
-      dispatch(setDuration(audio.duration));
+      // 影片模式時不更新時長（由 VideoPlayer 負責）
+      if (displayMode !== 'video') {
+        dispatch(setDuration(audio.duration));
+      }
     };
 
     const handleEnded = () => {
-      dispatch(playNext());
+      // 影片模式時由 VideoPlayer 處理播放結束
+      if (displayMode !== 'video') {
+        dispatch(playNext());
+      }
     };
 
     const handleError = () => {
@@ -297,7 +306,7 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
     };
-  }, [currentTrack, dispatch]);
+  }, [currentTrack, displayMode, dispatch]);
 
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
