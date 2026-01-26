@@ -3,14 +3,12 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
+# Install all dependencies (including devDependencies for TypeScript)
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
-# Copy source
+# Copy source and build
 COPY . .
-
-# Build TypeScript
 RUN npm run build
 
 # Production stage
@@ -18,13 +16,15 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install ffmpeg for audio processing (ytdl-core dependency)
+# Install ffmpeg for audio processing (yt-dlp dependency)
 RUN apk add --no-cache ffmpeg python3 make g++
 
-# Copy from builder
-COPY --from=builder /app/node_modules ./node_modules
+# Copy package files and install production dependencies only
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy built files from builder
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
 
 # Create data directories
 RUN mkdir -p /app/data/cache /app/data/db /app/logs
