@@ -1,25 +1,27 @@
-version: '3.8'
+# Docker Compose for Raspberry Pi (arm64)
+# Usage: docker compose -f docker-compose.rpi.yml up -d
 
 services:
   backend:
+    image: kevin950805/home-media-backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+        - linux/arm64
     container_name: home-media-backend
     ports:
-      - "3001:3001"  # HTTP API
-      - "3002:3002"  # WebSocket (optional separate port)
-    volumes:
-      - ./data/cache:/app/data/cache
-      - ./data/db:/app/data/db
-      - ./backend/.env:/app/.env:ro
+      - "3123:3001"
     environment:
       - NODE_ENV=production
-      - PORT=3001
-      - WS_PORT=3002
       - DB_PATH=/app/data/db/home-media.sqlite
       - CACHE_DIR=/app/data/cache
-      - MAX_CACHE_TRACKS=50
+      - MAX_CACHE_TRACKS=400
+      - ALLOWED_ORIGINS=*
+    volumes:
+      - home-media-cache:/app/data/cache
+      - home-media-db:/app/data/db
     restart: unless-stopped
     networks:
       - home-media-network
@@ -31,12 +33,13 @@ services:
       start_period: 10s
 
   frontend:
+    image: kevin950805/home-media-frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=http://localhost:3001
-        - VITE_WS_URL=ws://localhost:3001
+      platforms:
+        - linux/amd64
+        - linux/arm64
     container_name: home-media-frontend
     ports:
       - "80:80"
@@ -52,5 +55,5 @@ networks:
     driver: bridge
 
 volumes:
-  cache-data:
-  db-data:
+  home-media-cache:
+  home-media-db:

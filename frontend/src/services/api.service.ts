@@ -2,6 +2,7 @@ import axios from 'axios';
 import type { Track, SearchResponse } from '../types/track.types';
 import type { Lyrics, LRCLIBSearchResult } from '../types/lyrics.types';
 
+// 所有 API 請求都通過 nginx 代理 (/api)
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 class ApiService {
@@ -30,11 +31,9 @@ class ApiService {
 
   /**
    * 獲取音訊串流 URL
-   * 注意：直接使用後端 URL，不通過 Vite proxy，以支援重定向
    */
   getStreamUrl(videoId: string, quality: string = 'highestaudio'): string {
-    const backendUrl = 'http://localhost:3001';
-    return `${backendUrl}/api/stream/${videoId}?quality=${quality}`;
+    return `${API_BASE_URL}/stream/${videoId}?quality=${quality}`;
   }
 
   /**
@@ -42,8 +41,7 @@ class ApiService {
    */
   async preloadAudio(videoId: string): Promise<void> {
     try {
-      const backendUrl = 'http://localhost:3001';
-      await axios.post(`${backendUrl}/api/preload/${videoId}`, {}, { timeout: 30000 });
+      await this.api.post(`/preload/${videoId}`, {}, { timeout: 30000 });
     } catch (error) {
       // 忽略預加載錯誤，不影響主流程
       console.warn(`Preload failed for ${videoId}:`, error);
@@ -54,8 +52,7 @@ class ApiService {
    * 預加載音訊 URL（等待完成，用於第一首）
    */
   async preloadAudioWait(videoId: string): Promise<void> {
-    const backendUrl = 'http://localhost:3001';
-    await axios.post(`${backendUrl}/api/preload-wait/${videoId}`, {}, { timeout: 60000 });
+    await this.api.post(`/preload-wait/${videoId}`, {}, { timeout: 60000 });
   }
 
   /**

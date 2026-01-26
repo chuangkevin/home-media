@@ -10,14 +10,7 @@ RUN npm ci
 # Copy source
 COPY . .
 
-# Build arguments for environment variables
-ARG VITE_API_URL=http://localhost:3001
-ARG VITE_WS_URL=ws://localhost:3001
-
-ENV VITE_API_URL=$VITE_API_URL
-ENV VITE_WS_URL=$VITE_WS_URL
-
-# Build application
+# Build application (API uses relative path /api, proxied by nginx)
 RUN npm run build
 
 # Production stage with Nginx
