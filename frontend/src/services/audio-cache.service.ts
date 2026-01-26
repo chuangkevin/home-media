@@ -122,6 +122,8 @@ class AudioCacheService {
       request.onsuccess = () => {
         const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
         console.log(`💾 Cached audio: ${videoId} (size: ${sizeMB}MB)`);
+        // 發送自定義事件通知快取狀態變更
+        window.dispatchEvent(new CustomEvent('audio-cache-updated', { detail: { videoId } }));
         resolve();
       };
 

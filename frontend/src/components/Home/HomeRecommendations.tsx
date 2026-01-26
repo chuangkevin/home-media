@@ -44,6 +44,22 @@ export default function HomeRecommendations() {
     };
 
     checkCacheStatus();
+
+    // 監聽快取更新事件，即時更新顯示狀態
+    const handleCacheUpdated = (event: CustomEvent<{ videoId: string }>) => {
+      const { videoId } = event.detail;
+      setCacheStatus((prev) => {
+        const updated = new Map(prev);
+        updated.set(videoId, true);
+        return updated;
+      });
+      console.log(`📊 快取狀態即時更新: ${videoId} -> 已快取`);
+    };
+
+    window.addEventListener('audio-cache-updated', handleCacheUpdated as EventListener);
+    return () => {
+      window.removeEventListener('audio-cache-updated', handleCacheUpdated as EventListener);
+    };
   }, [channelRecommendations]);
 
   const lastChannelRef = useCallback(

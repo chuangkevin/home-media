@@ -77,12 +77,21 @@ export default function LyricsView({ track }: LyricsViewProps) {
     }
   }, [currentTime, timeOffset, currentLyrics, currentLineIndex, dispatch]);
 
-  // 自動滾動到當前歌詞行
+  // 自動滾動到當前歌詞行（只在歌詞容器內滾動，不影響頁面）
   useEffect(() => {
-    if (currentLineIndex >= 0 && lineRefs.current[currentLineIndex]) {
-      lineRefs.current[currentLineIndex]?.scrollIntoView({
+    const container = lyricsContainerRef.current;
+    const line = lineRefs.current[currentLineIndex];
+
+    if (currentLineIndex >= 0 && container && line) {
+      // 計算目標滾動位置（讓當前行置中）
+      const containerHeight = container.clientHeight;
+      const lineOffsetTop = line.offsetTop;
+      const lineHeight = line.clientHeight;
+      const scrollTarget = lineOffsetTop - containerHeight / 2 + lineHeight / 2;
+
+      container.scrollTo({
+        top: scrollTarget,
         behavior: 'smooth',
-        block: 'center',
       });
     }
   }, [currentLineIndex]);
