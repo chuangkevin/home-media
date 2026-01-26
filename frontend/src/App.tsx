@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
@@ -30,6 +30,13 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isLyricsVisible, setIsLyricsVisible] = useState(true);
+  const lyricsContainerRef = useRef<HTMLDivElement>(null);
+
+  // 滾動到歌詞區域
+  const scrollToLyrics = useCallback(() => {
+    lyricsContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   // 初始化音訊快取服務
   useEffect(() => {
@@ -125,10 +132,10 @@ function App() {
 
         {/* 播放視圖區域 */}
         {currentTrack && (
-          <Box sx={{ mb: 4 }}>
+          <Box ref={lyricsContainerRef} sx={{ mb: 4 }}>
             <DisplayModeToggle />
             {displayMode === 'video' && <VideoPlayer track={currentTrack} />}
-            {displayMode === 'lyrics' && <LyricsView track={currentTrack} />}
+            {displayMode === 'lyrics' && <LyricsView track={currentTrack} onVisibilityChange={setIsLyricsVisible} />}
             {displayMode === 'visualizer' && <VisualizerView track={currentTrack} />}
           </Box>
         )}
@@ -166,7 +173,10 @@ function App() {
       </Container>
 
       {/* 播放器（固定在底部）*/}
-      <AudioPlayer />
+      <AudioPlayer
+        showLyricsButton={displayMode === 'lyrics' && !isLyricsVisible && !!currentTrack}
+        onScrollToLyrics={scrollToLyrics}
+      />
     </Box>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button } from '@mui/material';
+import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, confirmPendingTrack, cancelPendingTrack } from '../../store/playerSlice';
@@ -9,7 +10,12 @@ import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 
-export default function AudioPlayer() {
+interface AudioPlayerProps {
+  showLyricsButton?: boolean;
+  onScrollToLyrics?: () => void;
+}
+
+export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: AudioPlayerProps) {
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
@@ -341,6 +347,23 @@ export default function AudioPlayer() {
 
             <PlayerControls />
           </Box>
+
+          {/* 看歌詞按鈕 - 當歌詞區域不可見時顯示 */}
+          {showLyricsButton && onScrollToLyrics && (
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<LyricsIcon />}
+              onClick={onScrollToLyrics}
+              sx={{
+                ml: 2,
+                whiteSpace: 'nowrap',
+                minWidth: 'auto',
+              }}
+            >
+              看歌詞
+            </Button>
+          )}
         </Box>
       </CardContent>
 

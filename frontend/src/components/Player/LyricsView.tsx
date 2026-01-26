@@ -14,20 +14,23 @@ import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LRCLIBSearchResult } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
+import { seekTo } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 
 interface LyricsViewProps {
   track: Track;
+  onVisibilityChange?: (isVisible: boolean) => void; // 歌詞區域可見性變化回調
 }
 
-export default function LyricsView({ track }: LyricsViewProps) {
+export default function LyricsView({ track, onVisibilityChange }: LyricsViewProps) {
   const dispatch = useDispatch();
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
   const { currentTime } = useSelector((state: RootState) => state.player);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
+  const lyricsViewRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // 搜尋對話框狀態
@@ -95,6 +98,29 @@ export default function LyricsView({ track }: LyricsViewProps) {
       });
     }
   }, [currentLineIndex]);
+
+  // 監聽歌詞區域是否可見（用於顯示「看歌詞」按鈕）
+  useEffect(() => {
+    if (!lyricsViewRef.current || !onVisibilityChange) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        onVisibilityChange(entry.isIntersecting);
+      },
+      { threshold: 0.1 } // 10% 可見就算可見
+    );
+
+    observer.observe(lyricsViewRef.current);
+    return () => observer.disconnect();
+  }, [onVisibilityChange]);
+
+  // 點選歌詞跳轉到對應時間
+  const handleLyricClick = (time: number) => {
+    if (!currentLyrics?.isSynced) return;
+    // 扣除時間偏移量，因為播放時會加回去
+    const targetTime = Math.max(0, time - timeOffset);
+    dispatch(seekTo(targetTime));
+  };
 
   // 時間偏移控制（並儲存到 IndexedDB），最小單位 0.1 秒
   const handleOffsetIncrease = () => {
@@ -214,6 +240,7 @@ export default function LyricsView({ track }: LyricsViewProps) {
             <Box
               key={index}
               ref={(el: HTMLDivElement | null) => (lineRefs.current[index] = el)}
+              onClick={() => currentLyrics.isSynced && handleLyricClick(line.time)}
               sx={{
                 py: 1.5,
                 px: 2,
@@ -221,6 +248,10 @@ export default function LyricsView({ track }: LyricsViewProps) {
                 transition: 'all 0.3s ease',
                 borderRadius: 1,
                 backgroundColor: isActive ? 'action.selected' : 'transparent',
+                cursor: currentLyrics.isSynced ? 'pointer' : 'default',
+                '&:hover': currentLyrics.isSynced ? {
+                  backgroundColor: 'action.hover',
+                } : {},
               }}
             >
               <Typography
@@ -248,6 +279,7 @@ export default function LyricsView({ track }: LyricsViewProps) {
 
   return (
     <Box
+      ref={lyricsViewRef}
       sx={{
         width: '100%',
         maxWidth: 800,
