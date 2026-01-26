@@ -25,6 +25,7 @@ const lyricsSlice = createSlice({
       state.currentLyrics = action.payload;
       state.currentLineIndex = -1;
       state.error = null;
+      state.timeOffset = 0; // 切換歌曲時重置，之後由 LyricsView 載入儲存的偏好
     },
     setIsLoading(state, action: PayloadAction<boolean>) {
       state.isLoading = action.payload;
@@ -47,8 +48,9 @@ const lyricsSlice = createSlice({
       state.timeOffset = action.payload;
     },
     adjustTimeOffset(state, action: PayloadAction<number>) {
-      // 調整偏移，限制在 ±10 秒範圍內
-      state.timeOffset = Math.max(-10, Math.min(10, state.timeOffset + action.payload));
+      // 調整偏移，限制在 ±10 秒範圍內，四捨五入到小數點一位避免浮點數誤差
+      const newOffset = state.timeOffset + action.payload;
+      state.timeOffset = Math.round(Math.max(-10, Math.min(10, newOffset)) * 10) / 10;
     },
     resetTimeOffset(state) {
       state.timeOffset = 0;

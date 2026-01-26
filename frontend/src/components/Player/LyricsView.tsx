@@ -87,17 +87,17 @@ export default function LyricsView({ track }: LyricsViewProps) {
     }
   }, [currentLineIndex]);
 
-  // 時間偏移控制（並儲存到 IndexedDB）
+  // 時間偏移控制（並儲存到 IndexedDB），最小單位 0.1 秒
   const handleOffsetIncrease = () => {
-    const newOffset = timeOffset + 0.5;
-    dispatch(adjustTimeOffset(0.5));
-    lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+    const newOffset = Math.round((timeOffset + 0.1) * 10) / 10;
+    dispatch(adjustTimeOffset(0.1));
+    lyricsCacheService.setTimeOffset(track.videoId, Math.min(10, newOffset));
   };
 
   const handleOffsetDecrease = () => {
-    const newOffset = timeOffset - 0.5;
-    dispatch(adjustTimeOffset(-0.5));
-    lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+    const newOffset = Math.round((timeOffset - 0.1) * 10) / 10;
+    dispatch(adjustTimeOffset(-0.1));
+    lyricsCacheService.setTimeOffset(track.videoId, Math.max(-10, newOffset));
   };
 
   const handleOffsetReset = () => {
@@ -293,7 +293,7 @@ export default function LyricsView({ track }: LyricsViewProps) {
           <Typography variant="body2" color="text.secondary">
             時間微調:
           </Typography>
-          <Tooltip title="歌詞延後 0.5 秒">
+          <Tooltip title="歌詞延後 0.1 秒">
             <IconButton size="small" onClick={handleOffsetDecrease}>
               <RemoveIcon fontSize="small" />
             </IconButton>
@@ -304,7 +304,7 @@ export default function LyricsView({ track }: LyricsViewProps) {
             color={timeOffset === 0 ? 'default' : 'primary'}
             sx={{ minWidth: 60 }}
           />
-          <Tooltip title="歌詞提前 0.5 秒">
+          <Tooltip title="歌詞提前 0.1 秒">
             <IconButton size="small" onClick={handleOffsetIncrease}>
               <AddIcon fontSize="small" />
             </IconButton>
