@@ -11,10 +11,19 @@ interface CachedLyrics {
   timestamp: number;
 }
 
+// 使用者的歌詞偏好設定（永久儲存）
+interface LyricsPreference {
+  videoId: string;
+  lrclibId?: number; // 使用者選擇的 LRCLIB 歌詞 ID
+  timeOffset?: number; // 時間偏移（秒）
+  updatedAt: number;
+}
+
 class LyricsCacheService {
   private dbName = 'LyricsCacheDB';
   private storeName = 'lyricsCache';
-  private dbVersion = 1;
+  private prefsStoreName = 'lyricsPrefs'; // 使用者偏好設定
+  private dbVersion = 2; // 升級版本以新增 prefs store
   private db: IDBDatabase | null = null;
 
   // 快取設置
@@ -48,6 +57,12 @@ class LyricsCacheService {
           const objectStore = db.createObjectStore(this.storeName, { keyPath: 'videoId' });
           objectStore.createIndex('timestamp', 'timestamp', { unique: false });
           console.log('✅ Created lyricsCache object store');
+        }
+
+        // 新增使用者偏好設定 store
+        if (!db.objectStoreNames.contains(this.prefsStoreName)) {
+          db.createObjectStore(this.prefsStoreName, { keyPath: 'videoId' });
+          console.log('✅ Created lyricsPrefs object store');
         }
       };
     });
@@ -229,6 +244,123 @@ class LyricsCacheService {
     return {
       count: all.length,
     };
+  }
+
+  // ==================== 使用者偏好設定 ====================
+
+  /**
+   * 獲取使用者的歌詞偏好
+   */
+  async getPreference(videoId: string): Promise<LyricsPreference | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.prefsStoreName], 'readonly');
+      const store = transaction.objectStore(this.prefsStoreName);
+      const request = store.get(videoId);
+
+      request.onsuccess = () => {
+        const pref = request.result as LyricsPreference | undefined;
+        if (pref) {
+          console.log(`✅ Loaded lyrics preference for ${videoId}: lrclibId=${pref.lrclibId}, offset=${pref.timeOffset}`);
+        }
+        resolve(pref || null);
+      };
+
+      request.onerror = () => {
+        console.error('Failed to get lyrics preference:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * 儲存使用者選擇的 LRCLIB ID
+   */
+  async setLrclibId(videoId: string, lrclibId: number): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    const existing = await this.getPreference(videoId);
+    const pref: LyricsPreference = {
+      videoId,
+      lrclibId,
+      timeOffset: existing?.timeOffset,
+      updatedAt: Date.now(),
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.prefsStoreName], 'readwrite');
+      const store = transaction.objectStore(this.prefsStoreName);
+      const request = store.put(pref);
+
+      request.onsuccess = () => {
+        console.log(`💾 Saved lrclibId ${lrclibId} for ${videoId}`);
+        resolve();
+      };
+
+      request.onerror = () => {
+        console.error('Failed to save lrclibId:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * 儲存時間偏移值
+   */
+  async setTimeOffset(videoId: string, timeOffset: number): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    const existing = await this.getPreference(videoId);
+    const pref: LyricsPreference = {
+      videoId,
+      lrclibId: existing?.lrclibId,
+      timeOffset,
+      updatedAt: Date.now(),
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.prefsStoreName], 'readwrite');
+      const store = transaction.objectStore(this.prefsStoreName);
+      const request = store.put(pref);
+
+      request.onsuccess = () => {
+        console.log(`💾 Saved timeOffset ${timeOffset}s for ${videoId}`);
+        resolve();
+      };
+
+      request.onerror = () => {
+        console.error('Failed to save timeOffset:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * 清除特定影片的偏好設定
+   */
+  async clearPreference(videoId: string): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.prefsStoreName], 'readwrite');
+      const store = transaction.objectStore(this.prefsStoreName);
+      const request = store.delete(videoId);
+
+      request.onsuccess = () => {
+        console.log(`🗑️ Cleared preference for ${videoId}`);
+        resolve();
+      };
+
+      request.onerror = () => {
+        console.error('Failed to clear preference:', request.error);
+        reject(request.error);
+      };
+    });
   }
 }
 

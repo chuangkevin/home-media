@@ -181,6 +181,17 @@ class YouTubeService {
   }
 
   /**
+   * 清除特定影片的 URL 緩存
+   */
+  clearUrlCache(videoId: string): void {
+    if (this.urlCache.has(videoId)) {
+      this.urlCache.delete(videoId);
+      console.log(`🗑️ 清除 URL 緩存: ${videoId}`);
+      logger.info(`Cleared URL cache for: ${videoId}`);
+    }
+  }
+
+  /**
    * 獲取音訊串流（用於播放）- 雙重機制
    * 先嘗試 ytdl-core，失敗則使用 yt-dlp
    */

@@ -1,14 +1,17 @@
 import { Box, Typography, Avatar, Chip, Card, CardMedia, CardContent, IconButton } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import CloudIcon from '@mui/icons-material/Cloud';
+import StorageIcon from '@mui/icons-material/Storage';
 import { ChannelRecommendation } from '../../store/recommendationSlice';
 import type { Track } from '../../types/track.types';
 
 interface ChannelSectionProps {
   channel: ChannelRecommendation;
   onPlay: (track: Track) => void;
+  cacheStatus?: Map<string, boolean>; // videoId -> isCached
 }
 
-export default function ChannelSection({ channel, onPlay }: ChannelSectionProps) {
+export default function ChannelSection({ channel, onPlay, cacheStatus }: ChannelSectionProps) {
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -127,6 +130,23 @@ export default function ChannelSection({ channel, onPlay }: ChannelSectionProps)
                   backgroundColor: 'rgba(0,0,0,0.8)',
                   color: 'white',
                   fontWeight: 600,
+                }}
+              />
+              {/* 快取狀態指示 */}
+              <Chip
+                icon={cacheStatus?.get(video.videoId) ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
+                label={cacheStatus?.get(video.videoId) ? '快取' : '網路'}
+                size="small"
+                sx={{
+                  position: 'absolute',
+                  bottom: 8,
+                  left: 8,
+                  backgroundColor: cacheStatus?.get(video.videoId) ? 'rgba(76, 175, 80, 0.9)' : 'rgba(33, 150, 243, 0.9)',
+                  color: 'white',
+                  fontWeight: 500,
+                  height: 22,
+                  '& .MuiChip-icon': { color: 'white', marginLeft: '4px' },
+                  '& .MuiChip-label': { paddingLeft: '4px', paddingRight: '8px' },
                 }}
               />
             </Box>

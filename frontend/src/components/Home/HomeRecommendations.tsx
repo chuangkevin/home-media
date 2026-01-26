@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Box, Typography, CircularProgress, Button } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -8,6 +8,7 @@ import { setPendingTrack, setIsPlaying, setQueue, setPlaylist } from '../../stor
 import ChannelSection from './ChannelSection';
 import type { Track } from '../../types/track.types';
 import apiService from '../../services/api.service';
+import audioCacheService from '../../services/audio-cache.service';
 
 export default function HomeRecommendations() {
   const dispatch = useDispatch<AppDispatch>();
@@ -16,12 +17,34 @@ export default function HomeRecommendations() {
   );
 
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const [cacheStatus, setCacheStatus] = useState<Map<string, boolean>>(new Map());
 
   useEffect(() => {
     if (channelRecommendations.length === 0) {
       dispatch(fetchChannelRecommendations({ page: 0, pageSize: 5 }));
     }
   }, [dispatch, channelRecommendations.length]);
+
+  // 檢查所有影片的快取狀態
+  useEffect(() => {
+    const checkCacheStatus = async () => {
+      const allVideoIds = channelRecommendations.flatMap(
+        (channel) => channel.videos.map((v) => v.videoId)
+      );
+
+      if (allVideoIds.length === 0) return;
+
+      try {
+        const statusMap = await audioCacheService.hasMany(allVideoIds);
+        setCacheStatus(statusMap);
+        console.log(`📊 快取狀態已更新: ${Array.from(statusMap.values()).filter(v => v).length}/${allVideoIds.length} 已快取`);
+      } catch (error) {
+        console.error('檢查快取狀態失敗:', error);
+      }
+    };
+
+    checkCacheStatus();
+  }, [channelRecommendations]);
 
   const lastChannelRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -95,7 +118,7 @@ export default function HomeRecommendations() {
           key={`${channel.channelName}-${index}`}
           ref={index === channelRecommendations.length - 1 ? lastChannelRef : null}
         >
-          <ChannelSection channel={channel} onPlay={handlePlay} />
+          <ChannelSection channel={channel} onPlay={handlePlay} cacheStatus={cacheStatus} />
         </div>
       ))}
 

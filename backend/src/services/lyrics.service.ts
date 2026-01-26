@@ -19,6 +19,16 @@ interface LRCLIBResponse {
   syncedLyrics?: string; // LRC 格式的同步歌詞
 }
 
+// LRCLIB 搜尋結果（給前端選擇用）
+export interface LRCLIBSearchResult {
+  id: number;
+  trackName: string;
+  artistName: string;
+  albumName?: string;
+  duration?: number;
+  hasSyncedLyrics: boolean;
+}
+
 class LyricsService {
   /**
    * 獲取歌詞（優先從快取，然後嘗試 YouTube CC，最後嘗試 Genius）
@@ -501,6 +511,103 @@ class LyricsService {
     } catch (error) {
       logger.error('清除歌詞快取失敗:', error);
       return 0;
+    }
+  }
+
+  /**
+   * 搜尋 LRCLIB 歌詞（讓使用者自訂關鍵字搜尋）
+   */
+  async searchLRCLIB(query: string): Promise<LRCLIBSearchResult[]> {
+    try {
+      console.log(`🔍 [LRCLIB Search] Query: "${query}"`);
+
+      const url = `https://lrclib.net/api/search?q=${encodeURIComponent(query)}`;
+      const response = await this.fetchWithSSLBypass(url);
+
+      if (!response.ok) {
+        throw new Error(`LRCLIB API error: ${response.status}`);
+      }
+
+      const results = (await response.json()) as LRCLIBResponse[];
+      console.log(`🔍 [LRCLIB Search] Found ${results.length} results`);
+
+      return results.map(r => ({
+        id: r.id,
+        trackName: r.trackName,
+        artistName: r.artistName,
+        albumName: r.albumName,
+        duration: r.duration,
+        hasSyncedLyrics: !!r.syncedLyrics,
+      }));
+    } catch (error) {
+      console.error(`🔍 [LRCLIB Search] Error:`, error);
+      logger.error(`LRCLIB 搜尋失敗:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * 透過 LRCLIB ID 獲取特定歌詞
+   */
+  async getLyricsByLRCLIBId(videoId: string, lrclibId: number): Promise<Lyrics | null> {
+    try {
+      console.log(`🎼 [LRCLIB] Fetching lyrics by ID: ${lrclibId}`);
+
+      const url = `https://lrclib.net/api/get/${lrclibId}`;
+      const response = await this.fetchWithSSLBypass(url);
+
+      if (!response.ok) {
+        throw new Error(`LRCLIB API error: ${response.status}`);
+      }
+
+      const data = (await response.json()) as LRCLIBResponse;
+
+      // 優先使用同步歌詞
+      if (data.syncedLyrics) {
+        const lines = this.parseLRC(data.syncedLyrics);
+        if (lines.length > 0) {
+          const lyrics: Lyrics = {
+            videoId,
+            lines,
+            source: 'lrclib',
+            isSynced: true,
+            lrclibId: data.id, // 記錄選擇的 ID
+          };
+          // 儲存到快取
+          this.saveToCache(lyrics);
+          logger.info(`✅ LRCLIB ID ${lrclibId} 成功: ${videoId}, ${lines.length} 行`);
+          return lyrics;
+        }
+      }
+
+      // 如果沒有同步歌詞，使用純文字歌詞
+      if (data.plainLyrics) {
+        const lines: LyricsLine[] = data.plainLyrics
+          .split('\n')
+          .filter((line: string) => line.trim())
+          .map((text: string) => ({
+            time: 0,
+            text: text.trim(),
+          }));
+
+        if (lines.length > 0) {
+          const lyrics: Lyrics = {
+            videoId,
+            lines,
+            source: 'lrclib',
+            isSynced: false,
+            lrclibId: data.id,
+          };
+          this.saveToCache(lyrics);
+          return lyrics;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`🎼 [LRCLIB] Error fetching ID ${lrclibId}:`, error);
+      logger.error(`LRCLIB ID 獲取失敗:`, error);
+      return null;
     }
   }
 }

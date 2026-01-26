@@ -1,12 +1,21 @@
-import { useEffect, useRef } from 'react';
-import { Box, Typography, Paper, CircularProgress, Alert, IconButton, Tooltip, Chip } from '@mui/material';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Box, Typography, Paper, CircularProgress, Alert, IconButton, Tooltip, Chip,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, List,
+  ListItem, ListItemText, ListItemButton, InputAdornment
+} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import SearchIcon from '@mui/icons-material/Search';
+import EditIcon from '@mui/icons-material/Edit';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
-import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset } from '../../store/lyricsSlice';
+import type { LRCLIBSearchResult } from '../../types/lyrics.types';
+import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
+import apiService from '../../services/api.service';
+import lyricsCacheService from '../../services/lyrics-cache.service';
 
 interface LyricsViewProps {
   track: Track;
@@ -20,6 +29,25 @@ export default function LyricsView({ track }: LyricsViewProps) {
   const { currentTime } = useSelector((state: RootState) => state.player);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // 搜尋對話框狀態
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<LRCLIBSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+
+  // 載入儲存的偏好設定
+  useEffect(() => {
+    const loadPreference = async () => {
+      const pref = await lyricsCacheService.getPreference(track.videoId);
+      if (pref?.timeOffset !== undefined && pref.timeOffset !== 0) {
+        console.log(`📝 套用儲存的時間偏移: ${pref.timeOffset}s`);
+        dispatch(setTimeOffset(pref.timeOffset));
+      }
+    };
+    loadPreference();
+  }, [track.videoId, dispatch]);
 
   // 根據當前時間計算應該高亮的歌詞行（加入時間偏移）
   useEffect(() => {
@@ -59,17 +87,78 @@ export default function LyricsView({ track }: LyricsViewProps) {
     }
   }, [currentLineIndex]);
 
-  // 時間偏移控制
+  // 時間偏移控制（並儲存到 IndexedDB）
   const handleOffsetIncrease = () => {
-    dispatch(adjustTimeOffset(0.5)); // 歌詞提前 0.5 秒
+    const newOffset = timeOffset + 0.5;
+    dispatch(adjustTimeOffset(0.5));
+    lyricsCacheService.setTimeOffset(track.videoId, newOffset);
   };
 
   const handleOffsetDecrease = () => {
-    dispatch(adjustTimeOffset(-0.5)); // 歌詞延後 0.5 秒
+    const newOffset = timeOffset - 0.5;
+    dispatch(adjustTimeOffset(-0.5));
+    lyricsCacheService.setTimeOffset(track.videoId, newOffset);
   };
 
   const handleOffsetReset = () => {
     dispatch(resetTimeOffset());
+    lyricsCacheService.setTimeOffset(track.videoId, 0);
+  };
+
+  // 搜尋歌詞
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const results = await apiService.searchLyrics(searchQuery);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Search lyrics failed:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // 選擇歌詞
+  const handleSelectLyrics = async (result: LRCLIBSearchResult) => {
+    setIsApplying(true);
+    try {
+      const lyrics = await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
+      if (lyrics) {
+        // 儲存選擇
+        await lyricsCacheService.setLrclibId(track.videoId, result.id);
+        // 更新快取
+        await lyricsCacheService.set(track.videoId, lyrics);
+        // 更新 Redux
+        dispatch(setCurrentLyrics(lyrics));
+        // 關閉對話框
+        setSearchOpen(false);
+        console.log(`✅ 已套用歌詞: ${result.trackName} - ${result.artistName}`);
+      }
+    } catch (error) {
+      console.error('Apply lyrics failed:', error);
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  // 打開搜尋對話框時，預設填入歌曲名稱
+  const handleOpenSearch = () => {
+    // 嘗試從標題中提取歌名
+    const match = track.title.match(/[【《]([^【】《》]+)[】》]/);
+    const defaultQuery = match ? match[1] : track.title.split(/[-–—]/)[0].trim();
+    setSearchQuery(defaultQuery);
+    setSearchResults([]);
+    setSearchOpen(true);
+  };
+
+  // 格式化時長
+  const formatDuration = (seconds?: number) => {
+    if (!seconds) return '';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   // 渲染歌詞
@@ -183,12 +272,19 @@ export default function LyricsView({ track }: LyricsViewProps) {
         <Typography variant="subtitle1" color="text.secondary">
           {track.channel}
         </Typography>
-        {currentLyrics && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            歌詞來源: {currentLyrics.source === 'youtube' ? 'YouTube CC' : currentLyrics.source}
-            {currentLyrics.isSynced ? ' (同步)' : ' (純文字)'}
-          </Typography>
-        )}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 0.5 }}>
+          {currentLyrics && (
+            <Typography variant="caption" color="text.secondary">
+              歌詞來源: {currentLyrics.source === 'youtube' ? 'YouTube CC' : currentLyrics.source}
+              {currentLyrics.isSynced ? ' (同步)' : ' (純文字)'}
+            </Typography>
+          )}
+          <Tooltip title="搜尋其他歌詞">
+            <IconButton size="small" onClick={handleOpenSearch}>
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* 歌詞時間微調控制 - 只在同步歌詞時顯示 */}
@@ -246,6 +342,65 @@ export default function LyricsView({ track }: LyricsViewProps) {
       >
         {renderLyrics()}
       </Paper>
+
+      {/* 歌詞搜尋對話框 */}
+      <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>搜尋歌詞</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="輸入歌名或關鍵字"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            sx={{ mt: 1 }}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton onClick={handleSearch} disabled={isSearching}>
+                    {isSearching ? <CircularProgress size={20} /> : <SearchIcon />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+          {searchResults.length > 0 && (
+            <List sx={{ mt: 2, maxHeight: 300, overflow: 'auto' }}>
+              {searchResults.map((result) => (
+                <ListItem key={result.id} disablePadding>
+                  <ListItemButton
+                    onClick={() => handleSelectLyrics(result)}
+                    disabled={isApplying}
+                  >
+                    <ListItemText
+                      primary={result.trackName}
+                      secondary={
+                        <Box component="span" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <span>{result.artistName}</span>
+                          {result.albumName && <span>· {result.albumName}</span>}
+                          {result.duration && <span>· {formatDuration(result.duration)}</span>}
+                          {result.hasSyncedLyrics && (
+                            <Chip label="同步" size="small" color="primary" sx={{ height: 20 }} />
+                          )}
+                        </Box>
+                      }
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          )}
+          {searchResults.length === 0 && !isSearching && searchQuery && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
+              點擊搜尋按鈕或按 Enter 搜尋
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSearchOpen(false)}>取消</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -75,145 +75,162 @@ export class YouTubeController {
    * 串流音訊 - 代理模式（支援 Range requests）
    */
   async streamAudio(req: Request, res: Response): Promise<void> {
-    try {
-      const { videoId } = req.params;
+    const { videoId } = req.params;
+    let retryCount = 0;
+    const maxRetries = 1;
 
-      if (!videoId) {
-        res.status(400).json({
-          error: 'Video ID is required',
-        });
-        return;
-      }
-
-      const isValid = await youtubeService.validateVideoId(videoId);
-      if (!isValid) {
-        res.status(400).json({
-          error: 'Invalid video ID',
-        });
-        return;
-      }
-
-      logger.info(`Streaming audio for video: ${videoId} via proxy`);
-
-      // 使用 yt-dlp 獲取音訊 URL
-      const audioUrl = await youtubeService.getAudioStreamUrl(videoId);
-
-      // 準備代理請求的 headers
-      const proxyHeaders: any = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.youtube.com/',
-        'Origin': 'https://www.youtube.com',
-      };
-
-      // 支援 Range requests（讓瀏覽器可以 seek）
-      if (req.headers.range) {
-        proxyHeaders['Range'] = req.headers.range;
-      }
-
-      // 發起代理請求（自動處理重定向）
-      const makeProxyRequest = (url: string, redirectCount = 0): void => {
-        if (redirectCount > 5) {
-          logger.error(`Too many redirects for ${videoId}`);
-          if (!res.headersSent) {
-            res.status(500).json({ error: 'Too many redirects' });
-          }
+    const attemptStream = async (): Promise<void> => {
+      try {
+        if (!videoId) {
+          res.status(400).json({
+            error: 'Video ID is required',
+          });
           return;
         }
 
-        const parsedRedirectUrl = new URL(url);
-        const redirectHttpModule = parsedRedirectUrl.protocol === 'https:' ? https : http;
+        const isValid = await youtubeService.validateVideoId(videoId);
+        if (!isValid) {
+          res.status(400).json({
+            error: 'Invalid video ID',
+          });
+          return;
+        }
 
-        const proxyReq = redirectHttpModule.get(
-          url,
-          {
-            headers: proxyHeaders,
-          },
-          (proxyRes) => {
-            // 處理重定向
-            if (proxyRes.statusCode === 301 || proxyRes.statusCode === 302 || proxyRes.statusCode === 303 || proxyRes.statusCode === 307 || proxyRes.statusCode === 308) {
-              const location = proxyRes.headers.location;
-              if (location) {
-                logger.info(`Following redirect for ${videoId}: ${proxyRes.statusCode} -> ${location}`);
+        logger.info(`Streaming audio for video: ${videoId} via proxy (attempt ${retryCount + 1})`);
+
+        // 使用 yt-dlp 獲取音訊 URL
+        const audioUrl = await youtubeService.getAudioStreamUrl(videoId);
+
+        // 準備代理請求的 headers
+        const proxyHeaders: any = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': 'https://www.youtube.com/',
+          'Origin': 'https://www.youtube.com',
+        };
+
+        // 支援 Range requests（讓瀏覽器可以 seek）
+        if (req.headers.range) {
+          proxyHeaders['Range'] = req.headers.range;
+        }
+
+        // 發起代理請求（自動處理重定向）
+        const makeProxyRequest = (url: string, redirectCount = 0): void => {
+          if (redirectCount > 5) {
+            logger.error(`Too many redirects for ${videoId}`);
+            if (!res.headersSent) {
+              res.status(500).json({ error: 'Too many redirects' });
+            }
+            return;
+          }
+
+          const parsedRedirectUrl = new URL(url);
+          const redirectHttpModule = parsedRedirectUrl.protocol === 'https:' ? https : http;
+
+          const proxyReq = redirectHttpModule.get(
+            url,
+            {
+              headers: proxyHeaders,
+            },
+            (proxyRes) => {
+              // 處理重定向
+              if (proxyRes.statusCode === 301 || proxyRes.statusCode === 302 || proxyRes.statusCode === 303 || proxyRes.statusCode === 307 || proxyRes.statusCode === 308) {
+                const location = proxyRes.headers.location;
+                if (location) {
+                  logger.info(`Following redirect for ${videoId}: ${proxyRes.statusCode} -> ${location}`);
+                  proxyRes.resume(); // 消耗響應體
+                  makeProxyRequest(location, redirectCount + 1);
+                  return;
+                }
+              }
+
+              // 處理 403 錯誤（URL 過期）- 清除緩存並重試
+              if (proxyRes.statusCode === 403 && retryCount < maxRetries) {
+                logger.warn(`Got 403 for ${videoId}, clearing cache and retrying...`);
+                console.log(`⚠️ URL 過期 (403): ${videoId}，清除緩存重試...`);
                 proxyRes.resume(); // 消耗響應體
-                makeProxyRequest(location, redirectCount + 1);
+                youtubeService.clearUrlCache(videoId);
+                retryCount++;
+                attemptStream();
                 return;
               }
-            }
 
-            // 轉發狀態碼
-            res.status(proxyRes.statusCode || 200);
+              // 轉發狀態碼
+              res.status(proxyRes.statusCode || 200);
 
-            // 轉發重要的 headers
-            const headersToForward = [
-              'content-type',
-              'content-length',
-              'content-range',
-              'accept-ranges',
-              'cache-control',
-              'etag',
-              'last-modified',
-            ];
+              // 轉發重要的 headers
+              const headersToForward = [
+                'content-type',
+                'content-length',
+                'content-range',
+                'accept-ranges',
+                'cache-control',
+                'etag',
+                'last-modified',
+              ];
 
-            headersToForward.forEach((header) => {
-              const value = proxyRes.headers[header];
-              if (value) {
-                res.setHeader(header, value);
+              headersToForward.forEach((header) => {
+                const value = proxyRes.headers[header];
+                if (value) {
+                  res.setHeader(header, value);
+                }
+              });
+
+              // 如果沒有 accept-ranges，添加它（支援 seek）
+              if (!proxyRes.headers['accept-ranges']) {
+                res.setHeader('Accept-Ranges', 'bytes');
               }
-            });
 
-            // 如果沒有 accept-ranges，添加它（支援 seek）
-            if (!proxyRes.headers['accept-ranges']) {
-              res.setHeader('Accept-Ranges', 'bytes');
+              // 啟用 CORS
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+
+              logger.info(`Proxying audio stream for ${videoId} (status: ${proxyRes.statusCode})`);
+
+              // 串流數據
+              proxyRes.pipe(res);
+
+              // 處理錯誤
+              proxyRes.on('error', (error) => {
+                logger.error(`Proxy stream error for ${videoId}:`, error);
+                if (!res.headersSent) {
+                  res.status(500).end();
+                }
+              });
             }
+          );
 
-            // 啟用 CORS
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+          // 處理代理請求錯誤
+          proxyReq.on('error', (error) => {
+            logger.error(`Proxy request error for ${videoId}:`, error);
+            if (!res.headersSent) {
+              res.status(500).json({
+                error: 'Failed to proxy audio stream',
+              });
+            }
+          });
 
-            logger.info(`Proxying audio stream for ${videoId} (status: ${proxyRes.statusCode})`);
+          // 當客戶端關閉連接時，中止代理請求
+          req.on('close', () => {
+            proxyReq.destroy();
+          });
+        };
 
-            // 串流數據
-            proxyRes.pipe(res);
+        // 開始代理請求
+        makeProxyRequest(audioUrl);
 
-            // 處理錯誤
-            proxyRes.on('error', (error) => {
-              logger.error(`Proxy stream error for ${videoId}:`, error);
-              if (!res.headersSent) {
-                res.status(500).end();
-              }
-            });
-          }
-        );
-
-        // 處理代理請求錯誤
-        proxyReq.on('error', (error) => {
-          logger.error(`Proxy request error for ${videoId}:`, error);
-          if (!res.headersSent) {
-            res.status(500).json({
-              error: 'Failed to proxy audio stream',
-            });
-          }
-        });
-
-        // 當客戶端關閉連接時，中止代理請求
-        req.on('close', () => {
-          proxyReq.destroy();
-        });
-      };
-
-      // 開始代理請求
-      makeProxyRequest(audioUrl);
-
-    } catch (error) {
-      logger.error('Stream controller error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({
-          error: error instanceof Error ? error.message : 'Failed to stream audio',
-        });
+      } catch (error) {
+        logger.error('Stream controller error:', error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: error instanceof Error ? error.message : 'Failed to stream audio',
+          });
+        }
       }
-    }
+    };
+
+    await attemptStream();
   }
 
   /**

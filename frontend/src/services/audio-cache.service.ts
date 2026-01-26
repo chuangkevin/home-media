@@ -260,6 +260,61 @@ class AudioCacheService {
   }
 
   /**
+   * 檢查音訊是否已快取（不載入 blob）
+   */
+  async has(videoId: string): Promise<boolean> {
+    await this.init();
+    if (!this.db) return false;
+
+    return new Promise((resolve) => {
+      const transaction = this.db!.transaction([this.storeName], 'readonly');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getKey(videoId);
+
+      request.onsuccess = () => {
+        resolve(request.result !== undefined);
+      };
+
+      request.onerror = () => {
+        resolve(false);
+      };
+    });
+  }
+
+  /**
+   * 批量檢查多個影片的快取狀態
+   */
+  async hasMany(videoIds: string[]): Promise<Map<string, boolean>> {
+    await this.init();
+    const result = new Map<string, boolean>();
+
+    if (!this.db) {
+      videoIds.forEach(id => result.set(id, false));
+      return result;
+    }
+
+    const transaction = this.db.transaction([this.storeName], 'readonly');
+    const store = transaction.objectStore(this.storeName);
+
+    const promises = videoIds.map(videoId => {
+      return new Promise<void>((resolve) => {
+        const request = store.getKey(videoId);
+        request.onsuccess = () => {
+          result.set(videoId, request.result !== undefined);
+          resolve();
+        };
+        request.onerror = () => {
+          result.set(videoId, false);
+          resolve();
+        };
+      });
+    });
+
+    await Promise.all(promises);
+    return result;
+  }
+
+  /**
    * 獲取快取統計資訊
    */
   async getStats(): Promise<{

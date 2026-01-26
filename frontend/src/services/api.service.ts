@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { Track, SearchResponse } from '../types/track.types';
-import type { Lyrics } from '../types/lyrics.types';
+import type { Lyrics, LRCLIBSearchResult } from '../types/lyrics.types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -80,6 +80,40 @@ class ApiService {
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         // 找不到歌詞，返回 null
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 搜尋 LRCLIB 歌詞
+   */
+  async searchLyrics(query: string): Promise<LRCLIBSearchResult[]> {
+    try {
+      const response = await this.api.get<{ query: string; count: number; results: LRCLIBSearchResult[] }>('/lyrics/search', {
+        params: { q: query },
+        timeout: 15000,
+      });
+      return response.data.results;
+    } catch (error) {
+      console.error('Search lyrics failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 透過 LRCLIB ID 獲取特定歌詞
+   */
+  async getLyricsByLRCLIBId(videoId: string, lrclibId: number): Promise<Lyrics | null> {
+    try {
+      const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/lrclib/${lrclibId}`, {
+        params: { videoId },
+        timeout: 15000,
+      });
+      return response.data.lyrics;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
         return null;
       }
       throw error;
