@@ -33,9 +33,15 @@ function App() {
   const [isLyricsVisible, setIsLyricsVisible] = useState(true);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
 
-  // 滾動到歌詞區域
+  // 滾動到歌詞區域（直接跳到歌詞 Paper 容器，略過專輯封面和曲目資訊）
   const scrollToLyrics = useCallback(() => {
-    lyricsContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const lyricsTarget = document.getElementById('lyrics-scroll-target');
+    if (lyricsTarget) {
+      lyricsTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      // 回退：滾動到整個歌詞區域
+      lyricsContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }, []);
 
   // 初始化音訊快取服務

@@ -93,7 +93,7 @@ class ApiService {
     try {
       const response = await this.api.get<{ query: string; count: number; results: LRCLIBSearchResult[] }>('/lyrics/search', {
         params: { q: query },
-        timeout: 15000,
+        timeout: 45000, // 搜尋可能較慢
       });
       return response.data.results;
     } catch (error) {
@@ -109,7 +109,7 @@ class ApiService {
     try {
       const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/lrclib/${lrclibId}`, {
         params: { videoId },
-        timeout: 15000,
+        timeout: 45000, // 獲取歌詞可能較慢
       });
       return response.data.lyrics;
     } catch (error) {

@@ -39,6 +39,10 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const [searchResults, setSearchResults] = useState<LRCLIBSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [isLyricsVisible, setIsLyricsVisible] = useState(true); // 歌詞容器是否可見
+
+  // 固定填充高度（容器 maxHeight 500px 的一半）
+  const PADDING_HEIGHT = 250;
 
   // 載入儲存的偏好設定
   useEffect(() => {
@@ -80,46 +84,73 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     }
   }, [currentTime, timeOffset, currentLyrics, currentLineIndex, dispatch]);
 
-  // 自動滾動到當前歌詞行（只在歌詞容器內滾動，不影響頁面）
+  // 自動滾動到當前歌詞行（只在歌詞可見時才滾動）
   useEffect(() => {
+    // 如果歌詞不可見，不滾動
+    if (!isLyricsVisible) return;
+
     const container = lyricsContainerRef.current;
     const line = lineRefs.current[currentLineIndex];
 
     if (currentLineIndex >= 0 && container && line) {
-      // 計算目標滾動位置（讓當前行置中）
-      const containerHeight = container.clientHeight;
-      const lineOffsetTop = line.offsetTop;
-      const lineHeight = line.clientHeight;
-      const scrollTarget = lineOffsetTop - containerHeight / 2 + lineHeight / 2;
+      // 使用 getBoundingClientRect 計算精確位置
+      const containerRect = container.getBoundingClientRect();
+      const lineRect = line.getBoundingClientRect();
 
+      // 計算歌詞行中心與容器中心的差距
+      const lineCenter = lineRect.top + lineRect.height / 2;
+      const containerCenter = containerRect.top + containerRect.height / 2;
+      const scrollOffset = lineCenter - containerCenter;
+
+      // 調整 scrollTop 讓歌詞行居中
       container.scrollTo({
-        top: scrollTarget,
+        top: container.scrollTop + scrollOffset,
         behavior: 'smooth',
       });
     }
-  }, [currentLineIndex]);
+  }, [currentLineIndex, isLyricsVisible]);
 
-  // 監聽歌詞區域是否可見（用於顯示「看歌詞」按鈕）
+  // 監聯歌詞容器是否可見（控制自動滾動 + 顯示「看歌詞」按鈕）
   useEffect(() => {
-    if (!lyricsViewRef.current || !onVisibilityChange) return;
+    const container = lyricsContainerRef.current;
+    if (!container) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        onVisibilityChange(entry.isIntersecting);
+        const visible = entry.isIntersecting;
+        setIsLyricsVisible(visible);
+        // 通知父元件（用於顯示「看歌詞」按鈕）
+        onVisibilityChange?.(visible);
       },
-      { threshold: 0.1 } // 10% 可見就算可見
+      { threshold: 0.3 } // 30% 可見才算可見
     );
 
-    observer.observe(lyricsViewRef.current);
+    observer.observe(container);
     return () => observer.disconnect();
-  }, [onVisibilityChange]);
+  }, [onVisibilityChange, currentLyrics]);
 
   // 點選歌詞跳轉到對應時間
-  const handleLyricClick = (time: number) => {
+  const handleLyricClick = (time: number, index: number) => {
     if (!currentLyrics?.isSynced) return;
     // 扣除時間偏移量，因為播放時會加回去
     const targetTime = Math.max(0, time - timeOffset);
     dispatch(seekTo(targetTime));
+
+    // 直接滾動到點選的歌詞行（置中顯示）
+    const container = lyricsContainerRef.current;
+    const line = lineRefs.current[index];
+    if (container && line) {
+      const containerRect = container.getBoundingClientRect();
+      const lineRect = line.getBoundingClientRect();
+      const lineCenter = lineRect.top + lineRect.height / 2;
+      const containerCenter = containerRect.top + containerRect.height / 2;
+      const scrollOffset = lineCenter - containerCenter;
+
+      container.scrollTo({
+        top: container.scrollTop + scrollOffset,
+        behavior: 'smooth',
+      });
+    }
   };
 
   // 時間偏移控制（並儲存到 IndexedDB），最小單位 0.1 秒
@@ -231,7 +262,9 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     }
 
     return (
-      <Box sx={{ px: 2, py: 3 }}>
+      <Box sx={{ px: 2 }}>
+        {/* 頂部填充：讓第一行歌詞可以顯示在正中間 */}
+        <Box sx={{ height: `${PADDING_HEIGHT}px` }} />
         {currentLyrics.lines.map((line, index) => {
           const isActive = currentLyrics.isSynced && index === currentLineIndex;
           const isPassed = currentLyrics.isSynced && index < currentLineIndex;
@@ -240,7 +273,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
             <Box
               key={index}
               ref={(el: HTMLDivElement | null) => (lineRefs.current[index] = el)}
-              onClick={() => currentLyrics.isSynced && handleLyricClick(line.time)}
+              onClick={() => currentLyrics.isSynced && handleLyricClick(line.time, index)}
               sx={{
                 py: 1.5,
                 px: 2,
@@ -273,6 +306,8 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
             </Box>
           );
         })}
+        {/* 底部填充：讓最後一行歌詞可以顯示在正中間 */}
+        <Box sx={{ height: `${PADDING_HEIGHT}px` }} />
       </Box>
     );
   };
@@ -362,11 +397,12 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
       {/* 歌詞區域 */}
       <Paper
+        id="lyrics-scroll-target"
         ref={lyricsContainerRef}
         elevation={0}
         sx={{
           width: '100%',
-          maxHeight: '500px',
+          height: '500px',
           overflow: 'auto',
           backgroundColor: 'background.default',
           '&::-webkit-scrollbar': {
