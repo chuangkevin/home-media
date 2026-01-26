@@ -155,6 +155,7 @@ export default function HomeRecommendations() {
     if (channelData) {
       // 將該頻道的所有歌曲轉換為 Track 格式
       const channelTracks: Track[] = channelData.videos.map(v => ({
+        id: v.videoId,
         videoId: v.videoId,
         title: v.title,
         thumbnail: v.thumbnail,
