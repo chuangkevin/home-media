@@ -7,6 +7,12 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+// @ts-ignore - no types available
+import NeteaseMusic from 'simple-netease-cloud-music';
+
+// 網易雲音樂 API 實例
+const neteaseApi = new NeteaseMusic();
+
 // LRCLIB API 響應類型
 interface LRCLIBResponse {
   id: number;
@@ -27,6 +33,22 @@ export interface LRCLIBSearchResult {
   albumName?: string;
   duration?: number;
   hasSyncedLyrics: boolean;
+}
+
+// 網易雲音樂搜尋結果
+interface NeteaseSongResult {
+  id: number;
+  name: string;
+  artists: Array<{ id: number; name: string }>;
+  album: { id: number; name: string };
+  duration: number;
+}
+
+// 網易雲音樂歌詞響應
+interface NeteaseLyricResponse {
+  lrc?: { lyric: string };     // 原文歌詞
+  tlyric?: { lyric: string };  // 翻譯歌詞
+  klyric?: { lyric: string };  // 卡拉OK歌詞
 }
 
 class LyricsService {
@@ -55,8 +77,18 @@ class LyricsService {
         return youtubeLyrics;
       }
 
-      console.log(`🎵 [LyricsService] Step 3: Fetching from LRCLIB...`);
-      // 3. 嘗試從 LRCLIB 獲取（有時間戳的 LRC 格式）
+      console.log(`🎵 [LyricsService] Step 3: Fetching from NetEase...`);
+      // 3. 嘗試從網易雲音樂獲取（華語歌詞最齊全）
+      logger.info(`🔍 嘗試從網易雲音樂獲取歌詞: ${title} - ${artist}`);
+      const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist);
+      console.log(`🎵 [LyricsService] NetEase result:`, neteaseLyrics ? 'Found' : 'Not found');
+      if (neteaseLyrics) {
+        this.saveToCache(neteaseLyrics);
+        return neteaseLyrics;
+      }
+
+      console.log(`🎵 [LyricsService] Step 4: Fetching from LRCLIB...`);
+      // 4. 嘗試從 LRCLIB 獲取（有時間戳的 LRC 格式）
       logger.info(`🔍 嘗試從 LRCLIB 獲取歌詞: ${title} - ${artist}`);
       const lrclibLyrics = await this.fetchLRCLIB(videoId, title, artist);
       console.log(`🎵 [LyricsService] LRCLIB result:`, lrclibLyrics ? 'Found' : 'Not found');
@@ -65,7 +97,7 @@ class LyricsService {
         return lrclibLyrics;
       }
 
-      // 4. 嘗試從 Genius 獲取（通常沒有時間戳，最後備用）
+      // 5. 嘗試從 Genius 獲取（通常沒有時間戳，最後備用）
       logger.info(`🔍 嘗試從 Genius 獲取歌詞: ${title} - ${artist}`);
       const geniusLyrics = await this.fetchGeniusLyrics(videoId, title, artist);
       if (geniusLyrics) {
@@ -165,6 +197,72 @@ class LyricsService {
       } catch (cleanupError) {
         // 忽略清理錯誤
       }
+    }
+  }
+
+  /**
+   * 從網易雲音樂獲取同步歌詞
+   * 華語歌詞覆蓋率最高
+   */
+  private async fetchNeteaseLyrics(
+    videoId: string,
+    title: string,
+    artist?: string
+  ): Promise<Lyrics | null> {
+    try {
+      const cleanTitle = this.cleanSongTitle(title);
+      const cleanArtist = artist ? this.cleanArtistName(artist) : '';
+      const searchQuery = cleanArtist ? `${cleanTitle} ${cleanArtist}` : cleanTitle;
+
+      console.log(`🎵 [NetEase] Searching: "${searchQuery}"`);
+
+      // 搜尋歌曲
+      const searchResult = await neteaseApi.search(searchQuery);
+
+      if (!searchResult || !searchResult.result || !searchResult.result.songs || searchResult.result.songs.length === 0) {
+        console.log(`🎵 [NetEase] No songs found for: ${searchQuery}`);
+        return null;
+      }
+
+      const songs = searchResult.result.songs as NeteaseSongResult[];
+      console.log(`🎵 [NetEase] Found ${songs.length} songs`);
+
+      // 選擇最匹配的歌曲（第一個結果通常最相關）
+      const song = songs[0];
+      console.log(`🎵 [NetEase] Using song: ${song.name} by ${song.artists.map(a => a.name).join(', ')} (ID: ${song.id})`);
+
+      // 獲取歌詞
+      const lyricResult = await neteaseApi.lyric(String(song.id)) as NeteaseLyricResponse;
+
+      if (!lyricResult || !lyricResult.lrc || !lyricResult.lrc.lyric) {
+        console.log(`🎵 [NetEase] No lyrics found for song ID: ${song.id}`);
+        return null;
+      }
+
+      const lrcContent = lyricResult.lrc.lyric;
+      const lines = this.parseLRC(lrcContent);
+
+      if (lines.length === 0) {
+        console.log(`🎵 [NetEase] Failed to parse LRC content`);
+        return null;
+      }
+
+      // 如果有翻譯歌詞，可以考慮合併（這裡先只用原文）
+      const hasTrans = lyricResult.tlyric && lyricResult.tlyric.lyric;
+
+      console.log(`🎵 [NetEase] Successfully parsed ${lines.length} lines (has translation: ${!!hasTrans})`);
+      logger.info(`✅ 網易雲音樂成功: ${videoId}, ${lines.length} 行`);
+
+      return {
+        videoId,
+        lines,
+        source: 'netease',
+        isSynced: true,
+      };
+    } catch (error) {
+      console.log(`🎵 [NetEase] Error:`, error instanceof Error ? error.message : String(error));
+      logger.error(`網易雲音樂獲取失敗 (${videoId}):`, error);
+      return null;
     }
   }
 

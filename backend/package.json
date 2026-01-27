@@ -26,6 +26,7 @@
     "express": "^4.18.2",
     "genius-lyrics-api": "^3.0.4",
     "music-metadata": "^8.1.4",
+    "simple-netease-cloud-music": "^0.5.2",
     "socket.io": "^4.6.1",
     "winston": "^3.11.0",
     "youtube-captions-scraper": "^2.0.1",

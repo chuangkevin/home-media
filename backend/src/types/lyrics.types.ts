@@ -6,7 +6,7 @@ export interface LyricsLine {
 export interface Lyrics {
   videoId: string;
   lines: LyricsLine[];
-  source: 'youtube' | 'genius' | 'lrclib' | 'musixmatch' | 'manual';
+  source: 'youtube' | 'genius' | 'lrclib' | 'musixmatch' | 'netease' | 'manual';
   isSynced: boolean; // 是否有時間戳
   language?: string;
   lrclibId?: number; // 使用者選擇的 LRCLIB 歌詞 ID
