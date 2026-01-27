@@ -20,9 +20,10 @@ class HistoryService {
       }
 
       const now = Date.now();
+      // 注意：SELECT 回傳 snake_case 欄位名
       const existingRecord = db.prepare(
-        'SELECT * FROM search_history WHERE query = ?'
-      ).get(query) as SearchHistoryItem | undefined;
+        'SELECT search_count FROM search_history WHERE query = ?'
+      ).get(query) as { search_count: number } | undefined;
 
       if (existingRecord) {
         // 更新現有記錄
@@ -34,7 +35,7 @@ class HistoryService {
            WHERE query = ?`
         ).run(now, resultCount, query);
 
-        logger.info(`Updated search history: "${query}" (count: ${existingRecord.searchCount + 1})`);
+        logger.info(`Updated search history: "${query}" (count: ${existingRecord.search_count + 1})`);
       } else {
         // 創建新記錄
         const id = randomUUID();
@@ -100,10 +101,16 @@ class HistoryService {
    */
   recordChannelWatch(channelName: string, channelThumbnail: string = ''): void {
     try {
+      // 檢查資料庫連接
+      if (!db) {
+        throw new Error('Database connection not available');
+      }
+
       const now = Date.now();
+      // 注意：SELECT * 回傳 snake_case 欄位名
       const existingChannel = db.prepare(
-        'SELECT * FROM watched_channels WHERE channel_name = ?'
-      ).get(channelName) as WatchedChannel | undefined;
+        'SELECT channel_thumbnail, watch_count FROM watched_channels WHERE channel_name = ?'
+      ).get(channelName) as { channel_thumbnail: string; watch_count: number } | undefined;
 
       if (existingChannel) {
         // 更新現有記錄
@@ -113,9 +120,9 @@ class HistoryService {
                last_watched_at = ?,
                channel_thumbnail = ?
            WHERE channel_name = ?`
-        ).run(now, channelThumbnail || existingChannel.channelThumbnail, channelName);
+        ).run(now, channelThumbnail || existingChannel.channel_thumbnail, channelName);
 
-        logger.info(`Updated channel watch: "${channelName}" (count: ${existingChannel.watchCount + 1})`);
+        logger.info(`Updated channel watch: "${channelName}" (count: ${existingChannel.watch_count + 1})`);
       } else {
         // 創建新記錄
         const id = randomUUID();
@@ -129,6 +136,8 @@ class HistoryService {
       }
     } catch (error) {
       logger.error('Failed to record channel watch:', error);
+      // 重新拋出錯誤讓 controller 處理（方便調試）
+      throw error;
     }
   }
 

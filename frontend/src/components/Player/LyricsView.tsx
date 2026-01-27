@@ -9,6 +9,10 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import SearchIcon from '@mui/icons-material/Search';
 import EditIcon from '@mui/icons-material/Edit';
+import TuneIcon from '@mui/icons-material/Tune';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
@@ -41,6 +45,11 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const [isApplying, setIsApplying] = useState(false);
   const [isLyricsVisible, setIsLyricsVisible] = useState(true); // 歌詞容器是否可見
   const [searchSource, setSearchSource] = useState<LyricsSource>('lrclib'); // 歌詞來源
+
+  // 微調模式狀態
+  const [isFineTuning, setIsFineTuning] = useState(false);
+  const [fineTuneOffset, setFineTuneOffset] = useState(0); // 微調時的臨時偏移量
+  const [isReloadingLyrics, setIsReloadingLyrics] = useState(false);
 
   // 固定填充高度（容器 maxHeight 500px 的一半）
   const PADDING_HEIGHT = 250;
@@ -85,10 +94,10 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     }
   }, [currentTime, timeOffset, currentLyrics, currentLineIndex, dispatch]);
 
-  // 自動滾動到當前歌詞行（只在歌詞可見時才滾動）
+  // 自動滾動到當前歌詞行（只在歌詞可見且非微調模式時滾動）
   useEffect(() => {
-    // 如果歌詞不可見，不滾動
-    if (!isLyricsVisible) return;
+    // 如果歌詞不可見或正在微調模式，不自動滾動
+    if (!isLyricsVisible || isFineTuning) return;
 
     const container = lyricsContainerRef.current;
     const line = lineRefs.current[currentLineIndex];
@@ -109,7 +118,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         behavior: 'smooth',
       });
     }
-  }, [currentLineIndex, isLyricsVisible]);
+  }, [currentLineIndex, isLyricsVisible, isFineTuning]);
 
   // 監聯歌詞容器是否可見（控制自動滾動 + 顯示「看歌詞」按鈕）
   useEffect(() => {
@@ -154,22 +163,111 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     }
   };
 
-  // 時間偏移控制（並儲存到 IndexedDB），最小單位 0.1 秒
+  // 時間偏移控制（並儲存到 IndexedDB），最小單位 0.1 秒（不限制範圍）
   const handleOffsetIncrease = () => {
     const newOffset = Math.round((timeOffset + 0.1) * 10) / 10;
     dispatch(adjustTimeOffset(0.1));
-    lyricsCacheService.setTimeOffset(track.videoId, Math.min(10, newOffset));
+    lyricsCacheService.setTimeOffset(track.videoId, newOffset);
   };
 
   const handleOffsetDecrease = () => {
     const newOffset = Math.round((timeOffset - 0.1) * 10) / 10;
     dispatch(adjustTimeOffset(-0.1));
-    lyricsCacheService.setTimeOffset(track.videoId, Math.max(-10, newOffset));
+    lyricsCacheService.setTimeOffset(track.videoId, newOffset);
   };
 
   const handleOffsetReset = () => {
     dispatch(resetTimeOffset());
     lyricsCacheService.setTimeOffset(track.videoId, 0);
+  };
+
+  // ==================== 微調模式 ====================
+
+  // 進入微調模式
+  const handleEnterFineTune = () => {
+    setFineTuneOffset(timeOffset);
+    setIsFineTuning(true);
+  };
+
+  // 取消微調
+  const handleCancelFineTune = () => {
+    setIsFineTuning(false);
+    setFineTuneOffset(0);
+  };
+
+  // 確認微調（儲存偏移量）
+  const handleConfirmFineTune = () => {
+    const newOffset = Math.round(fineTuneOffset * 10) / 10;
+    dispatch(setTimeOffset(newOffset));
+    lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+    setIsFineTuning(false);
+    console.log(`✅ 已套用時間偏移: ${newOffset}s`);
+  };
+
+  // 微調模式下滾動調整偏移
+  const handleFineTuneScroll = () => {
+    if (!isFineTuning || !currentLyrics?.isSynced || !lyricsContainerRef.current) return;
+
+    const container = lyricsContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const containerCenter = containerRect.top + containerRect.height / 2;
+
+    // 找到最接近中心的歌詞行
+    let closestIndex = -1;
+    let closestDistance = Infinity;
+
+    lineRefs.current.forEach((lineEl, index) => {
+      if (!lineEl || !currentLyrics.lines[index]) return;
+      const lineRect = lineEl.getBoundingClientRect();
+      const lineCenter = lineRect.top + lineRect.height / 2;
+      const distance = Math.abs(lineCenter - containerCenter);
+
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+
+    if (closestIndex >= 0 && currentLyrics.lines[closestIndex]) {
+      // 計算偏移量：如果歌詞行時間是 10s，當前播放時間是 8s，偏移應該是 +2s
+      // timeOffset = lineTime - currentTime
+      const lineTime = currentLyrics.lines[closestIndex].time;
+      const newOffset = lineTime - currentTime;
+      setFineTuneOffset(Math.round(newOffset * 10) / 10);
+    }
+  };
+
+  // 重新載入原始歌詞（清除快取，讓後端重新自動搜尋）
+  const handleReloadOriginalLyrics = async () => {
+    setIsReloadingLyrics(true);
+    try {
+      // 清除本地快取
+      await lyricsCacheService.delete(track.videoId);
+      // 清除偏好設定（包括 lrclibId）
+      await lyricsCacheService.clearPreference(track.videoId);
+
+      // 重新從後端獲取歌詞（後端會自動搜尋 YouTube CC, NetEase, LRCLIB, Genius）
+      const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel);
+
+      if (lyrics) {
+        // 更新本地快取
+        await lyricsCacheService.set(track.videoId, lyrics);
+        // 更新 Redux
+        dispatch(setCurrentLyrics(lyrics));
+        // 重置時間偏移
+        dispatch(resetTimeOffset());
+        console.log(`✅ 已重新載入原始歌詞 (${lyrics.source})`);
+      } else {
+        dispatch(setCurrentLyrics(null));
+        console.log('⚠️ 無法找到歌詞');
+      }
+
+      setSearchOpen(false);
+    } catch (error) {
+      console.error('Reload lyrics failed:', error);
+    } finally {
+      setIsReloadingLyrics(false);
+    }
   };
 
   // 搜尋歌詞
@@ -389,32 +487,65 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
       {/* 歌詞時間微調控制 - 只在同步歌詞時顯示 */}
       {currentLyrics?.isSynced && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="body2" color="text.secondary">
-            時間微調:
-          </Typography>
-          <Tooltip title="歌詞延後 0.1 秒">
-            <IconButton size="small" onClick={handleOffsetDecrease}>
-              <RemoveIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Chip
-            label={timeOffset === 0 ? '0s' : `${timeOffset > 0 ? '+' : ''}${timeOffset.toFixed(1)}s`}
-            size="small"
-            color={timeOffset === 0 ? 'default' : 'primary'}
-            sx={{ minWidth: 60 }}
-          />
-          <Tooltip title="歌詞提前 0.1 秒">
-            <IconButton size="small" onClick={handleOffsetIncrease}>
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          {timeOffset !== 0 && (
-            <Tooltip title="重置">
-              <IconButton size="small" onClick={handleOffsetReset}>
-                <RestartAltIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {isFineTuning ? (
+            // 微調模式 UI
+            <>
+              <Typography variant="body2" color="primary" sx={{ fontWeight: 600 }}>
+                滑動歌詞對準音樂:
+              </Typography>
+              <Chip
+                label={fineTuneOffset === 0 ? '0s' : `${fineTuneOffset > 0 ? '+' : ''}${fineTuneOffset.toFixed(1)}s`}
+                size="small"
+                color="primary"
+                sx={{ minWidth: 70 }}
+              />
+              <Tooltip title="確認套用">
+                <IconButton size="small" onClick={handleConfirmFineTune} color="success">
+                  <CheckIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="取消">
+                <IconButton size="small" onClick={handleCancelFineTune} color="error">
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </>
+          ) : (
+            // 一般模式 UI
+            <>
+              <Typography variant="body2" color="text.secondary">
+                時間微調:
+              </Typography>
+              <Tooltip title="歌詞延後 0.1 秒">
+                <IconButton size="small" onClick={handleOffsetDecrease}>
+                  <RemoveIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Chip
+                label={timeOffset === 0 ? '0s' : `${timeOffset > 0 ? '+' : ''}${timeOffset.toFixed(1)}s`}
+                size="small"
+                color={timeOffset === 0 ? 'default' : 'primary'}
+                sx={{ minWidth: 60 }}
+              />
+              <Tooltip title="歌詞提前 0.1 秒">
+                <IconButton size="small" onClick={handleOffsetIncrease}>
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {timeOffset !== 0 && (
+                <Tooltip title="重置">
+                  <IconButton size="small" onClick={handleOffsetReset}>
+                    <RestartAltIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="滑動微調模式">
+                <IconButton size="small" onClick={handleEnterFineTune} color="primary">
+                  <TuneIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </>
           )}
         </Box>
       )}
@@ -424,11 +555,30 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         id="lyrics-scroll-target"
         ref={lyricsContainerRef}
         elevation={0}
+        onScroll={isFineTuning ? handleFineTuneScroll : undefined}
         sx={{
           width: '100%',
           height: '500px',
           overflow: 'auto',
           backgroundColor: 'background.default',
+          position: 'relative',
+          // 微調模式下顯示中心指示線
+          ...(isFineTuning && {
+            '&::before': {
+              content: '""',
+              position: 'sticky',
+              top: '50%',
+              left: 0,
+              right: 0,
+              display: 'block',
+              height: '2px',
+              backgroundColor: 'primary.main',
+              opacity: 0.8,
+              zIndex: 10,
+              transform: 'translateY(-50%)',
+              pointerEvents: 'none',
+            },
+          }),
           '&::-webkit-scrollbar': {
             width: '8px',
           },
@@ -436,7 +586,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
             backgroundColor: 'background.paper',
           },
           '&::-webkit-scrollbar-thumb': {
-            backgroundColor: 'action.selected',
+            backgroundColor: isFineTuning ? 'primary.main' : 'action.selected',
             borderRadius: '4px',
           },
         }}
@@ -513,7 +663,15 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
             </Typography>
           )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ justifyContent: 'space-between' }}>
+          <Button
+            onClick={handleReloadOriginalLyrics}
+            disabled={isReloadingLyrics}
+            startIcon={isReloadingLyrics ? <CircularProgress size={16} /> : <RefreshIcon />}
+            color="secondary"
+          >
+            重新自動搜尋
+          </Button>
           <Button onClick={() => setSearchOpen(false)}>取消</Button>
         </DialogActions>
       </Dialog>

@@ -241,7 +241,7 @@ class LyricsService {
 
       // 選擇最匹配的歌曲（第一個結果通常最相關）
       const song = songs[0];
-      console.log(`🎵 [NetEase] Using song: ${song.name} by ${song.artists.map(a => a.name).join(', ')} (ID: ${song.id})`);
+      console.log(`🎵 [NetEase] Using song: ${song.name} by ${song.artists?.map(a => a.name).join(', ') || 'Unknown'} (ID: ${song.id})`);
 
       // 獲取歌詞（加入 timeout）
       const lyricResult = await withTimeout(
@@ -754,8 +754,8 @@ class LyricsService {
 
       return songs.slice(0, 20).map(song => ({
         id: song.id,
-        trackName: song.name,
-        artistName: song.artists.map(a => a.name).join(', '),
+        trackName: song.name || 'Unknown',
+        artistName: song.artists?.map(a => a.name).join(', ') || 'Unknown Artist',
         albumName: song.album?.name,
         duration: song.duration ? Math.floor(song.duration / 1000) : undefined,
         hasSyncedLyrics: true, // 網易雲通常都有同步歌詞

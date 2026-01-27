@@ -48,9 +48,9 @@ const lyricsSlice = createSlice({
       state.timeOffset = action.payload;
     },
     adjustTimeOffset(state, action: PayloadAction<number>) {
-      // 調整偏移，限制在 ±10 秒範圍內，四捨五入到小數點一位避免浮點數誤差
+      // 調整偏移，四捨五入到小數點一位避免浮點數誤差（不限制範圍）
       const newOffset = state.timeOffset + action.payload;
-      state.timeOffset = Math.round(Math.max(-10, Math.min(10, newOffset)) * 10) / 10;
+      state.timeOffset = Math.round(newOffset * 10) / 10;
     },
     resetTimeOffset(state) {
       state.timeOffset = 0;

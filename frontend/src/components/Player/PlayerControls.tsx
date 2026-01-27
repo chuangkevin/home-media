@@ -1,10 +1,11 @@
 import { useSelector } from 'react-redux';
-import { Box, IconButton, Slider, Typography, Stack } from '@mui/material';
+import { Box, IconButton, Slider, Typography, Stack, useMediaQuery, useTheme } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
 import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import VolumeDownIcon from '@mui/icons-material/VolumeDown';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import { RootState } from '../../store';
 import { formatDuration } from '../../utils/formatTime';
@@ -12,6 +13,9 @@ import { CastButton } from '../Cast';
 import { useCastingControls } from '../../hooks/useCastingControls';
 
 export default function PlayerControls() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   const { isPlaying, currentTime, duration, volume, playlist, currentIndex } = useSelector(
     (state: RootState) => state.player
   );
@@ -24,6 +28,9 @@ export default function PlayerControls() {
     handleNext,
     handlePrevious,
   } = useCastingControls();
+
+  // 根據音量顯示不同圖示
+  const VolumeIcon = volume === 0 ? VolumeOffIcon : volume < 0.5 ? VolumeDownIcon : VolumeUpIcon;
 
   const onPlayPause = () => {
     handlePlayPause(!isPlaying);
@@ -79,24 +86,26 @@ export default function PlayerControls() {
           </IconButton>
         </Box>
 
-        {/* 音量控制 */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto', minWidth: 150 }}>
+        {/* 音量控制 + 投射按鈕 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto' }}>
           <IconButton size="small" onClick={toggleMute}>
-            {volume === 0 ? <VolumeOffIcon /> : <VolumeUpIcon />}
+            <VolumeIcon />
           </IconButton>
-          <Slider
-            size="small"
-            value={volume}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={onVolumeChange}
-            sx={{ width: 100 }}
-          />
+          {/* 桌面版顯示音量滑桿 */}
+          {!isMobile && (
+            <Slider
+              size="small"
+              value={volume}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={onVolumeChange}
+              sx={{ width: 80 }}
+            />
+          )}
+          {/* 投射按鈕 */}
+          <CastButton />
         </Box>
-
-        {/* 投射按鈕 */}
-        <CastButton />
       </Stack>
     </Box>
   );
