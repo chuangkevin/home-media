@@ -3,6 +3,7 @@ import playerReducer from './playerSlice';
 import historyReducer from './historySlice';
 import recommendationReducer from './recommendationSlice';
 import lyricsReducer from './lyricsSlice';
+import castingReducer from './castingSlice';
 
 export const store = configureStore({
   reducer: {
@@ -10,9 +11,7 @@ export const store = configureStore({
     history: historyReducer,
     recommendation: recommendationReducer,
     lyrics: lyricsReducer,
-    // TODO: 加入其他 slices
-    // playlist: playlistReducer,
-    // theme: themeReducer,
+    casting: castingReducer,
   },
 });
 

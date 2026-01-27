@@ -9,6 +9,7 @@ import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import { RootState } from '../../store';
 import { setIsPlaying, seekTo, setVolume, playNext, playPrevious } from '../../store/playerSlice';
 import { formatDuration } from '../../utils/formatTime';
+import { CastButton } from '../Cast';
 
 export default function PlayerControls() {
   const dispatch = useDispatch();
@@ -94,6 +95,9 @@ export default function PlayerControls() {
             sx={{ width: 100 }}
           />
         </Box>
+
+        {/* 投射按鈕 */}
+        <CastButton />
       </Stack>
     </Box>
   );

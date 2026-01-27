@@ -11,6 +11,7 @@ import { initDatabase } from './config/database';
 import { corsMiddleware } from './middleware/cors.middleware';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import logger from './utils/logger';
+import { setupCastingHandlers } from './handlers/casting.handler';
 
 // 確保必要的目錄存在
 const ensureDirectories = () => {
@@ -102,17 +103,10 @@ app.use('/api', lyricsRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// WebSocket 連接
+// WebSocket 連接 - 遠端控制與投射
 io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id}`);
-
-  socket.on('disconnect', () => {
-    logger.info(`Client disconnected: ${socket.id}`);
-  });
-
-  // TODO: 加入 WebSocket 事件處理
-  // socket.on('playback:play', handlePlay);
-  // socket.on('playback:pause', handlePause);
+  setupCastingHandlers(io, socket);
 });
 
 // 啟動伺服器

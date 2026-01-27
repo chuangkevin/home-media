@@ -20,6 +20,7 @@ import { RootState } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
 import type { Track } from './types/track.types';
+import { useSocketConnection } from './hooks/useSocketConnection';
 
 function App() {
   const dispatch = useDispatch();
@@ -32,6 +33,9 @@ function App() {
   const [hasSearched, setHasSearched] = useState(false);
   const [isLyricsVisible, setIsLyricsVisible] = useState(true);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Socket 連線（遠端控制）
+  useSocketConnection();
 
   // 滾動到歌詞區域（直接跳到歌詞 Paper 容器，略過專輯封面和曲目資訊）
   const scrollToLyrics = useCallback(() => {
