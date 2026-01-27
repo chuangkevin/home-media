@@ -1,4 +1,4 @@
-import { useDispatch, useSelector } from 'react-redux';
+import { useSelector } from 'react-redux';
 import { Box, IconButton, Slider, Typography, Stack } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
@@ -7,39 +7,38 @@ import SkipPreviousIcon from '@mui/icons-material/SkipPrevious';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import { RootState } from '../../store';
-import { setIsPlaying, seekTo, setVolume, playNext, playPrevious } from '../../store/playerSlice';
 import { formatDuration } from '../../utils/formatTime';
 import { CastButton } from '../Cast';
+import { useCastingControls } from '../../hooks/useCastingControls';
 
 export default function PlayerControls() {
-  const dispatch = useDispatch();
   const { isPlaying, currentTime, duration, volume, playlist, currentIndex } = useSelector(
     (state: RootState) => state.player
   );
 
-  const handlePlayPause = () => {
-    dispatch(setIsPlaying(!isPlaying));
+  // 使用 casting controls - 會同時控制本地和遠端裝置
+  const {
+    handlePlayPause,
+    handleSeek,
+    handleVolume,
+    handleNext,
+    handlePrevious,
+  } = useCastingControls();
+
+  const onPlayPause = () => {
+    handlePlayPause(!isPlaying);
   };
 
-  const handleSeek = (_event: Event, value: number | number[]) => {
-    const newTime = value as number;
-    dispatch(seekTo(newTime));
+  const onSeek = (_event: Event, value: number | number[]) => {
+    handleSeek(value as number);
   };
 
-  const handleVolumeChange = (_event: Event, value: number | number[]) => {
-    dispatch(setVolume(value as number));
+  const onVolumeChange = (_event: Event, value: number | number[]) => {
+    handleVolume(value as number);
   };
 
   const toggleMute = () => {
-    dispatch(setVolume(volume > 0 ? 0 : 0.7));
-  };
-
-  const handlePrevious = () => {
-    dispatch(playPrevious());
-  };
-
-  const handleNext = () => {
-    dispatch(playNext());
+    handleVolume(volume > 0 ? 0 : 0.7);
   };
 
   // 檢查是否有上一首/下一首
@@ -57,7 +56,7 @@ export default function PlayerControls() {
           size="small"
           value={currentTime}
           max={duration || 100}
-          onChange={handleSeek}
+          onChange={onSeek}
           sx={{ flexGrow: 1 }}
         />
         <Typography variant="caption" sx={{ minWidth: 40 }}>
@@ -72,7 +71,7 @@ export default function PlayerControls() {
           <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious}>
             <SkipPreviousIcon />
           </IconButton>
-          <IconButton onClick={handlePlayPause} color="primary" size="large">
+          <IconButton onClick={onPlayPause} color="primary" size="large">
             {isPlaying ? <PauseIcon fontSize="large" /> : <PlayArrowIcon fontSize="large" />}
           </IconButton>
           <IconButton size="small" onClick={handleNext} disabled={!hasNext}>
@@ -91,7 +90,7 @@ export default function PlayerControls() {
             min={0}
             max={1}
             step={0.01}
-            onChange={handleVolumeChange}
+            onChange={onVolumeChange}
             sx={{ width: 100 }}
           />
         </Box>
