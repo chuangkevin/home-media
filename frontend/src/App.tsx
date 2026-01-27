@@ -68,10 +68,8 @@ function App() {
     try {
       const results = await apiService.searchTracks(query, 20);
 
-      // 記錄搜尋歷史
-      apiService.recordSearch(query, results.length).catch(err => {
-        console.warn('Failed to record search:', err);
-      });
+      // 記錄搜尋歷史（fire-and-forget）
+      apiService.recordSearch(query, results.length);
 
       // 設置播放列表
       dispatch(setPlaylist(results));
@@ -109,10 +107,8 @@ function App() {
   };
 
   const handlePlay = (track: Track) => {
-    // 記錄頻道觀看
-    apiService.recordChannelWatch(track.channel, track.thumbnail).catch(err => {
-      console.warn('Failed to record channel watch:', err);
-    });
+    // 記錄頻道觀看（fire-and-forget）
+    apiService.recordChannelWatch(track.channel, track.thumbnail);
 
     dispatch(setPendingTrack(track)); // 使用 pending，等載入完成才切換 UI
     dispatch(setIsPlaying(true));

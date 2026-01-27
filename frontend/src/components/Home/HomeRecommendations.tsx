@@ -144,8 +144,9 @@ export default function HomeRecommendations() {
     [loading, hasMore, dispatch]
   );
 
-  const handlePlay = async (track: Track) => {
-    await apiService.recordChannelWatch(track.channel, track.thumbnail);
+  const handlePlay = (track: Track) => {
+    // Fire-and-forget，不阻塞播放
+    apiService.recordChannelWatch(track.channel, track.thumbnail);
 
     // 找出該頻道的所有歌曲，設為 playlist（讓預載可以工作）
     const channelData = channelRecommendations.find(ch =>

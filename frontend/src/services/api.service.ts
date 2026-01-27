@@ -11,6 +11,10 @@ class ApiService {
     timeout: 30000,
   });
 
+  // 用於取消過時的歌詞請求
+  private lyricsAbortController: AbortController | null = null;
+  private searchLyricsAbortController: AbortController | null = null;
+
   /**
    * 搜尋 YouTube 音樂
    */
@@ -65,16 +69,28 @@ class ApiService {
   // ==================== 歌詞 ====================
 
   /**
-   * 獲取歌詞
+   * 獲取歌詞（支援取消過時請求）
    */
   async getLyrics(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
+    // 取消之前的歌詞請求（避免請求堆積）
+    if (this.lyricsAbortController) {
+      this.lyricsAbortController.abort();
+    }
+    this.lyricsAbortController = new AbortController();
+
     try {
       const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/${videoId}`, {
         params: { title, artist },
         timeout: 90000, // 歌詞獲取需要較長時間（嘗試多個來源：YouTube CC、網易雲、LRCLIB、Genius）
+        signal: this.lyricsAbortController.signal,
       });
       return response.data.lyrics;
     } catch (error) {
+      // 被取消的請求不需要報錯
+      if (axios.isCancel(error)) {
+        console.log(`🎵 歌詞請求已取消: ${videoId}`);
+        return null;
+      }
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         // 找不到歌詞，返回 null
         return null;
@@ -84,16 +100,27 @@ class ApiService {
   }
 
   /**
-   * 搜尋 LRCLIB 歌詞
+   * 搜尋 LRCLIB 歌詞（支援取消過時請求）
    */
   async searchLyrics(query: string): Promise<LRCLIBSearchResult[]> {
+    // 取消之前的搜尋請求
+    if (this.searchLyricsAbortController) {
+      this.searchLyricsAbortController.abort();
+    }
+    this.searchLyricsAbortController = new AbortController();
+
     try {
       const response = await this.api.get<{ query: string; count: number; results: LRCLIBSearchResult[] }>('/lyrics/search', {
         params: { q: query },
-        timeout: 45000, // 搜尋可能較慢
+        timeout: 60000, // 搜尋可能較慢（需要查詢 LRCLIB）
+        signal: this.searchLyricsAbortController.signal,
       });
       return response.data.results;
     } catch (error) {
+      if (axios.isCancel(error)) {
+        console.log(`🎵 歌詞搜尋已取消: ${query}`);
+        return [];
+      }
       console.error('Search lyrics failed:', error);
       return [];
     }
@@ -130,10 +157,11 @@ class ApiService {
   }
 
   /**
-   * 記錄搜尋
+   * 記錄搜尋（fire-and-forget，不阻塞主流程）
    */
-  async recordSearch(query: string, resultCount: number): Promise<void> {
-    await this.api.post('/history/search', { query, resultCount });
+  recordSearch(query: string, resultCount: number): void {
+    this.api.post('/history/search', { query, resultCount }, { timeout: 5000 })
+      .catch(err => console.warn('recordSearch failed:', err.message));
   }
 
   /**
@@ -154,10 +182,12 @@ class ApiService {
   }
 
   /**
-   * 記錄頻道觀看
+   * 記錄頻道觀看（fire-and-forget，不阻塞主流程）
    */
-  async recordChannelWatch(channelName: string, channelThumbnail: string = ''): Promise<void> {
-    await this.api.post('/history/channel', { channelName, channelThumbnail });
+  recordChannelWatch(channelName: string, channelThumbnail: string = ''): void {
+    // 使用較短的 timeout 並忽略錯誤，避免影響播放體驗
+    this.api.post('/history/channel', { channelName, channelThumbnail }, { timeout: 5000 })
+      .catch(err => console.warn('recordChannelWatch failed:', err.message));
   }
 
   /**
