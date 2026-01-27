@@ -27,7 +27,7 @@ jobs:
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tag: github-actions
+          tags: tag:github-actions
 
       - name: Test Tailscale Connection
         run: |
