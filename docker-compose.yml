@@ -11,8 +11,7 @@ services:
         - linux/amd64
         - linux/arm64
     container_name: home-media-backend
-    ports:
-      - "3123:3001"
+    # 不暴露外部 port，由 nginx 透過內部網路代理
     environment:
       - NODE_ENV=production
       - DB_PATH=/app/data/db/home-media.sqlite
@@ -42,7 +41,7 @@ services:
         - linux/arm64
     container_name: home-media-frontend
     ports:
-      - "80:80"
+      - "3123:80"
     depends_on:
       backend:
         condition: service_healthy
