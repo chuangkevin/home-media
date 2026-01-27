@@ -162,6 +162,16 @@ export function initDatabase() {
     )
   `);
 
+  // 歌詞偏好設定表（跨裝置同步）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lyrics_preferences (
+      video_id TEXT PRIMARY KEY,
+      time_offset REAL DEFAULT 0,
+      lrclib_id INTEGER,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
   // 為 cached_tracks 添加頻道資訊欄位（如果不存在）
   // 使用 ALTER TABLE 的安全方式
   const tableInfo = db.pragma('table_info(cached_tracks)') as Array<{ name: string }>;

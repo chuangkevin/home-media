@@ -3,6 +3,10 @@ import lyricsController from '../controllers/lyrics.controller';
 
 const router = Router();
 
+// 歌詞偏好設定（跨裝置同步）- 必須在 :videoId 之前
+router.get('/lyrics/preferences/:videoId', (req, res) => lyricsController.getPreferences(req, res));
+router.put('/lyrics/preferences/:videoId', (req, res) => lyricsController.updatePreferences(req, res));
+
 // 搜尋 LRCLIB 歌詞（必須在 :videoId 之前）
 router.get('/lyrics/search', (req, res) => lyricsController.searchLyrics(req, res));
 

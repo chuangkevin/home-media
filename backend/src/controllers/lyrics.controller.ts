@@ -4,6 +4,56 @@ import logger from '../utils/logger';
 
 export class LyricsController {
   /**
+   * GET /api/lyrics/preferences/:videoId
+   * 獲取歌詞偏好設定（時間偏移、選擇的歌詞 ID）
+   */
+  async getPreferences(req: Request, res: Response): Promise<void> {
+    try {
+      const { videoId } = req.params;
+
+      if (!videoId) {
+        res.status(400).json({ error: 'Video ID is required' });
+        return;
+      }
+
+      const preferences = await lyricsService.getPreferences(videoId);
+      res.json(preferences || { videoId, timeOffset: 0, lrclibId: null });
+    } catch (error) {
+      logger.error('Get lyrics preferences error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to get preferences',
+      });
+    }
+  }
+
+  /**
+   * PUT /api/lyrics/preferences/:videoId
+   * 更新歌詞偏好設定
+   */
+  async updatePreferences(req: Request, res: Response): Promise<void> {
+    try {
+      const { videoId } = req.params;
+      const { timeOffset, lrclibId } = req.body;
+
+      if (!videoId) {
+        res.status(400).json({ error: 'Video ID is required' });
+        return;
+      }
+
+      console.log(`💾 [Lyrics Prefs] Update: videoId=${videoId}, timeOffset=${timeOffset}, lrclibId=${lrclibId}`);
+
+      await lyricsService.updatePreferences(videoId, { timeOffset, lrclibId });
+
+      res.json({ success: true, videoId, timeOffset, lrclibId });
+    } catch (error) {
+      logger.error('Update lyrics preferences error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to update preferences',
+      });
+    }
+  }
+
+  /**
    * GET /api/lyrics/search?q=...
    * 搜尋 LRCLIB 歌詞
    */

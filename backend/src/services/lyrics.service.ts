@@ -820,6 +820,80 @@ class LyricsService {
       return null;
     }
   }
+
+  // ==================== 歌詞偏好設定（跨裝置同步）====================
+
+  /**
+   * 獲取歌詞偏好設定
+   */
+  getPreferences(videoId: string): LyricsPreferences | null {
+    try {
+      const row = db.prepare(`
+        SELECT video_id, time_offset, lrclib_id, updated_at
+        FROM lyrics_preferences
+        WHERE video_id = ?
+      `).get(videoId) as { video_id: string; time_offset: number; lrclib_id: number | null; updated_at: number } | undefined;
+
+      if (!row) {
+        return null;
+      }
+
+      return {
+        videoId: row.video_id,
+        timeOffset: row.time_offset,
+        lrclibId: row.lrclib_id,
+        updatedAt: row.updated_at,
+      };
+    } catch (error) {
+      logger.error(`獲取歌詞偏好失敗: ${videoId}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 更新歌詞偏好設定
+   */
+  updatePreferences(videoId: string, prefs: { timeOffset?: number; lrclibId?: number | null }): void {
+    try {
+      const now = Date.now();
+      const existing = this.getPreferences(videoId);
+
+      if (existing) {
+        // 更新現有記錄
+        db.prepare(`
+          UPDATE lyrics_preferences
+          SET time_offset = COALESCE(?, time_offset),
+              lrclib_id = COALESCE(?, lrclib_id),
+              updated_at = ?
+          WHERE video_id = ?
+        `).run(
+          prefs.timeOffset !== undefined ? prefs.timeOffset : null,
+          prefs.lrclibId !== undefined ? prefs.lrclibId : null,
+          now,
+          videoId
+        );
+      } else {
+        // 建立新記錄
+        db.prepare(`
+          INSERT INTO lyrics_preferences (video_id, time_offset, lrclib_id, updated_at)
+          VALUES (?, ?, ?, ?)
+        `).run(videoId, prefs.timeOffset ?? 0, prefs.lrclibId ?? null, now);
+      }
+
+      logger.info(`✅ 儲存歌詞偏好: ${videoId} offset=${prefs.timeOffset} lrclibId=${prefs.lrclibId}`);
+    } catch (error) {
+      logger.error(`儲存歌詞偏好失敗: ${videoId}`, error);
+      throw error;
+    }
+  }
+}
+
+// 歌詞偏好設定類型
+export interface LyricsPreferences {
+  videoId: string;
+  timeOffset: number;
+  lrclibId: number | null;
+  updatedAt: number;
 }
 
 // 網易雲搜尋結果（給前端顯示用）

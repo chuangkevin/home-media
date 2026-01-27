@@ -54,13 +54,30 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   // 固定填充高度（容器 maxHeight 500px 的一半）
   const PADDING_HEIGHT = 250;
 
-  // 載入儲存的偏好設定
+  // 載入儲存的偏好設定（優先使用後端 API，IndexedDB 作為離線備份）
   useEffect(() => {
     const loadPreference = async () => {
-      const pref = await lyricsCacheService.getPreference(track.videoId);
-      if (pref?.timeOffset !== undefined && pref.timeOffset !== 0) {
-        console.log(`📝 套用儲存的時間偏移: ${pref.timeOffset}s`);
-        dispatch(setTimeOffset(pref.timeOffset));
+      try {
+        // 1. 嘗試從後端 API 載入（跨裝置同步）
+        const backendPrefs = await apiService.getLyricsPreferences(track.videoId);
+        if (backendPrefs?.timeOffset !== undefined && backendPrefs.timeOffset !== 0) {
+          console.log(`📝 套用後端儲存的時間偏移: ${backendPrefs.timeOffset}s`);
+          dispatch(setTimeOffset(backendPrefs.timeOffset));
+          // 同步到本地快取（離線支援）
+          lyricsCacheService.setTimeOffset(track.videoId, backendPrefs.timeOffset);
+          return;
+        }
+      } catch (error) {
+        console.warn('後端偏好載入失敗，使用本地快取', error);
+      }
+
+      // 2. 後端沒有資料時，嘗試從本地 IndexedDB 載入（離線模式）
+      const localPref = await lyricsCacheService.getPreference(track.videoId);
+      if (localPref?.timeOffset !== undefined && localPref.timeOffset !== 0) {
+        console.log(`📝 套用本地儲存的時間偏移: ${localPref.timeOffset}s`);
+        dispatch(setTimeOffset(localPref.timeOffset));
+        // 同步到後端（如果之前是離線調整的）
+        apiService.updateLyricsPreferences(track.videoId, { timeOffset: localPref.timeOffset });
       }
     };
     loadPreference();
@@ -163,21 +180,27 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     }
   };
 
-  // 時間偏移控制（並儲存到 IndexedDB），最小單位 0.1 秒（不限制範圍）
+  // 時間偏移控制（同步儲存到後端 SQLite + 本地 IndexedDB），最小單位 0.1 秒（不限制範圍）
   const handleOffsetIncrease = () => {
     const newOffset = Math.round((timeOffset + 0.1) * 10) / 10;
     dispatch(adjustTimeOffset(0.1));
+    // 儲存到後端（跨裝置同步）和本地（離線支援）
+    apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
   };
 
   const handleOffsetDecrease = () => {
     const newOffset = Math.round((timeOffset - 0.1) * 10) / 10;
     dispatch(adjustTimeOffset(-0.1));
+    // 儲存到後端（跨裝置同步）和本地（離線支援）
+    apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
   };
 
   const handleOffsetReset = () => {
     dispatch(resetTimeOffset());
+    // 儲存到後端（跨裝置同步）和本地（離線支援）
+    apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0 });
     lyricsCacheService.setTimeOffset(track.videoId, 0);
   };
 
@@ -195,13 +218,15 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     setFineTuneOffset(0);
   };
 
-  // 確認微調（儲存偏移量）
+  // 確認微調（儲存偏移量到後端 + 本地）
   const handleConfirmFineTune = () => {
     const newOffset = Math.round(fineTuneOffset * 10) / 10;
     dispatch(setTimeOffset(newOffset));
+    // 儲存到後端（跨裝置同步）和本地（離線支援）
+    apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
     setIsFineTuning(false);
-    console.log(`✅ 已套用時間偏移: ${newOffset}s`);
+    console.log(`✅ 已套用時間偏移: ${newOffset}s (已同步)`);
   };
 
   // 微調模式下滾動調整偏移
@@ -243,8 +268,10 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     try {
       // 清除本地快取
       await lyricsCacheService.delete(track.videoId);
-      // 清除偏好設定（包括 lrclibId）
+      // 清除本地偏好設定（包括 lrclibId）
       await lyricsCacheService.clearPreference(track.videoId);
+      // 重置後端偏好（跨裝置同步）
+      apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0, lrclibId: null });
 
       // 重新從後端獲取歌詞（後端會自動搜尋 YouTube CC, NetEase, LRCLIB, Genius）
       const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel);
@@ -296,17 +323,20 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         : await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
 
       if (lyrics) {
-        // 儲存選擇（只有 LRCLIB 需要儲存 ID）
+        // 儲存選擇（LRCLIB 需要儲存 ID，同步到後端和本地）
         if (searchSource === 'lrclib') {
+          // 後端（跨裝置同步）
+          apiService.updateLyricsPreferences(track.videoId, { lrclibId: result.id });
+          // 本地（離線支援）
           await lyricsCacheService.setLrclibId(track.videoId, result.id);
         }
-        // 更新快取
+        // 更新本地快取
         await lyricsCacheService.set(track.videoId, lyrics);
         // 更新 Redux
         dispatch(setCurrentLyrics(lyrics));
         // 關閉對話框
         setSearchOpen(false);
-        console.log(`✅ 已套用歌詞 (${searchSource}): ${result.trackName} - ${result.artistName}`);
+        console.log(`✅ 已套用歌詞 (${searchSource}): ${result.trackName} - ${result.artistName} (已同步)`);
       }
     } catch (error) {
       console.error('Apply lyrics failed:', error);

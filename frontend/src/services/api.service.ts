@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { Track, SearchResponse } from '../types/track.types';
-import type { Lyrics, LyricsSearchResult, LyricsSource } from '../types/lyrics.types';
+import type { Lyrics, LyricsSearchResult, LyricsSource, LyricsPreferences } from '../types/lyrics.types';
 
 // 所有 API 請求都通過 nginx 代理 (/api)
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
@@ -161,6 +161,34 @@ class ApiService {
       }
       throw error;
     }
+  }
+
+  // ==================== 歌詞偏好（跨裝置同步）====================
+
+  /**
+   * 獲取歌詞偏好設定（時間偏移、選擇的歌詞版本）
+   */
+  async getLyricsPreferences(videoId: string): Promise<LyricsPreferences | null> {
+    try {
+      const response = await this.api.get<LyricsPreferences>(`/lyrics/preferences/${videoId}`, {
+        timeout: 5000,
+      });
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
+      console.warn('getLyricsPreferences failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 更新歌詞偏好設定（fire-and-forget，不阻塞主流程）
+   */
+  updateLyricsPreferences(videoId: string, prefs: { timeOffset?: number; lrclibId?: number | null }): void {
+    this.api.put(`/lyrics/preferences/${videoId}`, prefs, { timeout: 5000 })
+      .catch(err => console.warn('updateLyricsPreferences failed:', err.message));
   }
 
   // ==================== 歷史記錄 ====================
