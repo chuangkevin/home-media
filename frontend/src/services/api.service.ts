@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { Track, SearchResponse } from '../types/track.types';
-import type { Lyrics, LRCLIBSearchResult } from '../types/lyrics.types';
+import type { Lyrics, LyricsSearchResult, LyricsSource } from '../types/lyrics.types';
 
 // 所有 API 請求都通過 nginx 代理 (/api)
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
@@ -100,9 +100,9 @@ class ApiService {
   }
 
   /**
-   * 搜尋 LRCLIB 歌詞（支援取消過時請求）
+   * 搜尋歌詞（支援多平台：lrclib, netease）
    */
-  async searchLyrics(query: string): Promise<LRCLIBSearchResult[]> {
+  async searchLyrics(query: string, source: LyricsSource = 'lrclib'): Promise<LyricsSearchResult[]> {
     // 取消之前的搜尋請求
     if (this.searchLyricsAbortController) {
       this.searchLyricsAbortController.abort();
@@ -110,9 +110,10 @@ class ApiService {
     this.searchLyricsAbortController = new AbortController();
 
     try {
-      const response = await this.api.get<{ query: string; count: number; results: LRCLIBSearchResult[] }>('/lyrics/search', {
+      const endpoint = source === 'netease' ? '/lyrics/search/netease' : '/lyrics/search';
+      const response = await this.api.get<{ query: string; count: number; results: LyricsSearchResult[] }>(endpoint, {
         params: { q: query },
-        timeout: 60000, // 搜尋可能較慢（需要查詢 LRCLIB）
+        timeout: 60000,
         signal: this.searchLyricsAbortController.signal,
       });
       return response.data.results;
@@ -133,7 +134,25 @@ class ApiService {
     try {
       const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/lrclib/${lrclibId}`, {
         params: { videoId },
-        timeout: 45000, // 獲取歌詞可能較慢
+        timeout: 45000,
+      });
+      return response.data.lyrics;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 透過網易雲音樂 ID 獲取特定歌詞
+   */
+  async getLyricsByNeteaseId(videoId: string, neteaseId: number): Promise<Lyrics | null> {
+    try {
+      const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/netease/${neteaseId}`, {
+        params: { videoId },
+        timeout: 45000,
       });
       return response.data.lyrics;
     } catch (error) {

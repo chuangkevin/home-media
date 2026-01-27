@@ -723,6 +723,113 @@ class LyricsService {
       return null;
     }
   }
+
+  /**
+   * 搜尋網易雲音樂歌詞（讓使用者自訂關鍵字搜尋）
+   */
+  async searchNetease(query: string): Promise<NeteaseSearchResult[]> {
+    const NETEASE_TIMEOUT = 15000;
+
+    const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(`NetEase API timeout after ${ms}ms`)), ms)
+        ),
+      ]);
+    };
+
+    try {
+      console.log(`🔍 [NetEase Search] Query: "${query}"`);
+
+      const searchResult = await withTimeout(neteaseApi.search(query), NETEASE_TIMEOUT);
+
+      if (!searchResult || !searchResult.result || !searchResult.result.songs) {
+        console.log(`🔍 [NetEase Search] No results for: ${query}`);
+        return [];
+      }
+
+      const songs = searchResult.result.songs as NeteaseSongResult[];
+      console.log(`🔍 [NetEase Search] Found ${songs.length} results`);
+
+      return songs.slice(0, 20).map(song => ({
+        id: song.id,
+        trackName: song.name,
+        artistName: song.artists.map(a => a.name).join(', '),
+        albumName: song.album?.name,
+        duration: song.duration ? Math.floor(song.duration / 1000) : undefined,
+        hasSyncedLyrics: true, // 網易雲通常都有同步歌詞
+      }));
+    } catch (error) {
+      console.error(`🔍 [NetEase Search] Error:`, error);
+      logger.error(`網易雲搜尋失敗:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * 透過網易雲音樂 ID 獲取特定歌詞
+   */
+  async getLyricsByNeteaseId(videoId: string, neteaseId: number): Promise<Lyrics | null> {
+    const NETEASE_TIMEOUT = 15000;
+
+    const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(`NetEase API timeout after ${ms}ms`)), ms)
+        ),
+      ]);
+    };
+
+    try {
+      console.log(`🎵 [NetEase] Fetching lyrics by ID: ${neteaseId}`);
+
+      const lyricResult = await withTimeout(
+        neteaseApi.lyric(String(neteaseId)),
+        NETEASE_TIMEOUT
+      ) as NeteaseLyricResponse;
+
+      if (!lyricResult || !lyricResult.lrc || !lyricResult.lrc.lyric) {
+        console.log(`🎵 [NetEase] No lyrics found for ID: ${neteaseId}`);
+        return null;
+      }
+
+      const lrcContent = lyricResult.lrc.lyric;
+      const lines = this.parseLRC(lrcContent);
+
+      if (lines.length === 0) {
+        console.log(`🎵 [NetEase] Failed to parse LRC content`);
+        return null;
+      }
+
+      const lyrics: Lyrics = {
+        videoId,
+        lines,
+        source: 'netease',
+        isSynced: true,
+      };
+
+      // 儲存到快取
+      this.saveToCache(lyrics);
+      logger.info(`✅ NetEase ID ${neteaseId} 成功: ${videoId}, ${lines.length} 行`);
+      return lyrics;
+    } catch (error) {
+      console.error(`🎵 [NetEase] Error fetching ID ${neteaseId}:`, error);
+      logger.error(`網易雲 ID 獲取失敗:`, error);
+      return null;
+    }
+  }
+}
+
+// 網易雲搜尋結果（給前端顯示用）
+export interface NeteaseSearchResult {
+  id: number;
+  trackName: string;
+  artistName: string;
+  albumName?: string;
+  duration?: number;
+  hasSyncedLyrics: boolean;
 }
 
 export default new LyricsService();

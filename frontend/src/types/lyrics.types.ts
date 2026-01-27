@@ -13,8 +13,8 @@ export interface Lyrics {
   timeOffset?: number; // 使用者設定的時間偏移（秒）
 }
 
-// LRCLIB 搜尋結果
-export interface LRCLIBSearchResult {
+// 歌詞搜尋結果（通用格式，適用於 LRCLIB 和 NetEase）
+export interface LyricsSearchResult {
   id: number;
   trackName: string;
   artistName: string;
@@ -22,3 +22,9 @@ export interface LRCLIBSearchResult {
   duration?: number;
   hasSyncedLyrics: boolean;
 }
+
+// 為了向後相容，保留 LRCLIB 別名
+export type LRCLIBSearchResult = LyricsSearchResult;
+
+// 歌詞來源類型
+export type LyricsSource = 'lrclib' | 'netease';

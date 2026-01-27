@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Box, Typography, Paper, CircularProgress, Alert, IconButton, Tooltip, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, List,
-  ListItem, ListItemText, ListItemButton, InputAdornment
+  ListItem, ListItemText, ListItemButton, InputAdornment, ToggleButtonGroup, ToggleButton
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -12,7 +12,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
-import type { LRCLIBSearchResult } from '../../types/lyrics.types';
+import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
 import { seekTo } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
@@ -36,10 +36,11 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<LRCLIBSearchResult[]>([]);
+  const [searchResults, setSearchResults] = useState<LyricsSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [isLyricsVisible, setIsLyricsVisible] = useState(true); // 歌詞容器是否可見
+  const [searchSource, setSearchSource] = useState<LyricsSource>('lrclib'); // 歌詞來源
 
   // 固定填充高度（容器 maxHeight 500px 的一半）
   const PADDING_HEIGHT = 250;
@@ -176,8 +177,9 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
+    setSearchResults([]); // 清空舊結果
     try {
-      const results = await apiService.searchLyrics(searchQuery);
+      const results = await apiService.searchLyrics(searchQuery, searchSource);
       setSearchResults(results);
     } catch (error) {
       console.error('Search lyrics failed:', error);
@@ -187,25 +189,39 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   };
 
   // 選擇歌詞
-  const handleSelectLyrics = async (result: LRCLIBSearchResult) => {
+  const handleSelectLyrics = async (result: LyricsSearchResult) => {
     setIsApplying(true);
     try {
-      const lyrics = await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
+      // 根據來源使用不同的 API
+      const lyrics = searchSource === 'netease'
+        ? await apiService.getLyricsByNeteaseId(track.videoId, result.id)
+        : await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
+
       if (lyrics) {
-        // 儲存選擇
-        await lyricsCacheService.setLrclibId(track.videoId, result.id);
+        // 儲存選擇（只有 LRCLIB 需要儲存 ID）
+        if (searchSource === 'lrclib') {
+          await lyricsCacheService.setLrclibId(track.videoId, result.id);
+        }
         // 更新快取
         await lyricsCacheService.set(track.videoId, lyrics);
         // 更新 Redux
         dispatch(setCurrentLyrics(lyrics));
         // 關閉對話框
         setSearchOpen(false);
-        console.log(`✅ 已套用歌詞: ${result.trackName} - ${result.artistName}`);
+        console.log(`✅ 已套用歌詞 (${searchSource}): ${result.trackName} - ${result.artistName}`);
       }
     } catch (error) {
       console.error('Apply lyrics failed:', error);
     } finally {
       setIsApplying(false);
+    }
+  };
+
+  // 切換來源時清空結果
+  const handleSourceChange = (_: React.MouseEvent<HTMLElement>, newSource: LyricsSource | null) => {
+    if (newSource) {
+      setSearchSource(newSource);
+      setSearchResults([]); // 切換時清空結果
     }
   };
 
@@ -432,6 +448,22 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>搜尋歌詞</DialogTitle>
         <DialogContent>
+          {/* 平台選擇器 */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2, mt: 1 }}>
+            <ToggleButtonGroup
+              value={searchSource}
+              exclusive
+              onChange={handleSourceChange}
+              size="small"
+            >
+              <ToggleButton value="lrclib">
+                LRCLIB
+              </ToggleButton>
+              <ToggleButton value="netease">
+                網易雲音樂
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
           <TextField
             autoFocus
             fullWidth
@@ -439,7 +471,6 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            sx={{ mt: 1 }}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">

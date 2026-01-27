@@ -35,6 +35,77 @@ export class LyricsController {
   }
 
   /**
+   * GET /api/lyrics/search/netease?q=...
+   * 搜尋網易雲音樂歌詞
+   */
+  async searchNeteaseLyrics(req: Request, res: Response): Promise<void> {
+    try {
+      const { q } = req.query;
+
+      if (!q || typeof q !== 'string') {
+        res.status(400).json({
+          error: 'Query parameter "q" is required',
+        });
+        return;
+      }
+
+      console.log(`🔍 [Lyrics API] NetEase Search: ${q}`);
+      const results = await lyricsService.searchNetease(q);
+
+      res.json({
+        query: q,
+        source: 'netease',
+        count: results.length,
+        results,
+      });
+    } catch (error) {
+      logger.error('NetEase lyrics search error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to search NetEase lyrics',
+      });
+    }
+  }
+
+  /**
+   * GET /api/lyrics/netease/:neteaseId?videoId=...
+   * 透過網易雲音樂 ID 獲取特定歌詞
+   */
+  async getLyricsByNeteaseId(req: Request, res: Response): Promise<void> {
+    try {
+      const { neteaseId } = req.params;
+      const { videoId } = req.query;
+
+      if (!neteaseId || !videoId || typeof videoId !== 'string') {
+        res.status(400).json({
+          error: 'neteaseId and videoId are required',
+        });
+        return;
+      }
+
+      console.log(`🎵 [Lyrics API] Get NetEase ID: ${neteaseId} for video: ${videoId}`);
+      const lyrics = await lyricsService.getLyricsByNeteaseId(videoId, parseInt(neteaseId, 10));
+
+      if (!lyrics) {
+        res.status(404).json({
+          error: 'Lyrics not found',
+          neteaseId,
+        });
+        return;
+      }
+
+      res.json({
+        videoId,
+        lyrics,
+      });
+    } catch (error) {
+      logger.error('Lyrics NetEase ID error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to fetch NetEase lyrics',
+      });
+    }
+  }
+
+  /**
    * GET /api/lyrics/lrclib/:lrclibId?videoId=...
    * 透過 LRCLIB ID 獲取特定歌詞
    */
