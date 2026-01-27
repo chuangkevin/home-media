@@ -48,30 +48,54 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} "
+          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} '
             set -e
 
-            echo '📁 Navigating to deployment directory...'
-            cd ${DEPLOY_PATH}
+            # 重試函數：最多重試 3 次，每次間隔遞增
+            retry_pull() {
+              local max_attempts=3
+              local attempt=1
+              local delay=10
 
-            echo '🔄 Pulling latest Docker images...'
-            docker compose -f docker-compose.yml pull
+              while [ $attempt -le $max_attempts ]; do
+                echo "🔄 Pulling Docker images (attempt $attempt/$max_attempts)..."
+                if docker compose -f docker-compose.yml pull; then
+                  echo "✅ Pull successful!"
+                  return 0
+                fi
 
-            echo '🛑 Stopping existing containers...'
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "⚠️ Pull failed, retrying in ${delay}s..."
+                  sleep $delay
+                  delay=$((delay * 2))
+                fi
+                attempt=$((attempt + 1))
+              done
+
+              echo "❌ Pull failed after $max_attempts attempts"
+              return 1
+            }
+
+            echo "📁 Navigating to deployment directory..."
+            cd '"${DEPLOY_PATH}"'
+
+            retry_pull
+
+            echo "🛑 Stopping existing containers..."
             docker compose -f docker-compose.yml down --remove-orphans
 
-            echo '🧹 Force removing any leftover containers...'
+            echo "🧹 Force removing any leftover containers..."
             docker rm -f home-media-backend home-media-frontend 2>/dev/null || true
 
-            echo '🚀 Starting updated containers...'
+            echo "🚀 Starting updated containers..."
             docker compose -f docker-compose.yml up -d --force-recreate
 
-            echo '🧹 Cleaning up old images...'
-            docker image prune -af --filter \"until=24h\"
+            echo "🧹 Cleaning up old images..."
+            docker image prune -af --filter "until=24h"
 
-            echo '✅ Deployment completed successfully!'
+            echo "✅ Deployment completed successfully!"
             docker compose -f docker-compose.yml ps
-          "
+          '
 
       - name: Health Check
         run: |
