@@ -3,6 +3,7 @@ import https from 'https';
 import http from 'http';
 import { URL } from 'url';
 import youtubeService from '../services/youtube.service';
+import audioCacheService from '../services/audio-cache.service';
 import logger from '../utils/logger';
 
 export class YouTubeController {
@@ -72,7 +73,7 @@ export class YouTubeController {
 
   /**
    * GET /api/stream/:videoId
-   * 串流音訊 - 代理模式（支援 Range requests）
+   * 串流音訊 - 優先從伺服器快取讀取，否則代理並背景下載
    */
   async streamAudio(req: Request, res: Response): Promise<void> {
     const { videoId } = req.params;
@@ -96,7 +97,16 @@ export class YouTubeController {
           return;
         }
 
+        // 檢查伺服器端快取
+        if (audioCacheService.has(videoId)) {
+          console.log(`🎵 [Stream] Serving from server cache: ${videoId}`);
+          logger.info(`Streaming audio for video: ${videoId} from server cache`);
+          this.streamFromCache(req, res, videoId);
+          return;
+        }
+
         logger.info(`Streaming audio for video: ${videoId} via proxy (attempt ${retryCount + 1})`);
+        console.log(`🌐 [Stream] Proxying from network: ${videoId}`);
 
         // 使用 yt-dlp 獲取音訊 URL
         const audioUrl = await youtubeService.getAudioStreamUrl(videoId);
@@ -187,6 +197,20 @@ export class YouTubeController {
               res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
 
               logger.info(`Proxying audio stream for ${videoId} (status: ${proxyRes.statusCode})`);
+
+              // 背景下載到伺服器快取（不阻塞串流）
+              // 只有非 Range request 才下載完整檔案
+              if (!req.headers.range) {
+                audioCacheService.downloadAndCache(videoId, audioUrl)
+                  .then((cachePath) => {
+                    if (cachePath) {
+                      console.log(`💾 [Stream] Background cache completed: ${videoId}`);
+                    }
+                  })
+                  .catch((err) => {
+                    console.warn(`⚠️ [Stream] Background cache failed: ${videoId}`, err);
+                  });
+              }
 
               // 串流數據
               proxyRes.pipe(res);
@@ -306,6 +330,91 @@ export class YouTubeController {
       res.status(500).json({
         error: error instanceof Error ? error.message : 'Failed to preload audio',
       });
+    }
+  }
+
+  /**
+   * GET /api/cache/stats
+   * 獲取音訊快取統計
+   */
+  async getCacheStats(_req: Request, res: Response): Promise<void> {
+    try {
+      const stats = audioCacheService.getStats();
+      res.json(stats);
+    } catch (error) {
+      logger.error('Get cache stats error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to get cache stats',
+      });
+    }
+  }
+
+  /**
+   * 從伺服器快取串流音訊（支援 Range requests）
+   */
+  private streamFromCache(req: Request, res: Response, videoId: string): void {
+    const fileSize = audioCacheService.getFileSize(videoId);
+
+    if (fileSize === null) {
+      res.status(404).json({ error: 'Cache file not found' });
+      return;
+    }
+
+    const range = req.headers.range;
+
+    // 設定共用 headers
+    res.setHeader('Content-Type', 'audio/webm');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 快取 1 天
+
+    if (range) {
+      // 解析 Range header (例如: bytes=0-1024)
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      if (start >= fileSize || end >= fileSize) {
+        res.status(416).setHeader('Content-Range', `bytes */${fileSize}`);
+        res.end();
+        return;
+      }
+
+      const chunkSize = end - start + 1;
+
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+      res.setHeader('Content-Length', chunkSize);
+
+      const stream = audioCacheService.createReadStream(videoId, { start, end });
+      if (stream) {
+        stream.pipe(res);
+        stream.on('error', (error) => {
+          logger.error(`Cache stream error for ${videoId}:`, error);
+          if (!res.headersSent) {
+            res.status(500).end();
+          }
+        });
+      } else {
+        res.status(500).json({ error: 'Failed to create read stream' });
+      }
+    } else {
+      // 沒有 Range request，返回完整檔案
+      res.setHeader('Content-Length', fileSize);
+
+      const stream = audioCacheService.createReadStream(videoId);
+      if (stream) {
+        stream.pipe(res);
+        stream.on('error', (error) => {
+          logger.error(`Cache stream error for ${videoId}:`, error);
+          if (!res.headersSent) {
+            res.status(500).end();
+          }
+        });
+      } else {
+        res.status(500).json({ error: 'Failed to create read stream' });
+      }
     }
   }
 }

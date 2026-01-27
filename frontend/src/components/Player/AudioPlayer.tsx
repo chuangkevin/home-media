@@ -90,9 +90,22 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
         pendingBlobUrlRef.current = null;
 
         // 等待音訊準備好再確認切換
-        const handleCanPlay = () => {
+        // 使用多重事件監聽和 timeout fallback 確保手機端可以正常播放
+        let hasConfirmed = false;
+        let fallbackTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+        const confirmAndPlay = (eventSource: string) => {
+          if (hasConfirmed) return;
+          hasConfirmed = true;
+
+          // 清除 fallback timeout
+          if (fallbackTimeoutId) {
+            clearTimeout(fallbackTimeoutId);
+            fallbackTimeoutId = null;
+          }
+
           const shouldPlay = isPlayingRef.current;
-          console.log(`🎵 Audio ready: ${pendingTrack.title}, isPlaying: ${shouldPlay}`);
+          console.log(`🎵 Audio ready (${eventSource}): ${pendingTrack.title}, isPlaying: ${shouldPlay}`);
           setIsLoading(false);
 
           // 確認切換（UI 現在更新）
@@ -121,12 +134,33 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
           }
         };
 
+        const handleCanPlay = () => confirmAndPlay('canplay');
+        const handleCanPlayThrough = () => confirmAndPlay('canplaythrough');
+        const handleLoadedData = () => confirmAndPlay('loadeddata');
+
         const handleLoadedMetadata = () => {
           dispatch(setDuration(audio.duration));
+          // 在手機端，有時只有 loadedmetadata 會觸發，延遲 500ms 後確認
+          setTimeout(() => {
+            if (!hasConfirmed && audio.readyState >= 1) {
+              confirmAndPlay('loadedmetadata-delayed');
+            }
+          }, 500);
         };
 
+        // 多重事件監聽確保相容性（手機瀏覽器可能只觸發部分事件）
         audio.addEventListener('canplay', handleCanPlay, { once: true });
+        audio.addEventListener('canplaythrough', handleCanPlayThrough, { once: true });
+        audio.addEventListener('loadeddata', handleLoadedData, { once: true });
         audio.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+
+        // Timeout fallback：5秒後如果還沒觸發任何事件，強制確認
+        fallbackTimeoutId = setTimeout(() => {
+          if (!hasConfirmed) {
+            console.warn(`⚠️ Audio events timeout, forcing confirm: ${pendingTrack.title}`);
+            confirmAndPlay('timeout-fallback');
+          }
+        }, 5000);
 
         audio.load();
 
@@ -143,11 +177,26 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
               return;
             }
 
-            // 檢查使用者是否有儲存特定的 LRCLIB 歌詞選擇
-            const pref = await lyricsCacheService.getPreference(videoId);
-            if (pref?.lrclibId) {
-              console.log(`📝 使用儲存的 LRCLIB ID: ${pref.lrclibId}`);
-              const lrcLibLyrics = await apiService.getLyricsByLRCLIBId(videoId, pref.lrclibId);
+            // 檢查使用者是否有儲存特定的歌詞選擇（優先從後端 API 獲取，跨裝置同步）
+            let lrclibId: number | null = null;
+            try {
+              const backendPrefs = await apiService.getLyricsPreferences(videoId);
+              if (backendPrefs?.lrclibId) {
+                lrclibId = backendPrefs.lrclibId;
+                console.log(`📝 從後端獲取 LRCLIB ID: ${lrclibId}`);
+              }
+            } catch {
+              // 後端獲取失敗，fallback 到本地
+              const localPref = await lyricsCacheService.getPreference(videoId);
+              if (localPref?.lrclibId) {
+                lrclibId = localPref.lrclibId;
+                console.log(`📝 從本地快取獲取 LRCLIB ID: ${lrclibId}`);
+              }
+            }
+
+            if (lrclibId) {
+              console.log(`📝 使用儲存的 LRCLIB ID: ${lrclibId}`);
+              const lrcLibLyrics = await apiService.getLyricsByLRCLIBId(videoId, lrclibId);
               if (lrcLibLyrics) {
                 console.log(`📝 歌詞從 LRCLIB ID 載入: ${pendingTrack.title}`);
                 dispatch(setCurrentLyrics(lrcLibLyrics));

@@ -18,4 +18,7 @@ router.post('/preload/:videoId', (req, res) => youtubeController.preloadAudio(re
 // 預加載音訊（等待完成，用於第一首）
 router.post('/preload-wait/:videoId', (req, res) => youtubeController.preloadAudioWait(req, res));
 
+// 獲取音訊快取統計
+router.get('/cache/stats', (req, res) => youtubeController.getCacheStats(req, res));
+
 export default router;
