@@ -16,4 +16,7 @@ router.delete('/history/channels', (req, res) => historyController.clearChannelH
 // 統計資訊
 router.get('/history/stats', (req, res) => historyController.getStats(req, res));
 
+// 健康檢查（資料庫診斷）
+router.get('/history/health', (req, res) => historyController.checkHealth(req, res));
+
 export default router;

@@ -7,16 +7,33 @@ import config from './environment';
 // 確保資料庫目錄存在
 const dbDir = path.dirname(config.database.path);
 if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+  try {
+    fs.mkdirSync(dbDir, { recursive: true });
+    console.log(`✅ Created database directory: ${dbDir}`);
+  } catch (err) {
+    console.error(`❌ Failed to create database directory: ${dbDir}`, err);
+  }
 }
 
 // 建立資料庫連接
-export const db: BetterSqlite3.Database = new Database(config.database.path, {
-  verbose: config.env === 'development' ? console.log : undefined,
-});
+let db: BetterSqlite3.Database;
 
-// 啟用 WAL 模式以提升並發性能
-db.pragma('journal_mode = WAL');
+try {
+  console.log(`📂 Opening database at: ${config.database.path}`);
+  db = new Database(config.database.path, {
+    verbose: config.env === 'development' ? console.log : undefined,
+  });
+
+  // 啟用 WAL 模式以提升並發性能
+  db.pragma('journal_mode = WAL');
+  console.log('✅ Database connection established');
+} catch (err) {
+  console.error('❌ Failed to open database:', err);
+  // 創建一個空的 mock 來避免應用崩潰，但所有操作會失敗
+  throw new Error(`Database initialization failed: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+export { db };
 
 // 初始化資料庫 schema
 export function initDatabase() {
@@ -133,6 +150,18 @@ export function initDatabase() {
     )
   `);
 
+  // 搜尋結果快取表（1小時）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS search_results_cache (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      results_json TEXT NOT NULL,
+      result_count INTEGER NOT NULL,
+      cached_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    )
+  `);
+
   // 為 cached_tracks 添加頻道資訊欄位（如果不存在）
   // 使用 ALTER TABLE 的安全方式
   const tableInfo = db.pragma('table_info(cached_tracks)') as Array<{ name: string }>;
@@ -153,6 +182,7 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_watched_channels_count ON watched_channels(watch_count DESC);
     CREATE INDEX IF NOT EXISTS idx_channel_cache ON channel_videos_cache(channel_name, cached_at DESC);
     CREATE INDEX IF NOT EXISTS idx_recommendations_cache ON recommendations_cache(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_search_results_cache ON search_results_cache(query, expires_at);
   `);
 
   console.log('✅ Database initialized successfully');

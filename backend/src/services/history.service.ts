@@ -14,6 +14,11 @@ class HistoryService {
    */
   recordSearch(query: string, resultCount: number): void {
     try {
+      // 檢查資料庫連接
+      if (!db) {
+        throw new Error('Database connection not available');
+      }
+
       const now = Date.now();
       const existingRecord = db.prepare(
         'SELECT * FROM search_history WHERE query = ?'
@@ -43,6 +48,8 @@ class HistoryService {
       }
     } catch (error) {
       logger.error('Failed to record search history:', error);
+      // 重新拋出錯誤讓 controller 處理
+      throw error;
     }
   }
 

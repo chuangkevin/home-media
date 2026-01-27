@@ -11,11 +11,22 @@ interface CachedUrl {
 class YouTubeService {
   private urlCache: Map<string, CachedUrl> = new Map();
   private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
+  private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 小時（搜尋結果快取）
+
   /**
    * 搜尋 YouTube 影片（使用 yt-dlp，支援中文標題）
+   * 包含搜尋結果快取以提升效能
    */
   async search(query: string, limit: number = 20): Promise<YouTubeSearchResult[]> {
     try {
+      // 檢查搜尋結果快取
+      const cached = this.getCachedSearchResults(query);
+      if (cached && cached.length > 0) {
+        console.log(`✅ 使用搜尋快取: "${query}" (${cached.length} 個結果)`);
+        logger.info(`Using cached search results for: ${query}`);
+        return cached;
+      }
+
       console.log(`🔍 搜尋: ${query}`);
       logger.info(`Searching YouTube for: ${query}`);
 
@@ -58,6 +69,11 @@ class YouTubeService {
         uploadedAt: video.upload_date,
       }));
 
+      // 快取搜尋結果
+      if (tracks.length > 0) {
+        this.cacheSearchResults(query, tracks);
+      }
+
       console.log(`✅ 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
       logger.info(`Found ${tracks.length} results for: ${query} in ${searchTime}s`);
       return tracks;
@@ -65,6 +81,72 @@ class YouTubeService {
       console.error(`❌ 搜尋失敗:`, error);
       logger.error('YouTube search error:', error);
       throw new Error(`Failed to search YouTube: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * 從資料庫獲取快取的搜尋結果
+   */
+  private getCachedSearchResults(query: string): YouTubeSearchResult[] | null {
+    try {
+      const { db } = require('../config/database');
+      const now = Date.now();
+
+      const result = db.prepare(
+        `SELECT results_json FROM search_results_cache
+         WHERE query = ? AND expires_at > ?
+         LIMIT 1`
+      ).get(query.toLowerCase(), now) as { results_json: string } | undefined;
+
+      if (result) {
+        return JSON.parse(result.results_json);
+      }
+      return null;
+    } catch (error) {
+      logger.warn('Failed to get cached search results:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 快取搜尋結果到資料庫
+   */
+  private cacheSearchResults(query: string, results: YouTubeSearchResult[]): void {
+    try {
+      const { db } = require('../config/database');
+      const now = Date.now();
+      const expiresAt = now + this.SEARCH_CACHE_TTL;
+      const id = `search_${query.toLowerCase()}_${now}`;
+
+      db.prepare(
+        `INSERT OR REPLACE INTO search_results_cache
+         (id, query, results_json, result_count, cached_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(id, query.toLowerCase(), JSON.stringify(results), results.length, now, expiresAt);
+
+      logger.info(`Cached search results for: ${query} (${results.length} results)`);
+    } catch (error) {
+      logger.warn('Failed to cache search results:', error);
+    }
+  }
+
+  /**
+   * 清理過期的搜尋結果快取
+   */
+  cleanExpiredSearchCache(): void {
+    try {
+      const { db } = require('../config/database');
+      const now = Date.now();
+
+      const result = db.prepare(
+        'DELETE FROM search_results_cache WHERE expires_at <= ?'
+      ).run(now);
+
+      if (result.changes > 0) {
+        logger.info(`Cleaned ${result.changes} expired search cache entries`);
+      }
+    } catch (error) {
+      logger.warn('Failed to clean expired search cache:', error);
     }
   }
 

@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
 import historyService from '../services/history.service';
+import { db } from '../config/database';
+import config from '../config/environment';
 import logger from '../utils/logger';
+import fs from 'fs';
 
 /**
  * 歷史記錄控制器
@@ -172,6 +175,51 @@ export class HistoryController {
       logger.error('Get history stats error:', error);
       res.status(500).json({
         error: error instanceof Error ? error.message : 'Failed to get stats',
+      });
+    }
+  }
+
+  /**
+   * GET /api/history/health
+   * 檢查資料庫健康狀態
+   */
+  async checkHealth(_req: Request, res: Response): Promise<void> {
+    try {
+      const dbPath = config.database.path;
+      const dbExists = fs.existsSync(dbPath);
+      const dbDir = require('path').dirname(dbPath);
+      const dirExists = fs.existsSync(dbDir);
+
+      // 檢查資料庫是否可用
+      let dbOk = false;
+      let tableCount = 0;
+      let errorMessage = '';
+
+      try {
+        const result = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[];
+        tableCount = result.length;
+        dbOk = true;
+      } catch (e) {
+        errorMessage = e instanceof Error ? e.message : String(e);
+      }
+
+      res.json({
+        status: dbOk ? 'ok' : 'error',
+        database: {
+          path: dbPath,
+          dirExists,
+          fileExists: dbExists,
+          accessible: dbOk,
+          tableCount,
+          error: errorMessage || undefined,
+        },
+        environment: config.env,
+      });
+    } catch (error) {
+      logger.error('Health check error:', error);
+      res.status(500).json({
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Health check failed',
       });
     }
   }
