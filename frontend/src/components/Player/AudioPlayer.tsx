@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, confirmPendingTrack, cancelPendingTrack } from '../../store/playerSlice';
@@ -20,6 +21,7 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
   const audioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const [isLoading, setIsLoading] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const currentVideoIdRef = useRef<string | null>(null);
   const currentBlobUrlRef = useRef<string | null>(null);
   const pendingBlobUrlRef = useRef<string | null>(null);
@@ -109,7 +111,12 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
             console.log(`▶️ Auto-playing: ${pendingTrack.title}`);
             audio.play().catch((error) => {
               console.error('Failed to auto-play:', error);
-              dispatch(setIsPlaying(false));
+              if (error.name === 'NotAllowedError') {
+                // 瀏覽器阻擋自動播放，顯示點擊播放按鈕
+                setAutoplayBlocked(true);
+              } else {
+                dispatch(setIsPlaying(false));
+              }
             });
           }
         };
@@ -202,14 +209,22 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
         if (audio.readyState >= 2) {
           audio.play().catch((error) => {
             console.error('Failed to play:', error);
-            dispatch(setIsPlaying(false));
+            if (error.name === 'NotAllowedError') {
+              setAutoplayBlocked(true);
+            } else {
+              dispatch(setIsPlaying(false));
+            }
           });
         } else {
           // 如果音訊還沒準備好，等待 canplay 事件
           const playWhenReady = () => {
             audio.play().catch((error) => {
               console.error('Failed to play:', error);
-              dispatch(setIsPlaying(false));
+              if (error.name === 'NotAllowedError') {
+                setAutoplayBlocked(true);
+              } else {
+                dispatch(setIsPlaying(false));
+              }
             });
           };
           audio.addEventListener('canplay', playWhenReady, { once: true });
@@ -357,8 +372,37 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
             <PlayerControls />
           </Box>
 
+          {/* 點擊播放按鈕 - 當自動播放被阻擋時顯示 */}
+          {autoplayBlocked && (
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={<PlayArrowIcon />}
+              onClick={() => {
+                if (audioRef.current) {
+                  audioRef.current.play().then(() => {
+                    setAutoplayBlocked(false);
+                  }).catch(console.error);
+                }
+              }}
+              sx={{
+                ml: 2,
+                whiteSpace: 'nowrap',
+                animation: 'pulse 1.5s infinite',
+                '@keyframes pulse': {
+                  '0%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0.7)' },
+                  '70%': { boxShadow: '0 0 0 10px rgba(25, 118, 210, 0)' },
+                  '100%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0)' },
+                },
+              }}
+            >
+              點擊播放
+            </Button>
+          )}
+
           {/* 看歌詞按鈕 - 當歌詞區域不可見時顯示 */}
-          {showLyricsButton && onScrollToLyrics && (
+          {showLyricsButton && onScrollToLyrics && !autoplayBlocked && (
             <Button
               variant="contained"
               size="small"
