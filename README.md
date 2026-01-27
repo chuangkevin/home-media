@@ -7,7 +7,7 @@
 - ✅ **純爬蟲技術** - 使用 ytdl-core 和 youtube-sr，無需 YouTube API Key
 - ✅ **無廣告音訊** - 直接提取純音訊串流，過濾所有廣告
 - ✅ **線上串流優先** - 即時播放，背景自動快取
-- ✅ **智慧快取** - Session cache，最多保留 50 首，自動 LRU 淘汰
+- ✅ **智慧快取** - Session cache，最多保留 400 首 (~2GB)，自動 LRU 淘汰
 - ✅ **歌詞同步滾動** - 支援 YouTube CC、Genius、Musixmatch
 - ✅ **音訊視覺化** - 即時頻譜分析與動態視覺效果
 - ✅ **曲風主題** - 根據音樂類型自動切換 UI 主題
@@ -33,22 +33,36 @@
 ### 部署
 - **Docker** + **docker-compose**
 - **Nginx** - 反向代理
+- **GitHub Actions** - 自動建置並推送至 DockerHub
 
 ## 🚀 快速開始
 
-### 使用 Docker (推薦)
+### Raspberry Pi 部署 (推薦)
+
+DockerHub 上已有預建映像檔 (支援 arm64)：
+
+```bash
+# 下載 docker-compose.yml
+curl -O https://raw.githubusercontent.com/chuangkevin/home-media/main/docker-compose.yml
+
+# 啟動服務
+docker compose up -d
+
+# 存取應用
+# http://<your-rpi-ip>:3123
+```
+
+### 本機 Docker 開發
 
 ```bash
 # Clone 專案
-git clone <repo-url>
+git clone https://github.com/chuangkevin/home-media.git
 cd home-media
 
-# 啟動容器
-docker-compose up -d
+# 建置並啟動
+docker compose up -d --build
 
-# 存取應用
-# 前端: http://localhost:5173
-# 後端 API: http://localhost:3001
+# 存取應用: http://localhost:3123
 ```
 
 ### 本地開發
@@ -118,7 +132,7 @@ home-media/
 - [x] 階段 7: Session 快取系統 (前端 IndexedDB 200首/2GB)
 - [ ] 階段 8: 遠端控制
 - [ ] 階段 9: 優化與測試
-- [ ] 階段 10: 部署
+- [x] 階段 10: Docker 部署 + GitHub Actions CI/CD
 
 ## 📋 待辦事項 (TODO)
 
