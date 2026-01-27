@@ -58,6 +58,7 @@ import youtubeRoutes from './routes/youtube.routes';
 import historyRoutes from './routes/history.routes';
 import recommendationRoutes from './routes/recommendation.routes';
 import lyricsRoutes from './routes/lyrics.routes';
+import playlistRoutes from './routes/playlist.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -80,6 +81,12 @@ app.get('/api', (_req, res) => {
         channelVideos: '/api/recommendations/channel/:channelName',
         stats: '/api/recommendations/stats',
       },
+      playlists: {
+        list: '/api/playlists',
+        detail: '/api/playlists/:id',
+        addTrack: '/api/playlists/:id/tracks',
+        removeTrack: '/api/playlists/:id/tracks/:trackId',
+      },
     },
   });
 });
@@ -96,8 +103,8 @@ app.use('/api', recommendationRoutes);
 // Lyrics routes
 app.use('/api', lyricsRoutes);
 
-// TODO: 加入其他路由
-// app.use('/api/playlists', playlistRoutes);
+// Playlist routes
+app.use('/api', playlistRoutes);
 
 // Error handlers
 app.use(notFoundHandler);

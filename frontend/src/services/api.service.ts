@@ -272,6 +272,104 @@ class ApiService {
   async refreshRecommendations(): Promise<void> {
     await this.api.post('/recommendations/refresh');
   }
+
+  // ==================== 播放清單 ====================
+
+  /**
+   * 獲取所有播放清單
+   */
+  async getPlaylists(): Promise<Playlist[]> {
+    const response = await this.api.get<{ playlists: Playlist[] }>('/playlists');
+    return response.data.playlists;
+  }
+
+  /**
+   * 獲取單一播放清單（含曲目）
+   */
+  async getPlaylist(playlistId: string): Promise<PlaylistWithTracks | null> {
+    try {
+      const response = await this.api.get<PlaylistWithTracks>(`/playlists/${playlistId}`);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 建立播放清單
+   */
+  async createPlaylist(name: string, description?: string): Promise<Playlist> {
+    const response = await this.api.post<Playlist>('/playlists', { name, description });
+    return response.data;
+  }
+
+  /**
+   * 更新播放清單資訊
+   */
+  async updatePlaylist(playlistId: string, name?: string, description?: string): Promise<void> {
+    await this.api.put(`/playlists/${playlistId}`, { name, description });
+  }
+
+  /**
+   * 刪除播放清單
+   */
+  async deletePlaylist(playlistId: string): Promise<void> {
+    await this.api.delete(`/playlists/${playlistId}`);
+  }
+
+  /**
+   * 新增曲目到播放清單
+   */
+  async addTrackToPlaylist(playlistId: string, track: Track): Promise<void> {
+    await this.api.post(`/playlists/${playlistId}/tracks`, { track });
+  }
+
+  /**
+   * 批量新增曲目到播放清單
+   */
+  async addTracksToPlaylist(playlistId: string, tracks: Track[]): Promise<number> {
+    const response = await this.api.post<{ success: boolean; added: number }>(`/playlists/${playlistId}/tracks/batch`, { tracks });
+    return response.data.added;
+  }
+
+  /**
+   * 從播放清單移除曲目
+   */
+  async removeTrackFromPlaylist(playlistId: string, trackId: string): Promise<void> {
+    await this.api.delete(`/playlists/${playlistId}/tracks/${trackId}`);
+  }
+
+  /**
+   * 移動曲目位置
+   */
+  async moveTrackInPlaylist(playlistId: string, trackId: string, position: number): Promise<void> {
+    await this.api.put(`/playlists/${playlistId}/tracks/${trackId}/move`, { position });
+  }
+
+  /**
+   * 清空播放清單
+   */
+  async clearPlaylist(playlistId: string): Promise<number> {
+    const response = await this.api.delete<{ success: boolean; removed: number }>(`/playlists/${playlistId}/tracks`);
+    return response.data.removed;
+  }
+}
+
+// 播放清單型別
+export interface Playlist {
+  id: string;
+  name: string;
+  description?: string;
+  trackCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PlaylistWithTracks extends Playlist {
+  tracks: Track[];
 }
 
 export default new ApiService();

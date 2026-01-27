@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Box,
   Card,
@@ -10,8 +11,10 @@ import {
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AddIcon from '@mui/icons-material/Add';
+import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import type { Track } from '../../types/track.types';
 import { formatDuration, formatNumber } from '../../utils/formatTime';
+import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
 
 interface SearchResultsProps {
   results: Track[];
@@ -26,6 +29,19 @@ export default function SearchResults({
   onAddToQueue,
   currentTrackId,
 }: SearchResultsProps) {
+  const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null);
+  const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
+
+  const handleOpenPlaylistMenu = (event: React.MouseEvent<HTMLElement>, track: Track) => {
+    setPlaylistMenuAnchor(event.currentTarget);
+    setSelectedTrack(track);
+  };
+
+  const handleClosePlaylistMenu = () => {
+    setPlaylistMenuAnchor(null);
+    setSelectedTrack(null);
+  };
+
   if (results.length === 0) {
     return (
       <Box sx={{ textAlign: 'center', py: 8 }}>
@@ -118,15 +134,32 @@ export default function SearchResults({
                 <IconButton
                   color="default"
                   onClick={() => onAddToQueue(track)}
-                  sx={{ ml: 1 }}
+                  title="加入佇列"
                 >
                   <AddIcon />
                 </IconButton>
               )}
+              <IconButton
+                color="default"
+                onClick={(e) => handleOpenPlaylistMenu(e, track)}
+                title="加入播放清單"
+              >
+                <PlaylistAddIcon />
+              </IconButton>
             </Box>
           </Card>
         </Grid>
       ))}
+
+      {/* 加入播放清單選單 */}
+      {selectedTrack && (
+        <AddToPlaylistMenu
+          anchorEl={playlistMenuAnchor}
+          open={Boolean(playlistMenuAnchor)}
+          track={selectedTrack}
+          onClose={handleClosePlaylistMenu}
+        />
+      )}
     </Grid>
   );
 }

@@ -6,7 +6,11 @@ import {
   Typography,
   Alert,
   CircularProgress,
+  Tabs,
+  Tab,
 } from '@mui/material';
+import HomeIcon from '@mui/icons-material/Home';
+import QueueMusicIcon from '@mui/icons-material/QueueMusic';
 import SearchBar from './components/Search/SearchBar';
 import SearchResults from './components/Search/SearchResults';
 import AudioPlayer from './components/Player/AudioPlayer';
@@ -15,6 +19,7 @@ import VideoPlayer from './components/Player/VideoPlayer';
 import LyricsView from './components/Player/LyricsView';
 import VisualizerView from './components/Player/VisualizerView';
 import HomeRecommendations from './components/Home/HomeRecommendations';
+import PlaylistSection from './components/Playlist/PlaylistSection';
 import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
 import { RootState } from './store';
 import apiService from './services/api.service';
@@ -32,6 +37,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [isLyricsVisible, setIsLyricsVisible] = useState(true);
+  const [homeTab, setHomeTab] = useState(0); // 0: 首頁推薦, 1: 播放清單
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
 
   // Socket 連線（遠端控制）
@@ -174,8 +180,22 @@ function App() {
           />
         )}
 
-        {/* 首頁推薦 */}
-        {!loading && !hasSearched && <HomeRecommendations />}
+        {/* 首頁內容（未搜尋時顯示） */}
+        {!loading && !hasSearched && (
+          <>
+            <Tabs
+              value={homeTab}
+              onChange={(_, newValue) => setHomeTab(newValue)}
+              centered
+              sx={{ mb: 3 }}
+            >
+              <Tab icon={<HomeIcon />} label="首頁推薦" />
+              <Tab icon={<QueueMusicIcon />} label="播放清單" />
+            </Tabs>
+            {homeTab === 0 && <HomeRecommendations />}
+            {homeTab === 1 && <PlaylistSection />}
+          </>
+        )}
       </Container>
 
       {/* 播放器（固定在底部）*/}
