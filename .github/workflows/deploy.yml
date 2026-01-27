@@ -1,0 +1,99 @@
+name: Deploy to Server via Tailscale
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Docker Images"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:  # 允許手動觸發
+
+env:
+  DOCKERHUB_USERNAME: kevin950805
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # 只在 CI 成功後執行
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Test Tailscale Connection
+        run: |
+          echo "Testing connection to deployment server..."
+          tailscale status
+          ping -c 3 ${{ secrets.DEPLOY_SERVER_IP }}
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.DEPLOY_SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy via SSH
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} "
+            set -e
+
+            echo '📁 Navigating to deployment directory...'
+            cd ${DEPLOY_PATH}
+
+            echo '🔄 Pulling latest Docker images...'
+            docker compose -f docker-compose.yml pull
+
+            echo '🛑 Stopping existing containers...'
+            docker compose -f docker-compose.yml down
+
+            echo '🚀 Starting updated containers...'
+            docker compose -f docker-compose.yml up -d
+
+            echo '🧹 Cleaning up old images...'
+            docker image prune -af --filter \"until=24h\"
+
+            echo '✅ Deployment completed successfully!'
+            docker compose -f docker-compose.yml ps
+          "
+
+      - name: Health Check
+        run: |
+          echo "🏥 Performing health check..."
+          sleep 10
+
+          # 檢查 backend health
+          curl -f http://${{ secrets.DEPLOY_SERVER_IP }}:3001/health || exit 1
+
+          echo "✅ Health check passed!"
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Server**: \`${{ secrets.DEPLOY_SERVER_IP }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Images**:" >> $GITHUB_STEP_SUMMARY
+          echo "  - Frontend: \`${{ env.DOCKERHUB_USERNAME }}/home-media-frontend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "  - Backend: \`${{ env.DOCKERHUB_USERNAME }}/home-media-backend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployed at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed! Please check the logs above." >> $GITHUB_STEP_SUMMARY
