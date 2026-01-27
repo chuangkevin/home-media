@@ -15,6 +15,9 @@ export function useCastingControls() {
   const { isController, castTargets } = useSelector(
     (state: RootState) => state.casting
   );
+  const { playlist, currentIndex, isPlaying } = useSelector(
+    (state: RootState) => state.player
+  );
 
   const handlePlayPause = useCallback(
     (playing: boolean) => {
@@ -48,17 +51,27 @@ export function useCastingControls() {
 
   const handleNext = useCallback(() => {
     dispatch(playNext());
+    // 投射時發送下一首曲目到目標裝置
     if (isController && castTargets.length > 0) {
-      socketService.sendCommand(castTargets, 'next');
+      const nextIndex = currentIndex + 1;
+      if (nextIndex < playlist.length) {
+        const nextTrack = playlist[nextIndex];
+        socketService.startCast(castTargets, nextTrack, 0, isPlaying);
+      }
     }
-  }, [dispatch, isController, castTargets]);
+  }, [dispatch, isController, castTargets, playlist, currentIndex, isPlaying]);
 
   const handlePrevious = useCallback(() => {
     dispatch(playPrevious());
+    // 投射時發送上一首曲目到目標裝置
     if (isController && castTargets.length > 0) {
-      socketService.sendCommand(castTargets, 'previous');
+      const prevIndex = currentIndex - 1;
+      if (prevIndex >= 0) {
+        const prevTrack = playlist[prevIndex];
+        socketService.startCast(castTargets, prevTrack, 0, isPlaying);
+      }
     }
-  }, [dispatch, isController, castTargets]);
+  }, [dispatch, isController, castTargets, playlist, currentIndex, isPlaying]);
 
   return {
     handlePlayPause,
