@@ -58,10 +58,13 @@ jobs:
             docker compose -f docker-compose.yml pull
 
             echo '🛑 Stopping existing containers...'
-            docker compose -f docker-compose.yml down
+            docker compose -f docker-compose.yml down --remove-orphans
+
+            echo '🧹 Force removing any leftover containers...'
+            docker rm -f home-media-backend home-media-frontend 2>/dev/null || true
 
             echo '🚀 Starting updated containers...'
-            docker compose -f docker-compose.yml up -d
+            docker compose -f docker-compose.yml up -d --force-recreate
 
             echo '🧹 Cleaning up old images...'
             docker image prune -af --filter \"until=24h\"

@@ -350,10 +350,18 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 0.5 }}>
           {currentLyrics && (
-            <Typography variant="caption" color="text.secondary">
-              歌詞來源: {currentLyrics.source === 'youtube' ? 'YouTube CC' : currentLyrics.source}
-              {currentLyrics.isSynced ? ' (同步)' : ' (純文字)'}
-            </Typography>
+            <Chip
+              label={`${
+                currentLyrics.source === 'youtube' ? 'YouTube CC' :
+                currentLyrics.source === 'netease' ? '網易雲音樂' :
+                currentLyrics.source === 'lrclib' ? 'LRCLIB' :
+                currentLyrics.source === 'genius' ? 'Genius' :
+                currentLyrics.source
+              } ${currentLyrics.isSynced ? '(同步)' : '(純文字)'}`}
+              size="small"
+              color={currentLyrics.isSynced ? 'primary' : 'default'}
+              variant="outlined"
+            />
           )}
           <Tooltip title="搜尋其他歌詞">
             <IconButton size="small" onClick={handleOpenSearch}>

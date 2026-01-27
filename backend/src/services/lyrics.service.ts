@@ -209,6 +209,18 @@ class LyricsService {
     title: string,
     artist?: string
   ): Promise<Lyrics | null> {
+    // 設定 15 秒 timeout
+    const NETEASE_TIMEOUT = 15000;
+
+    const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(`NetEase API timeout after ${ms}ms`)), ms)
+        ),
+      ]);
+    };
+
     try {
       const cleanTitle = this.cleanSongTitle(title);
       const cleanArtist = artist ? this.cleanArtistName(artist) : '';
@@ -216,8 +228,8 @@ class LyricsService {
 
       console.log(`🎵 [NetEase] Searching: "${searchQuery}"`);
 
-      // 搜尋歌曲
-      const searchResult = await neteaseApi.search(searchQuery);
+      // 搜尋歌曲（加入 timeout）
+      const searchResult = await withTimeout(neteaseApi.search(searchQuery), NETEASE_TIMEOUT);
 
       if (!searchResult || !searchResult.result || !searchResult.result.songs || searchResult.result.songs.length === 0) {
         console.log(`🎵 [NetEase] No songs found for: ${searchQuery}`);
@@ -231,8 +243,11 @@ class LyricsService {
       const song = songs[0];
       console.log(`🎵 [NetEase] Using song: ${song.name} by ${song.artists.map(a => a.name).join(', ')} (ID: ${song.id})`);
 
-      // 獲取歌詞
-      const lyricResult = await neteaseApi.lyric(String(song.id)) as NeteaseLyricResponse;
+      // 獲取歌詞（加入 timeout）
+      const lyricResult = await withTimeout(
+        neteaseApi.lyric(String(song.id)),
+        NETEASE_TIMEOUT
+      ) as NeteaseLyricResponse;
 
       if (!lyricResult || !lyricResult.lrc || !lyricResult.lrc.lyric) {
         console.log(`🎵 [NetEase] No lyrics found for song ID: ${song.id}`);

@@ -71,7 +71,7 @@ class ApiService {
     try {
       const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/${videoId}`, {
         params: { title, artist },
-        timeout: 45000, // 歌詞獲取需要較長時間（yt-dlp 獲取字幕）
+        timeout: 90000, // 歌詞獲取需要較長時間（嘗試多個來源：YouTube CC、網易雲、LRCLIB、Genius）
       });
       return response.data.lyrics;
     } catch (error) {
