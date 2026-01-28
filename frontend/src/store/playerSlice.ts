@@ -31,7 +31,7 @@ const initialState: PlayerState = {
   queue: [],
   repeat: 'all', // 預設循環播放整個列表
   shuffle: false,
-  displayMode: 'video', // 預設顯示影片模式
+  displayMode: 'visualizer', // 預設顯示視覺化模式（影片模式有 YouTube 嵌入限制）
   seekTarget: null,
   playlist: [],
   currentIndex: -1,
