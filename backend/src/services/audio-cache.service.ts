@@ -23,8 +23,19 @@ interface CacheEntry {
   lastAccessed: number;
 }
 
+// 下載進度追蹤
+interface DownloadProgress {
+  videoId: string;
+  downloadedBytes: number;
+  totalBytes: number | null;
+  percentage: number;
+  status: 'downloading' | 'completed' | 'failed';
+  startedAt: number;
+}
+
 class AudioCacheService {
   private downloadingMap = new Map<string, Promise<string | null>>(); // 正在下載的任務
+  private downloadProgressMap = new Map<string, DownloadProgress>(); // 下載進度追蹤
 
   /**
    * 獲取快取檔案路徑
@@ -131,15 +142,68 @@ class AudioCacheService {
   }
 
   /**
-   * 執行下載
+   * 執行下載（支援重試）
    */
   private async doDownload(videoId: string, audioUrl: string): Promise<string | null> {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [1000, 3000, 5000]; // 1秒, 3秒, 5秒
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        const delay = RETRY_DELAYS[attempt - 1] || 5000;
+        console.log(`🔄 [AudioCache] Retry ${attempt}/${MAX_RETRIES} for ${videoId} after ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+
+      const result = await this.doDownloadAttempt(videoId, audioUrl);
+      if (result !== null) {
+        return result;
+      }
+
+      // 檢查是否為可重試的錯誤
+      const progress = this.downloadProgressMap.get(videoId);
+      if (progress && progress.status === 'failed') {
+        // 重置狀態以便重試
+        this.downloadProgressMap.set(videoId, {
+          videoId,
+          downloadedBytes: 0,
+          totalBytes: null,
+          percentage: 0,
+          status: 'downloading',
+          startedAt: Date.now(),
+        });
+      }
+    }
+
+    console.error(`❌ [AudioCache] All ${MAX_RETRIES} retries failed for: ${videoId}`);
+    this.downloadProgressMap.set(videoId, {
+      ...this.downloadProgressMap.get(videoId)!,
+      status: 'failed',
+    });
+    setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
+    return null;
+  }
+
+  /**
+   * 單次下載嘗試
+   */
+  private async doDownloadAttempt(videoId: string, audioUrl: string): Promise<string | null> {
     return new Promise((resolve) => {
       const cachePath = this.getCachePath(videoId);
       const tempPath = `${cachePath}.tmp`;
 
       console.log(`⬇️ [AudioCache] Starting download: ${videoId}`);
       logger.info(`Starting audio download for ${videoId}`);
+
+      // 初始化下載進度
+      this.downloadProgressMap.set(videoId, {
+        videoId,
+        downloadedBytes: 0,
+        totalBytes: null,
+        percentage: 0,
+        status: 'downloading',
+        startedAt: Date.now(),
+      });
 
       const headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -152,6 +216,10 @@ class AudioCacheService {
       const makeRequest = (url: string, redirectCount = 0): void => {
         if (redirectCount > 5) {
           console.error(`❌ [AudioCache] Too many redirects: ${videoId}`);
+          this.downloadProgressMap.set(videoId, {
+            ...this.downloadProgressMap.get(videoId)!,
+            status: 'failed',
+          });
           resolve(null);
           return;
         }
@@ -173,11 +241,38 @@ class AudioCacheService {
           if (res.statusCode !== 200) {
             console.error(`❌ [AudioCache] Download failed (${res.statusCode}): ${videoId}`);
             res.resume();
+            this.downloadProgressMap.set(videoId, {
+              ...this.downloadProgressMap.get(videoId)!,
+              status: 'failed',
+            });
             resolve(null);
             return;
           }
 
+          // 獲取總大小
+          const contentLength = res.headers['content-length'];
+          const totalBytes = contentLength ? parseInt(contentLength, 10) : null;
+          let downloadedBytes = 0;
+
+          // 更新總大小
+          this.downloadProgressMap.set(videoId, {
+            ...this.downloadProgressMap.get(videoId)!,
+            totalBytes,
+          });
+
           const writeStream = fs.createWriteStream(tempPath);
+
+          // 追蹤下載進度
+          res.on('data', (chunk: Buffer) => {
+            downloadedBytes += chunk.length;
+            const percentage = totalBytes ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
+
+            this.downloadProgressMap.set(videoId, {
+              ...this.downloadProgressMap.get(videoId)!,
+              downloadedBytes,
+              percentage,
+            });
+          });
 
           res.pipe(writeStream);
 
@@ -189,12 +284,28 @@ class AudioCacheService {
               console.log(`✅ [AudioCache] Downloaded: ${videoId} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
               logger.info(`Audio cached: ${videoId} (${stats.size} bytes)`);
 
+              // 更新進度為完成
+              this.downloadProgressMap.set(videoId, {
+                ...this.downloadProgressMap.get(videoId)!,
+                downloadedBytes: stats.size,
+                totalBytes: stats.size,
+                percentage: 100,
+                status: 'completed',
+              });
+
+              // 30 秒後清除進度記錄
+              setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
+
               // 檢查快取大小，必要時清理
               this.cleanupIfNeeded();
 
               resolve(cachePath);
             } catch (error) {
               console.error(`❌ [AudioCache] Failed to save: ${videoId}`, error);
+              this.downloadProgressMap.set(videoId, {
+                ...this.downloadProgressMap.get(videoId)!,
+                status: 'failed',
+              });
               resolve(null);
             }
           });
@@ -207,18 +318,47 @@ class AudioCacheService {
                 fs.unlinkSync(tempPath);
               }
             } catch {}
+            this.downloadProgressMap.set(videoId, {
+              ...this.downloadProgressMap.get(videoId)!,
+              status: 'failed',
+            });
             resolve(null);
           });
         });
 
-        req.on('error', (error) => {
-          console.error(`❌ [AudioCache] Request error: ${videoId}`, error);
-          resolve(null);
+        req.on('error', (error: NodeJS.ErrnoException) => {
+          console.error(`❌ [AudioCache] Request error (${error.code || 'unknown'}): ${videoId}`, error.message);
+
+          this.downloadProgressMap.set(videoId, {
+            ...this.downloadProgressMap.get(videoId)!,
+            status: 'failed',
+          });
+
+          // 清理臨時檔案
+          try {
+            if (fs.existsSync(tempPath)) {
+              fs.unlinkSync(tempPath);
+            }
+          } catch {}
+
+          resolve(null); // 返回 null 以便重試邏輯判斷
         });
 
         req.setTimeout(300000, () => { // 5 分鐘超時
           console.error(`❌ [AudioCache] Download timeout: ${videoId}`);
           req.destroy();
+          this.downloadProgressMap.set(videoId, {
+            ...this.downloadProgressMap.get(videoId)!,
+            status: 'failed',
+          });
+
+          // 清理臨時檔案
+          try {
+            if (fs.existsSync(tempPath)) {
+              fs.unlinkSync(tempPath);
+            }
+          } catch {}
+
           resolve(null);
         });
       };
@@ -326,6 +466,37 @@ class AudioCacheService {
     } catch {
       return { totalFiles: 0, totalSizeMB: 0, maxSizeMB: MAX_CACHE_SIZE_MB };
     }
+  }
+
+  /**
+   * 獲取下載進度
+   */
+  getDownloadProgress(videoId: string): DownloadProgress | null {
+    return this.downloadProgressMap.get(videoId) || null;
+  }
+
+  /**
+   * 檢查是否正在下載中
+   */
+  isDownloading(videoId: string): boolean {
+    return this.downloadingMap.has(videoId);
+  }
+
+  /**
+   * 批量檢查快取狀態
+   */
+  getCacheStatusBatch(videoIds: string[]): Map<string, { cached: boolean; downloading: boolean; progress: DownloadProgress | null }> {
+    const result = new Map<string, { cached: boolean; downloading: boolean; progress: DownloadProgress | null }>();
+
+    for (const videoId of videoIds) {
+      result.set(videoId, {
+        cached: this.has(videoId),
+        downloading: this.isDownloading(videoId),
+        progress: this.getDownloadProgress(videoId),
+      });
+    }
+
+    return result;
   }
 }
 
