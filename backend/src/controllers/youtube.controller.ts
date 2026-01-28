@@ -78,7 +78,9 @@ export class YouTubeController {
   async streamAudio(req: Request, res: Response): Promise<void> {
     const { videoId } = req.params;
     let retryCount = 0;
-    const maxRetries = 1;
+    const maxRetries = 3;
+    const retryDelays = [1000, 3000, 5000]; // 指數退避延遲
+    const requestTimeout = 60000; // 60 秒請求超時
 
     const attemptStream = async (): Promise<void> => {
       try {
@@ -155,14 +157,26 @@ export class YouTubeController {
                 }
               }
 
-              // 處理 403 錯誤（URL 過期）- 清除緩存並重試
+              // 處理 403 錯誤（URL 過期）- 清除緩存並使用指數退避重試
               if (proxyRes.statusCode === 403 && retryCount < maxRetries) {
-                logger.warn(`Got 403 for ${videoId}, clearing cache and retrying...`);
-                console.log(`⚠️ URL 過期 (403): ${videoId}，清除緩存重試...`);
+                const delay = retryDelays[retryCount] || 5000;
+                logger.warn(`Got 403 for ${videoId}, retry in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+                console.log(`⚠️ URL 過期 (403): ${videoId}，${delay}ms 後重試 (${retryCount + 1}/${maxRetries})...`);
                 proxyRes.resume(); // 消耗響應體
                 youtubeService.clearUrlCache(videoId);
                 retryCount++;
-                attemptStream();
+                setTimeout(() => attemptStream(), delay);
+                return;
+              }
+
+              // 處理 5xx 伺服器錯誤 - 重試
+              if (proxyRes.statusCode && proxyRes.statusCode >= 500 && retryCount < maxRetries) {
+                const delay = retryDelays[retryCount] || 5000;
+                logger.warn(`Got ${proxyRes.statusCode} for ${videoId}, retry in ${delay}ms`);
+                console.log(`⚠️ 伺服器錯誤 (${proxyRes.statusCode}): ${videoId}，${delay}ms 後重試...`);
+                proxyRes.resume();
+                retryCount++;
+                setTimeout(() => attemptStream(), delay);
                 return;
               }
 
@@ -230,10 +244,39 @@ export class YouTubeController {
             }
           );
 
-          // 處理代理請求錯誤
-          proxyReq.on('error', (error) => {
+          // 設置請求超時
+          proxyReq.setTimeout(requestTimeout, () => {
+            logger.error(`Request timeout for ${videoId} after ${requestTimeout}ms`);
+            console.log(`⏱️ 請求超時: ${videoId}`);
+            proxyReq.destroy();
+
+            // 嘗試重試
+            if (retryCount < maxRetries && !res.headersSent) {
+              const delay = retryDelays[retryCount] || 5000;
+              console.log(`🔄 超時重試 ${retryCount + 1}/${maxRetries}，${delay}ms 後...`);
+              retryCount++;
+              setTimeout(() => attemptStream(), delay);
+            } else if (!res.headersSent) {
+              res.status(504).json({ error: 'Gateway Timeout' });
+            }
+          });
+
+          // 處理代理請求錯誤（網路錯誤、連線中斷等）
+          proxyReq.on('error', (error: NodeJS.ErrnoException) => {
             logger.error(`Proxy request error for ${videoId}:`, error);
-            if (!res.headersSent) {
+
+            // 可重試的網路錯誤
+            const retryableErrors = ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'];
+            const isRetryable = retryableErrors.includes(error.code || '');
+
+            if (isRetryable && retryCount < maxRetries && !res.headersSent) {
+              const delay = retryDelays[retryCount] || 5000;
+              logger.warn(`Retryable error (${error.code}) for ${videoId}, retry in ${delay}ms`);
+              console.log(`🔄 網路錯誤 (${error.code}): ${videoId}，${delay}ms 後重試...`);
+              youtubeService.clearUrlCache(videoId); // 清除 URL 緩存
+              retryCount++;
+              setTimeout(() => attemptStream(), delay);
+            } else if (!res.headersSent) {
               res.status(500).json({
                 error: 'Failed to proxy audio stream',
               });

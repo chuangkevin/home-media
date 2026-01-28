@@ -122,6 +122,7 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
       currentTrack: station.currentTrack,
       currentTime: station.currentTime,
       isPlaying: station.isPlaying,
+      syncVersion: station.syncVersion,
     });
 
     // 通知主播有新聽眾
@@ -184,6 +185,7 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
         track: data.track,
         currentTime: 0,
         isPlaying: true,
+        syncVersion: station.syncVersion,
       });
 
       // 更新電台列表
@@ -208,6 +210,7 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
         type: 'play-state',
         isPlaying: data.isPlaying,
         currentTime: data.currentTime,
+        syncVersion: station.syncVersion,
       });
     }
   });
@@ -225,6 +228,7 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
       socket.to(`radio:${station.id}`).volatile.emit('radio:sync', {
         type: 'time-sync',
         currentTime: data.currentTime,
+        syncVersion: station.syncVersion,
       });
     }
   });
@@ -242,6 +246,7 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
       socket.to(`radio:${station.id}`).emit('radio:sync', {
         type: 'seek',
         currentTime: data.currentTime,
+        syncVersion: station.syncVersion,
       });
     }
   });
@@ -274,7 +279,7 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
         // 通知聽眾主播暫時離線（但電台仍在）
         io.to(`radio:${station.id}`).emit('radio:host-disconnected', {
           stationId: station.id,
-          gracePeriod: 30,
+          gracePeriod: 10, // 與 radio.service.ts 的 GRACE_PERIOD_MS 保持一致
         });
         return;
       }

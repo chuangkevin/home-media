@@ -53,6 +53,40 @@ interface NeteaseLyricResponse {
 
 class LyricsService {
   /**
+   * 指數退避重試輔助函數
+   */
+  private async retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    options: {
+      maxRetries?: number;
+      baseDelay?: number;
+      operationName?: string;
+    } = {}
+  ): Promise<T | null> {
+    const { maxRetries = 3, baseDelay = 1000, operationName = 'operation' } = options;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        const isLastAttempt = attempt === maxRetries - 1;
+        const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+        const errMsg = error instanceof Error ? error.message : String(error);
+
+        if (isLastAttempt) {
+          console.error(`❌ [${operationName}] 所有重試失敗: ${errMsg}`);
+          logger.error(`[${operationName}] All retries failed: ${errMsg}`);
+          return null;
+        }
+
+        console.log(`🔄 [${operationName}] 重試 ${attempt + 1}/${maxRetries}，${Math.round(delay)}ms 後... (${errMsg})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    return null;
+  }
+
+  /**
    * 獲取歌詞（優先從快取，然後嘗試多個來源）
    * 改進版：更好的錯誤追蹤和日誌
    */
@@ -307,13 +341,14 @@ class LyricsService {
       console.log(`🎵 [NetEase] Searching: "${searchQuery}"`);
       logger.info(`[NetEase] Starting search for: ${searchQuery}`);
 
-      // 搜尋歌曲（加入 timeout）
-      let searchResult;
-      try {
-        searchResult = await withTimeout(neteaseApi.search(searchQuery), NETEASE_TIMEOUT);
-      } catch (searchErr) {
-        console.error(`🎵 [NetEase] Search API error:`, searchErr instanceof Error ? searchErr.message : String(searchErr));
-        logger.error(`[NetEase] Search API failed:`, searchErr);
+      // 搜尋歌曲（加入 timeout 和重試）
+      const searchResult = await this.retryWithBackoff(
+        () => withTimeout(neteaseApi.search(searchQuery), NETEASE_TIMEOUT),
+        { maxRetries: 2, baseDelay: 1000, operationName: 'NetEase Search' }
+      );
+
+      if (!searchResult) {
+        console.error(`🎵 [NetEase] Search API failed after retries`);
         return null;
       }
 
@@ -329,16 +364,14 @@ class LyricsService {
       const song = songs[0];
       console.log(`🎵 [NetEase] Using song: ${song.name} by ${song.artists?.map(a => a.name).join(', ') || 'Unknown'} (ID: ${song.id})`);
 
-      // 獲取歌詞（加入 timeout）
-      let lyricResult: NeteaseLyricResponse;
-      try {
-        lyricResult = await withTimeout(
-          neteaseApi.lyric(String(song.id)),
-          NETEASE_TIMEOUT
-        ) as NeteaseLyricResponse;
-      } catch (lyricErr) {
-        console.error(`🎵 [NetEase] Lyric API error:`, lyricErr instanceof Error ? lyricErr.message : String(lyricErr));
-        logger.error(`[NetEase] Lyric API failed:`, lyricErr);
+      // 獲取歌詞（加入 timeout 和重試）
+      const lyricResult = await this.retryWithBackoff(
+        () => withTimeout(neteaseApi.lyric(String(song.id)), NETEASE_TIMEOUT),
+        { maxRetries: 2, baseDelay: 1000, operationName: 'NetEase Lyric' }
+      ) as NeteaseLyricResponse | null;
+
+      if (!lyricResult) {
+        console.error(`🎵 [NetEase] Lyric API failed after retries`);
         return null;
       }
 
@@ -396,12 +429,20 @@ class LyricsService {
       const url = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`;
       console.log(`🎼 [LRCLIB] Fetching: ${url}`);
 
-      // 使用 https 模組來繞過 SSL 問題，增加超時時間
-      const response = await this.fetchWithSSLBypass(url, 30000);
+      // 使用 https 模組來繞過 SSL 問題，增加超時時間和重試
+      const response = await this.retryWithBackoff(
+        async () => {
+          const res = await this.fetchWithSSLBypass(url, 25000);
+          if (!res.ok) {
+            throw new Error(`API returned status ${res.status}`);
+          }
+          return res;
+        },
+        { maxRetries: 2, baseDelay: 1500, operationName: 'LRCLIB Fetch' }
+      );
 
-      if (!response.ok) {
-        console.error(`🎼 [LRCLIB] API error: ${response.status}`);
-        logger.error(`[LRCLIB] API returned status ${response.status}`);
+      if (!response) {
+        console.error(`🎼 [LRCLIB] API failed after retries`);
         return null;
       }
 
@@ -566,25 +607,41 @@ class LyricsService {
 
   /**
    * 清理歌曲標題（移除常見後綴，提取真正的歌名）
+   * 改進版：加入 Unicode 正規化
    */
   private cleanSongTitle(title: string): string {
+    // 0. Unicode 正規化：統一字符形式
+    let normalized = title
+      .normalize('NFD')                           // 分解形式
+      .replace(/[\u0300-\u036f]/g, '')            // 移除變音符號
+      .normalize('NFC');                          // 重新組合
+
+    // 統一括號：全角 -> 半角（但保留中文括號用於後續提取）
+    normalized = normalized
+      .replace(/（/g, '(')
+      .replace(/）/g, ')')
+      .replace(/[\u200b\u200c\u200d\ufeff]/g, '') // 移除零寬字符
+      .replace(/\s+/g, ' ')                       // 統一空白
+      .trim();
+
     // 1. 優先提取中文括號【】或《》內的歌名
-    const chineseBracketMatch = title.match(/[【《]([^【】《》]+)[】》]/);
+    const chineseBracketMatch = normalized.match(/[【《]([^【】《》]+)[】》]/);
     if (chineseBracketMatch) {
       return chineseBracketMatch[1].trim();
     }
 
     // 2. 嘗試提取 - 後面的歌名（常見格式：Artist - Song）
-    const dashMatch = title.match(/[-–—]\s*(.+?)(?:\s*[\(\[【]|$)/);
+    const dashMatch = normalized.match(/[-–—]\s*(.+?)(?:\s*[\(\[【]|$)/);
     if (dashMatch && !dashMatch[1].match(/official|mv|music|video|audio|lyrics/i)) {
       return dashMatch[1].trim();
     }
 
     // 3. 移除常見後綴
-    let cleaned = title
+    let cleaned = normalized
       .replace(/\s*[\(\[【].*?(official|mv|music video|lyric|audio|hd|hq|4k|1080p|官方|完整版|高音質|lyrics?).*?[\)\]】]/gi, '')
       .replace(/\s*-\s*(official|mv|music video|lyric|audio).*$/gi, '')
       .replace(/\s*(official|mv|music video|lyrics?)$/gi, '')
+      .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫✨]/g, '') // 移除常見表情符號
       .trim();
 
     // 4. 如果標題開頭有藝術家名稱（通常以空格分隔），嘗試移除

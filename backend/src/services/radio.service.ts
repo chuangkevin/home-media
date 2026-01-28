@@ -17,6 +17,7 @@ export interface RadioStation {
   isPlaying: boolean;
   createdAt: number;
   lastActivity: number;
+  syncVersion: number; // 同步版本號，用於解決競態條件
 }
 
 export interface RadioTrack {
@@ -42,7 +43,7 @@ class RadioService {
   private listenerToStation = new Map<string, string>(); // socketId -> stationId (for listeners)
   private deviceIdToStation = new Map<string, string>(); // deviceId -> stationId (for reconnection)
   private pendingCloseTimers = new Map<string, ReturnType<typeof setTimeout>>(); // stationId -> timer
-  private readonly GRACE_PERIOD_MS = 30000; // 30 秒寬限期
+  private readonly GRACE_PERIOD_MS = 10000; // 10 秒寬限期（縮短以提升用戶體驗）
 
   /**
    * 建立電台
@@ -81,6 +82,7 @@ class RadioService {
       isPlaying: false,
       createdAt: Date.now(),
       lastActivity: Date.now(),
+      syncVersion: 0,
     };
 
     this.stations.set(stationId, station);
@@ -295,15 +297,26 @@ class RadioService {
       return null;
     }
 
+    // 追蹤是否有重要狀態變更
+    let hasStateChange = false;
+
     if (update.currentTrack !== undefined) {
       station.currentTrack = update.currentTrack;
+      hasStateChange = true;
     }
     if (update.currentTime !== undefined) {
       station.currentTime = update.currentTime;
     }
     if (update.isPlaying !== undefined) {
       station.isPlaying = update.isPlaying;
+      hasStateChange = true;
     }
+
+    // 如果有重要狀態變更，遞增版本號
+    if (hasStateChange) {
+      station.syncVersion++;
+    }
+
     station.lastActivity = Date.now();
 
     return station;

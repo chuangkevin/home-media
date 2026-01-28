@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { socketService } from '../services/socket.service';
 import type { RadioTrack } from '../services/socket.service';
-import { setPendingTrack, setIsPlaying, seekTo } from '../store/playerSlice';
+import { setPendingTrack, setIsPlaying, seekTo, cancelPendingTrack } from '../store/playerSlice';
 import {
   setStations,
   setHostStation,
@@ -14,6 +14,12 @@ import {
   syncState,
 } from '../store/radioSlice';
 
+// ===== 常數配置 =====
+const TIME_SYNC_INTERVAL_MS = 3000; // 主播時間同步間隔（3 秒）
+const SYNC_COOLDOWN_MS = 3000; // 聽眾同步冷卻時間（3 秒）
+const TIME_DIFF_THRESHOLD = 2; // 時間差閾值（2 秒才同步）
+const LOAD_TIMEOUT_MS = 15000; // 聽眾載入超時（15 秒）
+
 /**
  * 電台同步 Hook
  * - 主播：自動同步播放狀態給聽眾
@@ -21,7 +27,7 @@ import {
  */
 export function useRadioSync() {
   const dispatch = useDispatch();
-  const { currentTrack, isPlaying, currentTime, isLoadingTrack } = useSelector(
+  const { currentTrack, pendingTrack, isPlaying, currentTime, isLoadingTrack } = useSelector(
     (state: RootState) => state.player
   );
   const { isHost, isListener, syncTrack, syncTime, syncIsPlaying } = useSelector(
@@ -35,7 +41,9 @@ export function useRadioSync() {
 
   // 聽眾同步防抖：避免連續 seek 導致跳針
   const lastSyncTimeRef = useRef<number>(0);
-  const syncCooldownMs = 5000; // 同步後 5 秒內不再同步
+
+  // 聽眾載入超時計時器
+  const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 設定電台回調（在連線後執行）
   useEffect(() => {
@@ -108,7 +116,7 @@ export function useRadioSync() {
     }
   }, [isHost, isPlaying, currentTime]);
 
-  // 定期時間同步（每 5 秒）
+  // 定期時間同步（每 3 秒）
   useEffect(() => {
     if (!isHost || !isPlaying) {
       if (timeSyncIntervalRef.current) {
@@ -120,7 +128,7 @@ export function useRadioSync() {
 
     timeSyncIntervalRef.current = setInterval(() => {
       socketService.radioTimeSync(currentTime);
-    }, 5000);
+    }, TIME_SYNC_INTERVAL_MS);
 
     return () => {
       if (timeSyncIntervalRef.current) {
@@ -149,6 +157,20 @@ export function useRadioSync() {
       console.log('📻 [Listener] Switching to track:', syncTrack.title);
       // 重置同步冷卻，允許新曲目立即同步時間
       lastSyncTimeRef.current = 0;
+
+      // 清除舊的載入超時
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+      }
+
+      // 設定載入超時
+      loadTimeoutRef.current = setTimeout(() => {
+        console.warn('📻 [Listener] Track load timeout, cancelling...');
+        dispatch(cancelPendingTrack());
+        // 通知使用者
+        console.error('📻 [Listener] 曲目載入超時，請重新加入電台');
+      }, LOAD_TIMEOUT_MS);
+
       dispatch(setPendingTrack({
         id: syncTrack.videoId,
         videoId: syncTrack.videoId,
@@ -159,6 +181,24 @@ export function useRadioSync() {
       }));
     }
   }, [isListener, syncTrack, currentTrack, dispatch]);
+
+  // 載入完成時清除超時
+  useEffect(() => {
+    if (isListener && !isLoadingTrack && loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+      console.log('📻 [Listener] Track loaded successfully');
+    }
+  }, [isListener, isLoadingTrack]);
+
+  // 清理載入超時
+  useEffect(() => {
+    return () => {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // 當收到播放狀態變更時
   useEffect(() => {
@@ -173,20 +213,19 @@ export function useRadioSync() {
 
     // 如果正在載入曲目，不進行時間同步（避免跳針）
     if (isLoadingTrack) {
-      console.log('📻 [Listener] Skipping time sync - track is loading');
       return;
     }
 
     // 檢查同步冷卻時間（避免連續 seek 導致跳針）
     const now = Date.now();
-    if (now - lastSyncTimeRef.current < syncCooldownMs) {
+    if (now - lastSyncTimeRef.current < SYNC_COOLDOWN_MS) {
       return;
     }
 
-    // 如果時間差超過 3 秒，才進行同步
+    // 如果時間差超過閾值，才進行同步
     const timeDiff = Math.abs(currentTime - syncTime);
-    if (timeDiff > 3) {
-      console.log('📻 [Listener] Syncing time:', syncTime, '(diff:', timeDiff, ')');
+    if (timeDiff > TIME_DIFF_THRESHOLD) {
+      console.log(`📻 [Listener] Syncing time: ${syncTime.toFixed(1)}s (diff: ${timeDiff.toFixed(1)}s)`);
       lastSyncTimeRef.current = now;
       dispatch(seekTo(syncTime));
     }
