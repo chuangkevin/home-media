@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, LinearProgress, Chip } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import CloudIcon from '@mui/icons-material/Cloud';
+import StorageIcon from '@mui/icons-material/Storage';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, confirmPendingTrack, cancelPendingTrack } from '../../store/playerSlice';
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
-import apiService from '../../services/api.service';
+import apiService, { type CacheStatus } from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 
@@ -26,6 +28,51 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
   const currentBlobUrlRef = useRef<string | null>(null);
   const pendingBlobUrlRef = useRef<string | null>(null);
   const isPlayingRef = useRef(isPlaying);
+
+  // 快取狀態和下載進度
+  const [isCached, setIsCached] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<CacheStatus['progress']>(null);
+  const progressPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 輪詢下載進度
+  const pollDownloadProgress = useCallback((videoId: string) => {
+    // 清除之前的輪詢
+    if (progressPollRef.current) {
+      clearInterval(progressPollRef.current);
+      progressPollRef.current = null;
+    }
+
+    // 每 500ms 檢查一次下載進度
+    progressPollRef.current = setInterval(async () => {
+      try {
+        const status = await apiService.getCacheStatus(videoId);
+        setDownloadProgress(status.progress);
+
+        // 如果下載完成或失敗，停止輪詢
+        if (status.cached || !status.downloading || status.progress?.status === 'completed' || status.progress?.status === 'failed') {
+          if (progressPollRef.current) {
+            clearInterval(progressPollRef.current);
+            progressPollRef.current = null;
+          }
+          if (status.cached) {
+            setIsCached(true);
+            setDownloadProgress(null);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to poll download progress:', err);
+      }
+    }, 500);
+  }, []);
+
+  // 清理輪詢
+  useEffect(() => {
+    return () => {
+      if (progressPollRef.current) {
+        clearInterval(progressPollRef.current);
+      }
+    };
+  }, []);
 
   // 保持 isPlayingRef 同步
   useEffect(() => {
@@ -50,34 +97,58 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
 
     const loadPendingAudio = async () => {
       try {
-        // 優先檢查快取
+        // 重置快取狀態
+        setIsCached(false);
+        setDownloadProgress(null);
+
+        // 首先檢查伺服器端快取狀態
+        let serverCached = false;
+        try {
+          const serverStatus = await apiService.getCacheStatus(videoId);
+          serverCached = serverStatus.cached;
+        } catch (err) {
+          console.warn('Failed to check server cache status:', err);
+        }
+
+        // 檢查前端 IndexedDB 快取
         const cached = await audioCacheService.get(videoId);
         const streamUrl = apiService.getStreamUrl(videoId);
 
         let audioSrc: string;
-        let isCached = false;
+        let isFromCache = false;
 
         if (cached) {
-          // 使用快取的 blob URL
+          // 使用前端快取的 blob URL
           audioSrc = URL.createObjectURL(cached);
-          isCached = true;
-          console.log(`🎵 從快取播放: ${pendingTrack.title}`);
-        } else {
-          // 直接使用串流 URL 播放（不等待下載完成）
+          isFromCache = true;
+          setIsCached(true);
+          console.log(`🎵 從前端快取播放: ${pendingTrack.title}`);
+        } else if (serverCached) {
+          // 伺服器有快取，使用串流 URL
           audioSrc = streamUrl;
+          isFromCache = true;
+          setIsCached(true);
+          console.log(`🎵 從伺服器快取播放: ${pendingTrack.title}`);
+        } else {
+          // 都沒有快取，從網路串流並開始輪詢下載進度
+          audioSrc = streamUrl;
+          setIsCached(false);
           console.log(`🌐 從網路串流: ${pendingTrack.title}`);
 
-          // 背景下載到快取（不阻塞播放）
+          // 開始輪詢伺服器端下載進度
+          pollDownloadProgress(videoId);
+
+          // 背景下載到前端快取（不阻塞播放）
           audioCacheService.fetchAndCache(videoId, streamUrl)
-            .then(() => console.log(`💾 背景快取完成: ${pendingTrack.title}`))
-            .catch(err => console.warn(`背景快取失敗: ${pendingTrack.title}`, err));
+            .then(() => console.log(`💾 前端背景快取完成: ${pendingTrack.title}`))
+            .catch(err => console.warn(`前端背景快取失敗: ${pendingTrack.title}`, err));
         }
 
         // 儲存 pending blob URL (只有 cached 才是 blob URL)
-        pendingBlobUrlRef.current = isCached ? audioSrc : null;
+        pendingBlobUrlRef.current = (isFromCache && cached) ? audioSrc : null;
 
         // 音訊準備好了，現在確認切換
-        console.log(`✅ Pending track ready: ${pendingTrack.title} (來源: ${isCached ? '快取' : '網路'})`);
+        console.log(`✅ Pending track ready: ${pendingTrack.title} (來源: ${isFromCache ? '快取' : '網路'})`);
 
         // 保存舊的 blob URL，稍後釋放
         const oldBlobUrl = currentBlobUrlRef.current;
@@ -86,7 +157,7 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
         // 設置新音訊源
         audio.src = audioSrc;
         currentVideoIdRef.current = videoId;
-        currentBlobUrlRef.current = isCached ? audioSrc : null;
+        currentBlobUrlRef.current = (isFromCache && cached) ? audioSrc : null;
         pendingBlobUrlRef.current = null;
 
         // 等待音訊準備好再確認切換
@@ -412,11 +483,45 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
               <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, flexGrow: 1 }}>
                 {displayTrack.title}
               </Typography>
+              {/* 快取狀態標籤 */}
+              {!isLoading && !isLoadingTrack && (
+                <Chip
+                  icon={isCached ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
+                  label={isCached ? '快取' : '網路'}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: '0.7rem',
+                    backgroundColor: isCached ? 'success.main' : 'primary.main',
+                    color: 'white',
+                    '& .MuiChip-icon': { color: 'white' },
+                  }}
+                />
+              )}
               {(isLoading || isLoadingTrack) && <CircularProgress size={16} />}
             </Box>
             <Typography variant="body2" color="text.secondary" noWrap>
               {displayTrack.channel}
             </Typography>
+
+            {/* 下載進度條 - 非快取曲目顯示 */}
+            {!isCached && downloadProgress && downloadProgress.status === 'downloading' && (
+              <Box sx={{ mt: 0.5, mb: 0.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <LinearProgress
+                    variant="determinate"
+                    value={downloadProgress.percentage}
+                    sx={{ flexGrow: 1, height: 4, borderRadius: 2 }}
+                  />
+                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 35 }}>
+                    {downloadProgress.percentage}%
+                  </Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  下載中... {downloadProgress.totalBytes ? `${Math.round(downloadProgress.downloadedBytes / 1024 / 1024 * 10) / 10}/${Math.round(downloadProgress.totalBytes / 1024 / 1024 * 10) / 10} MB` : ''}
+                </Typography>
+              </Box>
+            )}
 
             <PlayerControls />
           </Box>
