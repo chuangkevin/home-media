@@ -14,10 +14,7 @@ import QueueMusicIcon from '@mui/icons-material/QueueMusic';
 import SearchBar from './components/Search/SearchBar';
 import SearchResults from './components/Search/SearchResults';
 import AudioPlayer from './components/Player/AudioPlayer';
-import DisplayModeToggle from './components/Player/DisplayModeToggle';
-import VideoPlayer from './components/Player/VideoPlayer';
 import FullscreenLyrics from './components/Player/FullscreenLyrics';
-import VisualizerView from './components/Player/VisualizerView';
 import HomeRecommendations from './components/Home/HomeRecommendations';
 import PlaylistSection from './components/Playlist/PlaylistSection';
 import RadioButton from './components/Radio/RadioButton';
@@ -32,7 +29,7 @@ import { useRadioSync } from './hooks/useRadioSync';
 
 function App() {
   const dispatch = useDispatch();
-  const { currentTrack, displayMode } = useSelector(
+  const { currentTrack } = useSelector(
     (state: RootState) => state.player
   );
   const [searchResults, setSearchResults] = useState<Track[]>([]);
@@ -47,6 +44,13 @@ function App() {
 
   // 電台同步（主播/聽眾）
   useRadioSync();
+
+  // 當歌曲開始播放時，自動展開歌詞抽屜
+  useEffect(() => {
+    if (currentTrack) {
+      setLyricsDrawerOpen(true);
+    }
+  }, [currentTrack?.videoId]);
 
   // 初始化音訊快取服務
   useEffect(() => {
@@ -148,15 +152,6 @@ function App() {
             <RadioIndicator />
           </Box>
         </Box>
-
-        {/* 播放視圖區域 */}
-        {currentTrack && (
-          <Box sx={{ mb: 4 }}>
-            <DisplayModeToggle />
-            {displayMode === 'video' && <VideoPlayer track={currentTrack} />}
-            {displayMode === 'visualizer' && <VisualizerView track={currentTrack} />}
-          </Box>
-        )}
 
         {/* 搜尋列 */}
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
