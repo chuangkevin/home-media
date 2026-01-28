@@ -26,12 +26,14 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
+import CloudIcon from '@mui/icons-material/Cloud';
+import StorageIcon from '@mui/icons-material/Storage';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchPlaylists, fetchPlaylist, deletePlaylist, updatePlaylist, clearCurrentPlaylist } from '../../store/playlistSlice';
 import { setPlaylist, setPendingTrack, setIsPlaying } from '../../store/playerSlice';
 import CreatePlaylistDialog from './CreatePlaylistDialog';
-import type { Playlist } from '../../services/api.service';
+import apiService, { type Playlist } from '../../services/api.service';
 
 interface PlaylistSectionProps {
   onPlaylistSelect?: (playlistId: string) => void;
@@ -46,10 +48,29 @@ export default function PlaylistSection({ onPlaylistSelect }: PlaylistSectionPro
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     dispatch(fetchPlaylists());
   }, [dispatch]);
+
+  // 當播放清單曲目載入時，檢查伺服器端快取狀態
+  useEffect(() => {
+    if (!currentPlaylist || currentPlaylist.tracks.length === 0) return;
+
+    const videoIds = currentPlaylist.tracks.map(t => t.videoId);
+    apiService.getCacheStatusBatch(videoIds)
+      .then(status => {
+        const cached: Record<string, boolean> = {};
+        for (const [videoId, s] of Object.entries(status)) {
+          cached[videoId] = s.cached;
+        }
+        setCacheStatus(cached);
+      })
+      .catch(err => {
+        console.warn('Failed to fetch cache status:', err);
+      });
+  }, [currentPlaylist]);
 
   const handlePlaylistClick = async (playlistId: string) => {
     await dispatch(fetchPlaylist(playlistId));
@@ -158,12 +179,32 @@ export default function PlaylistSection({ onPlaylistSelect }: PlaylistSectionPro
                         <Typography variant="body2" color="text.secondary" sx={{ width: 30 }}>
                           {index + 1}
                         </Typography>
-                        <Box
-                          component="img"
-                          src={track.thumbnail}
-                          alt={track.title}
-                          sx={{ width: 60, height: 60, borderRadius: 1, mr: 2 }}
-                        />
+                        <Box sx={{ position: 'relative', mr: 2 }}>
+                          <Box
+                            component="img"
+                            src={track.thumbnail}
+                            alt={track.title}
+                            sx={{ width: 60, height: 60, borderRadius: 1 }}
+                          />
+                          {/* 快取狀態標籤 */}
+                          <Chip
+                            icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: 10 }} /> : <CloudIcon sx={{ fontSize: 10 }} />}
+                            label={cacheStatus[track.videoId] ? '快取' : '網路'}
+                            size="small"
+                            sx={{
+                              position: 'absolute',
+                              bottom: -4,
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              height: 16,
+                              fontSize: '0.65rem',
+                              backgroundColor: cacheStatus[track.videoId] ? 'rgba(46, 125, 50, 0.9)' : 'rgba(25, 118, 210, 0.9)',
+                              color: 'white',
+                              '& .MuiChip-icon': { color: 'white', ml: 0.5 },
+                              '& .MuiChip-label': { px: 0.5 },
+                            }}
+                          />
+                        </Box>
                         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                           <Typography variant="body1" noWrap sx={{ fontWeight: 500 }}>
                             {track.title}

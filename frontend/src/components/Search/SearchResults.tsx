@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -12,9 +12,12 @@ import {
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AddIcon from '@mui/icons-material/Add';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
+import CloudIcon from '@mui/icons-material/Cloud';
+import StorageIcon from '@mui/icons-material/Storage';
 import type { Track } from '../../types/track.types';
 import { formatDuration, formatNumber } from '../../utils/formatTime';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
+import apiService from '../../services/api.service';
 
 interface SearchResultsProps {
   results: Track[];
@@ -31,6 +34,25 @@ export default function SearchResults({
 }: SearchResultsProps) {
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
+  const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({});
+
+  // 當搜尋結果變更時，檢查伺服器端快取狀態
+  useEffect(() => {
+    if (results.length === 0) return;
+
+    const videoIds = results.map(r => r.videoId);
+    apiService.getCacheStatusBatch(videoIds)
+      .then(status => {
+        const cached: Record<string, boolean> = {};
+        for (const [videoId, s] of Object.entries(status)) {
+          cached[videoId] = s.cached;
+        }
+        setCacheStatus(cached);
+      })
+      .catch(err => {
+        console.warn('Failed to fetch cache status:', err);
+      });
+  }, [results]);
 
   const handleOpenPlaylistMenu = (event: React.MouseEvent<HTMLElement>, track: Track) => {
     setPlaylistMenuAnchor(event.currentTarget);
@@ -81,6 +103,21 @@ export default function SearchResults({
                 alt={track.title}
                 sx={{ objectFit: 'cover' }}
               />
+              {/* 快取狀態標籤 */}
+              <Chip
+                icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
+                label={cacheStatus[track.videoId] ? '快取' : '網路'}
+                size="small"
+                sx={{
+                  position: 'absolute',
+                  top: 8,
+                  left: 8,
+                  backgroundColor: cacheStatus[track.videoId] ? 'rgba(46, 125, 50, 0.9)' : 'rgba(25, 118, 210, 0.9)',
+                  color: 'white',
+                  '& .MuiChip-icon': { color: 'white' },
+                }}
+              />
+              {/* 時長標籤 */}
               <Chip
                 label={formatDuration(track.duration)}
                 size="small"

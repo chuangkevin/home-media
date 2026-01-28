@@ -66,6 +66,24 @@ class ApiService {
     await Promise.all(videoIds.map(id => this.preloadAudio(id)));
   }
 
+  // ==================== 快取狀態 ====================
+
+  /**
+   * 檢查單一曲目的伺服器端快取狀態
+   */
+  async getCacheStatus(videoId: string): Promise<CacheStatus> {
+    const response = await this.api.get<CacheStatus>(`/cache/status/${videoId}`);
+    return response.data;
+  }
+
+  /**
+   * 批量檢查多個曲目的伺服器端快取狀態
+   */
+  async getCacheStatusBatch(videoIds: string[]): Promise<Record<string, CacheStatus>> {
+    const response = await this.api.post<Record<string, CacheStatus>>('/cache/status/batch', { videoIds });
+    return response.data;
+  }
+
   // ==================== 歌詞 ====================
 
   /**
@@ -370,6 +388,21 @@ export interface Playlist {
 
 export interface PlaylistWithTracks extends Playlist {
   tracks: Track[];
+}
+
+// 快取狀態
+export interface CacheStatus {
+  videoId: string;
+  cached: boolean;
+  downloading: boolean;
+  progress: {
+    videoId: string;
+    downloadedBytes: number;
+    totalBytes: number | null;
+    percentage: number;
+    status: 'downloading' | 'completed' | 'failed';
+    startedAt: number;
+  } | null;
 }
 
 export default new ApiService();
