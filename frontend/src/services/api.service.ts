@@ -181,6 +181,23 @@ class ApiService {
     }
   }
 
+  /**
+   * 手動獲取 YouTube CC 字幕
+   */
+  async getYouTubeCaptions(videoId: string): Promise<Lyrics | null> {
+    try {
+      const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/youtube-cc/${videoId}`, {
+        timeout: 60000, // YouTube CC 可能需要較長時間
+      });
+      return response.data.lyrics;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   // ==================== 歌詞偏好（跨裝置同步）====================
 
   /**

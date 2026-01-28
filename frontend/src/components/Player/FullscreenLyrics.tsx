@@ -19,12 +19,13 @@ import LyricsIcon from '@mui/icons-material/Lyrics';
 import OndemandVideoIcon from '@mui/icons-material/OndemandVideo';
 import AlbumIcon from '@mui/icons-material/Album';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import ClosedCaptionIcon from '@mui/icons-material/ClosedCaption';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, setCurrentTime } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -72,8 +73,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [fineTuneOffset, setFineTuneOffset] = useState(0);
   const [isReloadingLyrics, setIsReloadingLyrics] = useState(false);
 
+  // YouTube CC 載入狀態
+  const [isLoadingYouTubeCC, setIsLoadingYouTubeCC] = useState(false);
+
   // YouTube 播放器狀態
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [videoReady, setVideoReady] = useState(false);
+  const videoTimeSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 獲取播放狀態
+  const { isPlaying: audioIsPlaying } = useSelector((state: RootState) => state.player);
 
   // 載入 YouTube IFrame API
   useEffect(() => {
@@ -93,11 +102,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         playerRef.current.destroy();
         playerRef.current = null;
       }
+      setVideoReady(false);
+      // 清除時間同步
+      if (videoTimeSyncRef.current) {
+        clearInterval(videoTimeSyncRef.current);
+        videoTimeSyncRef.current = null;
+      }
       return;
     }
 
     let isMounted = true;
     setVideoError(null);
+    setVideoReady(false);
 
     const initPlayer = () => {
       if (!isMounted || !videoContainerRef.current) return;
@@ -110,11 +126,29 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             enablejsapi: 1,
             origin: window.location.origin,
             start: Math.floor(currentTime),
+            playsinline: 1, // 手機端內嵌播放
           },
           events: {
             onReady: (event: any) => {
               if (!isMounted) return;
-              event.target.playVideo();
+              setVideoReady(true);
+              // 同步到當前播放時間
+              event.target.seekTo(currentTime, true);
+              // 如果音訊正在播放，影片也播放
+              if (audioIsPlaying) {
+                event.target.playVideo();
+              }
+            },
+            onStateChange: (event: any) => {
+              if (!isMounted) return;
+              // YT.PlayerState: PLAYING=1, PAUSED=2, BUFFERING=3
+              if (event.data === 1) {
+                // 影片開始播放，同步播放狀態
+                dispatch(setIsPlaying(true));
+              } else if (event.data === 2) {
+                // 影片暫停
+                dispatch(setIsPlaying(false));
+              }
             },
             onError: (event: any) => {
               // YouTube 嵌入錯誤
@@ -142,8 +176,51 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         playerRef.current.destroy();
         playerRef.current = null;
       }
+      setVideoReady(false);
     };
   }, [open, viewMode, track.videoId]);
+
+  // 同步影片播放時間到 Redux
+  useEffect(() => {
+    if (!videoReady || viewMode !== 'video' || !playerRef.current) {
+      if (videoTimeSyncRef.current) {
+        clearInterval(videoTimeSyncRef.current);
+        videoTimeSyncRef.current = null;
+      }
+      return;
+    }
+
+    videoTimeSyncRef.current = setInterval(() => {
+      if (playerRef.current && playerRef.current.getCurrentTime) {
+        const videoTime = playerRef.current.getCurrentTime();
+        if (typeof videoTime === 'number' && !isNaN(videoTime)) {
+          dispatch(setCurrentTime(videoTime));
+        }
+      }
+    }, 500);
+
+    return () => {
+      if (videoTimeSyncRef.current) {
+        clearInterval(videoTimeSyncRef.current);
+        videoTimeSyncRef.current = null;
+      }
+    };
+  }, [videoReady, viewMode, dispatch]);
+
+  // 同步播放/暫停狀態到影片
+  useEffect(() => {
+    if (!videoReady || viewMode !== 'video' || !playerRef.current) return;
+
+    try {
+      if (audioIsPlaying) {
+        playerRef.current.playVideo?.();
+      } else {
+        playerRef.current.pauseVideo?.();
+      }
+    } catch (e) {
+      // 忽略播放器尚未準備好的錯誤
+    }
+  }, [audioIsPlaying, videoReady, viewMode]);
 
   // 載入儲存的偏好設定
   useEffect(() => {
@@ -328,6 +405,28 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       console.error('Reload lyrics failed:', error);
     } finally {
       setIsReloadingLyrics(false);
+    }
+  };
+
+  // 使用 YouTube CC 字幕
+  const handleUseYouTubeCC = async () => {
+    setIsLoadingYouTubeCC(true);
+    try {
+      const lyrics = await apiService.getYouTubeCaptions(track.videoId);
+
+      if (lyrics) {
+        await lyricsCacheService.set(track.videoId, lyrics);
+        dispatch(setCurrentLyrics(lyrics));
+        dispatch(resetTimeOffset());
+        setSearchOpen(false);
+      } else {
+        alert('此影片沒有可用的 YouTube CC 字幕');
+      }
+    } catch (error) {
+      console.error('Fetch YouTube CC failed:', error);
+      alert('獲取 YouTube CC 字幕失敗');
+    } finally {
+      setIsLoadingYouTubeCC(false);
     }
   };
 
@@ -887,15 +986,28 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             </List>
           )}
         </DialogContent>
-        <DialogActions sx={{ justifyContent: 'space-between' }}>
-          <Button
-            onClick={handleReloadOriginalLyrics}
-            disabled={isReloadingLyrics}
-            startIcon={isReloadingLyrics ? <CircularProgress size={16} /> : <RefreshIcon />}
-            color="secondary"
-          >
-            重新自動搜尋
-          </Button>
+        <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button
+              onClick={handleReloadOriginalLyrics}
+              disabled={isReloadingLyrics || isLoadingYouTubeCC}
+              startIcon={isReloadingLyrics ? <CircularProgress size={16} /> : <RefreshIcon />}
+              color="secondary"
+              size="small"
+            >
+              自動搜尋
+            </Button>
+            <Button
+              onClick={handleUseYouTubeCC}
+              disabled={isLoadingYouTubeCC || isReloadingLyrics}
+              startIcon={isLoadingYouTubeCC ? <CircularProgress size={16} /> : <ClosedCaptionIcon />}
+              color="primary"
+              variant="outlined"
+              size="small"
+            >
+              YouTube CC
+            </Button>
+          </Box>
           <Button onClick={() => setSearchOpen(false)}>取消</Button>
         </DialogActions>
       </Dialog>
