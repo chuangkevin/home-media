@@ -12,6 +12,7 @@ import { corsMiddleware } from './middleware/cors.middleware';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import logger from './utils/logger';
 import { setupCastingHandlers } from './handlers/casting.handler';
+import { setupRadioHandlers } from './handlers/radio.handler';
 
 // 確保必要的目錄存在
 const ensureDirectories = () => {
@@ -110,10 +111,11 @@ app.use('/api', playlistRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// WebSocket 連接 - 遠端控制與投射
+// WebSocket 連接 - 遠端控制與投射、電台
 io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id}`);
   setupCastingHandlers(io, socket);
+  setupRadioHandlers(io, socket);
 });
 
 // 啟動伺服器

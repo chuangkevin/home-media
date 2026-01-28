@@ -5,6 +5,7 @@ import recommendationReducer from './recommendationSlice';
 import lyricsReducer from './lyricsSlice';
 import castingReducer from './castingSlice';
 import playlistReducer from './playlistSlice';
+import radioReducer from './radioSlice';
 
 export const store = configureStore({
   reducer: {
@@ -14,6 +15,7 @@ export const store = configureStore({
     lyrics: lyricsReducer,
     casting: castingReducer,
     playlists: playlistReducer,
+    radio: radioReducer,
   },
 });
 

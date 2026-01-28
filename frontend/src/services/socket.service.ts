@@ -25,11 +25,68 @@ interface ControlExecuteData {
   };
 }
 
+// Radio types
+export interface RadioTrack {
+  videoId: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration: number;
+}
+
+export interface RadioStation {
+  id: string;
+  hostName: string;
+  stationName: string;
+  listenerCount: number;
+  currentTrack: RadioTrack | null;
+  isPlaying: boolean;
+}
+
+interface RadioCreatedData {
+  stationId: string;
+  stationName: string;
+}
+
+interface RadioJoinedData {
+  stationId: string;
+  stationName: string;
+  hostName: string;
+  currentTrack: RadioTrack | null;
+  currentTime: number;
+  isPlaying: boolean;
+}
+
+interface RadioSyncData {
+  type: 'track-change' | 'play-state' | 'time-sync' | 'seek';
+  track?: RadioTrack | null;
+  currentTime?: number;
+  isPlaying?: boolean;
+}
+
+interface RadioClosedData {
+  stationId: string;
+  reason: string;
+}
+
+interface RadioListenerData {
+  listenerCount: number;
+}
+
 type DeviceListCallback = (devices: Device[]) => void;
 type CastReceiveCallback = (data: CastReceiveData) => void;
 type ControlExecuteCallback = (data: ControlExecuteData) => void;
 type CastEndedCallback = () => void;
 type ConnectedCallback = (connected: boolean) => void;
+// Radio callbacks
+type RadioListCallback = (stations: RadioStation[]) => void;
+type RadioCreatedCallback = (data: RadioCreatedData) => void;
+type RadioJoinedCallback = (data: RadioJoinedData) => void;
+type RadioSyncCallback = (data: RadioSyncData) => void;
+type RadioClosedCallback = (data: RadioClosedData) => void;
+type RadioListenerCallback = (data: RadioListenerData) => void;
+type RadioLeftCallback = (data: { stationId: string }) => void;
+type RadioErrorCallback = (data: { message: string }) => void;
 
 class SocketService {
   private socket: Socket | null = null;
@@ -41,6 +98,16 @@ class SocketService {
     onControlExecute?: ControlExecuteCallback;
     onCastEnded?: CastEndedCallback;
     onConnected?: ConnectedCallback;
+    // Radio callbacks
+    onRadioList?: RadioListCallback;
+    onRadioCreated?: RadioCreatedCallback;
+    onRadioJoined?: RadioJoinedCallback;
+    onRadioSync?: RadioSyncCallback;
+    onRadioClosed?: RadioClosedCallback;
+    onRadioListenerJoined?: RadioListenerCallback;
+    onRadioListenerLeft?: RadioListenerCallback;
+    onRadioLeft?: RadioLeftCallback;
+    onRadioError?: RadioErrorCallback;
   } = {};
 
   constructor() {
@@ -108,6 +175,47 @@ class SocketService {
       console.log('Cast ended');
       this.callbacks.onCastEnded?.();
     });
+
+    // Radio events
+    this.socket.on('radio:list', (stations: RadioStation[]) => {
+      this.callbacks.onRadioList?.(stations);
+    });
+
+    this.socket.on('radio:created', (data: RadioCreatedData) => {
+      console.log('Radio station created:', data);
+      this.callbacks.onRadioCreated?.(data);
+    });
+
+    this.socket.on('radio:joined', (data: RadioJoinedData) => {
+      console.log('Joined radio station:', data);
+      this.callbacks.onRadioJoined?.(data);
+    });
+
+    this.socket.on('radio:sync', (data: RadioSyncData) => {
+      this.callbacks.onRadioSync?.(data);
+    });
+
+    this.socket.on('radio:closed', (data: RadioClosedData) => {
+      console.log('Radio station closed:', data);
+      this.callbacks.onRadioClosed?.(data);
+    });
+
+    this.socket.on('radio:listener-joined', (data: RadioListenerData) => {
+      this.callbacks.onRadioListenerJoined?.(data);
+    });
+
+    this.socket.on('radio:listener-left', (data: RadioListenerData) => {
+      this.callbacks.onRadioListenerLeft?.(data);
+    });
+
+    this.socket.on('radio:left', (data: { stationId: string }) => {
+      this.callbacks.onRadioLeft?.(data);
+    });
+
+    this.socket.on('radio:error', (data: { message: string }) => {
+      console.error('Radio error:', data);
+      this.callbacks.onRadioError?.(data);
+    });
   }
 
   // 設定回調
@@ -160,6 +268,57 @@ class SocketService {
       command,
       payload,
     });
+  }
+
+  // ===== Radio methods =====
+
+  // 建立電台
+  createRadioStation(stationName?: string): void {
+    this.socket?.emit('radio:create', {
+      deviceId: this.deviceId,
+      hostName: this.deviceName,
+      stationName,
+    });
+  }
+
+  // 關閉電台
+  closeRadioStation(): void {
+    this.socket?.emit('radio:close');
+  }
+
+  // 加入電台
+  joinRadioStation(stationId: string): void {
+    this.socket?.emit('radio:join', { stationId });
+  }
+
+  // 離開電台
+  leaveRadioStation(): void {
+    this.socket?.emit('radio:leave');
+  }
+
+  // 發現電台
+  discoverRadioStations(): void {
+    this.socket?.emit('radio:discover');
+  }
+
+  // 主播：曲目變更
+  radioTrackChange(track: RadioTrack | null): void {
+    this.socket?.emit('radio:track-change', { track });
+  }
+
+  // 主播：播放狀態變更
+  radioPlayState(isPlaying: boolean, currentTime: number): void {
+    this.socket?.emit('radio:play-state', { isPlaying, currentTime });
+  }
+
+  // 主播：時間同步
+  radioTimeSync(currentTime: number): void {
+    this.socket?.emit('radio:time-sync', { currentTime });
+  }
+
+  // 主播：seek
+  radioSeek(currentTime: number): void {
+    this.socket?.emit('radio:seek', { currentTime });
   }
 
   // 斷開連接
