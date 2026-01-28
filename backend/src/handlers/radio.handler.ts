@@ -12,6 +12,26 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
    */
   socket.on('radio:create', (data: { deviceId: string; hostName: string; stationName?: string }) => {
     try {
+      // 先嘗試接管現有電台
+      const existingStation = radioService.reclaimStation(socket.id, data.deviceId);
+      if (existingStation) {
+        // 加入電台房間
+        socket.join(`radio:${existingStation.id}`);
+
+        // 回傳電台資訊（標記為重新接管）
+        socket.emit('radio:created', {
+          stationId: existingStation.id,
+          stationName: existingStation.stationName,
+          reclaimed: true,
+        });
+
+        // 廣播電台列表更新
+        io.emit('radio:list', radioService.getStationList());
+
+        logger.info(`📻 [Radio] Station reclaimed by ${data.hostName}: ${existingStation.stationName}`);
+        return;
+      }
+
       const station = radioService.createStation(
         socket.id,
         data.deviceId,
@@ -34,6 +54,24 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
       logger.info(`📻 [Radio] Station created by ${data.hostName}: ${station.stationName}`);
     } catch (error) {
       socket.emit('radio:error', { message: (error as Error).message });
+    }
+  });
+
+  /**
+   * 檢查是否有待接管的電台
+   */
+  socket.on('radio:check-pending', (data: { deviceId: string }) => {
+    const station = radioService.getStationByDeviceId(data.deviceId);
+    if (station) {
+      socket.emit('radio:pending-station', {
+        stationId: station.id,
+        stationName: station.stationName,
+        listenerCount: station.listeners.size,
+        currentTrack: station.currentTrack,
+        isPlaying: station.isPlaying,
+      });
+    } else {
+      socket.emit('radio:pending-station', null);
     }
   });
 
@@ -212,23 +250,43 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
    * 斷線處理
    */
   socket.on('disconnect', () => {
-    const result = radioService.leaveStation(socket.id);
-
-    if (result) {
-      if (result.wasHost) {
-        // 主播斷線，關閉電台
-        io.to(`radio:${result.station.id}`).emit('radio:closed', {
-          stationId: result.station.id,
+    // 先檢查是否是主播
+    const station = radioService.getStationByHost(socket.id);
+    if (station) {
+      // 主播斷線，使用寬限期
+      const handled = radioService.handleHostDisconnect(socket.id, (closedStation) => {
+        // 寬限期結束，關閉電台
+        io.to(`radio:${closedStation.id}`).emit('radio:closed', {
+          stationId: closedStation.id,
           reason: '主播離線',
         });
 
-        logger.info(`📻 [Radio] Station closed (host disconnected): ${result.station.stationName}`);
-      } else {
-        // 聽眾斷線
-        io.to(result.station.hostSocketId).emit('radio:listener-left', {
-          listenerCount: result.station.listeners.size,
+        // 讓所有聽眾離開房間
+        io.in(`radio:${closedStation.id}`).socketsLeave(`radio:${closedStation.id}`);
+
+        // 廣播電台列表更新
+        io.emit('radio:list', radioService.getStationList());
+
+        logger.info(`📻 [Radio] Station closed (grace period expired): ${closedStation.stationName}`);
+      });
+
+      if (handled) {
+        // 通知聽眾主播暫時離線（但電台仍在）
+        io.to(`radio:${station.id}`).emit('radio:host-disconnected', {
+          stationId: station.id,
+          gracePeriod: 30,
         });
+        return;
       }
+    }
+
+    // 檢查是否是聽眾
+    const result = radioService.leaveStation(socket.id);
+    if (result && !result.wasHost) {
+      // 聽眾斷線
+      io.to(result.station.hostSocketId).emit('radio:listener-left', {
+        listenerCount: result.station.listeners.size,
+      });
 
       // 廣播電台列表更新
       io.emit('radio:list', radioService.getStationList());

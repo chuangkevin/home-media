@@ -40,6 +40,9 @@ class RadioService {
   private stations = new Map<string, RadioStation>();
   private socketToStation = new Map<string, string>(); // socketId -> stationId (for hosts)
   private listenerToStation = new Map<string, string>(); // socketId -> stationId (for listeners)
+  private deviceIdToStation = new Map<string, string>(); // deviceId -> stationId (for reconnection)
+  private pendingCloseTimers = new Map<string, ReturnType<typeof setTimeout>>(); // stationId -> timer
+  private readonly GRACE_PERIOD_MS = 30000; // 30 秒寬限期
 
   /**
    * 建立電台
@@ -50,10 +53,16 @@ class RadioService {
     hostName: string,
     stationName?: string
   ): RadioStation {
-    // 檢查是否已經有電台
+    // 檢查是否已經有電台（同一個 socket）
     const existingStationId = this.socketToStation.get(socketId);
     if (existingStationId) {
       throw new Error('已經有一個電台了');
+    }
+
+    // 檢查同一個 deviceId 是否已經有電台（重連情況應該用 reclaimStation）
+    const existingByDevice = this.deviceIdToStation.get(deviceId);
+    if (existingByDevice && this.stations.has(existingByDevice)) {
+      throw new Error('此裝置已有電台，請使用重新接管功能');
     }
 
     // 如果正在收聽其他電台，先離開
@@ -76,9 +85,121 @@ class RadioService {
 
     this.stations.set(stationId, station);
     this.socketToStation.set(socketId, stationId);
+    this.deviceIdToStation.set(deviceId, stationId);
 
     logger.info(`📻 Radio station created: ${station.stationName} (${stationId})`);
     return station;
+  }
+
+  /**
+   * 重新接管電台（重新整理後恢復）
+   */
+  reclaimStation(socketId: string, deviceId: string): RadioStation | null {
+    const stationId = this.deviceIdToStation.get(deviceId);
+    if (!stationId) {
+      return null;
+    }
+
+    const station = this.stations.get(stationId);
+    if (!station) {
+      this.deviceIdToStation.delete(deviceId);
+      return null;
+    }
+
+    // 取消待關閉的計時器
+    const pendingTimer = this.pendingCloseTimers.get(stationId);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      this.pendingCloseTimers.delete(stationId);
+      logger.info(`📻 Cancelled pending close for station: ${station.stationName}`);
+    }
+
+    // 更新 socket 映射
+    const oldSocketId = station.hostSocketId;
+    if (oldSocketId !== socketId) {
+      this.socketToStation.delete(oldSocketId);
+    }
+
+    station.hostSocketId = socketId;
+    station.lastActivity = Date.now();
+    this.socketToStation.set(socketId, stationId);
+
+    logger.info(`📻 Station reclaimed: ${station.stationName} (${stationId})`);
+    return station;
+  }
+
+  /**
+   * 檢查 deviceId 是否有待接管的電台
+   */
+  hasPendingStation(deviceId: string): boolean {
+    const stationId = this.deviceIdToStation.get(deviceId);
+    return stationId ? this.stations.has(stationId) : false;
+  }
+
+  /**
+   * 取得 deviceId 對應的電台
+   */
+  getStationByDeviceId(deviceId: string): RadioStation | undefined {
+    const stationId = this.deviceIdToStation.get(deviceId);
+    if (!stationId) return undefined;
+    return this.stations.get(stationId);
+  }
+
+  /**
+   * 主播斷線處理（延遲關閉）
+   */
+  handleHostDisconnect(socketId: string, onClose: (station: RadioStation) => void): boolean {
+    const stationId = this.socketToStation.get(socketId);
+    if (!stationId) {
+      return false;
+    }
+
+    const station = this.stations.get(stationId);
+    if (!station) {
+      this.socketToStation.delete(socketId);
+      return false;
+    }
+
+    // 設定延遲關閉計時器
+    logger.info(`📻 Host disconnected, station will close in ${this.GRACE_PERIOD_MS / 1000}s: ${station.stationName}`);
+
+    const timer = setTimeout(() => {
+      // 檢查電台是否還存在且沒有被重新接管
+      if (this.stations.has(stationId) && station.hostSocketId === socketId) {
+        logger.info(`📻 Grace period expired, closing station: ${station.stationName}`);
+        this.forceCloseStation(stationId);
+        onClose(station);
+      }
+      this.pendingCloseTimers.delete(stationId);
+    }, this.GRACE_PERIOD_MS);
+
+    this.pendingCloseTimers.set(stationId, timer);
+    this.socketToStation.delete(socketId);
+
+    return true;
+  }
+
+  /**
+   * 強制關閉電台
+   */
+  private forceCloseStation(stationId: string): void {
+    const station = this.stations.get(stationId);
+    if (!station) return;
+
+    // 清除所有映射
+    this.socketToStation.delete(station.hostSocketId);
+    this.deviceIdToStation.delete(station.hostDeviceId);
+    station.listeners.forEach((listenerId) => {
+      this.listenerToStation.delete(listenerId);
+    });
+    this.stations.delete(stationId);
+
+    // 清除計時器
+    const timer = this.pendingCloseTimers.get(stationId);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingCloseTimers.delete(stationId);
+    }
   }
 
   /**
@@ -107,7 +228,7 @@ class RadioService {
   }
 
   /**
-   * 離開電台
+   * 離開電台（手動關閉，立即生效）
    */
   leaveStation(socketId: string): { station: RadioStation; wasHost: boolean } | null {
     // 檢查是否是主播
@@ -115,7 +236,15 @@ class RadioService {
     if (hostStationId) {
       const station = this.stations.get(hostStationId);
       if (station) {
+        // 清除待關閉計時器（如果有）
+        const timer = this.pendingCloseTimers.get(hostStationId);
+        if (timer) {
+          clearTimeout(timer);
+          this.pendingCloseTimers.delete(hostStationId);
+        }
+
         this.socketToStation.delete(socketId);
+        this.deviceIdToStation.delete(station.hostDeviceId);
         this.stations.delete(hostStationId);
 
         // 清除所有聽眾的映射
@@ -236,10 +365,19 @@ class RadioService {
     this.stations.forEach((station, stationId) => {
       if (now - station.lastActivity > maxIdleTime) {
         this.socketToStation.delete(station.hostSocketId);
+        this.deviceIdToStation.delete(station.hostDeviceId);
         station.listeners.forEach((listenerId) => {
           this.listenerToStation.delete(listenerId);
         });
         this.stations.delete(stationId);
+
+        // 清除待關閉計時器
+        const timer = this.pendingCloseTimers.get(stationId);
+        if (timer) {
+          clearTimeout(timer);
+          this.pendingCloseTimers.delete(stationId);
+        }
+
         cleaned++;
         logger.info(`📻 Cleaned up idle station: ${station.stationName}`);
       }

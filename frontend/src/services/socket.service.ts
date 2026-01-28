@@ -46,6 +46,20 @@ export interface RadioStation {
 interface RadioCreatedData {
   stationId: string;
   stationName: string;
+  reclaimed?: boolean;
+}
+
+interface RadioPendingStationData {
+  stationId: string;
+  stationName: string;
+  listenerCount: number;
+  currentTrack: RadioTrack | null;
+  isPlaying: boolean;
+}
+
+interface RadioHostDisconnectedData {
+  stationId: string;
+  gracePeriod: number;
 }
 
 interface RadioJoinedData {
@@ -87,6 +101,8 @@ type RadioClosedCallback = (data: RadioClosedData) => void;
 type RadioListenerCallback = (data: RadioListenerData) => void;
 type RadioLeftCallback = (data: { stationId: string }) => void;
 type RadioErrorCallback = (data: { message: string }) => void;
+type RadioPendingStationCallback = (data: RadioPendingStationData | null) => void;
+type RadioHostDisconnectedCallback = (data: RadioHostDisconnectedData) => void;
 
 class SocketService {
   private socket: Socket | null = null;
@@ -108,6 +124,8 @@ class SocketService {
     onRadioListenerLeft?: RadioListenerCallback;
     onRadioLeft?: RadioLeftCallback;
     onRadioError?: RadioErrorCallback;
+    onRadioPendingStation?: RadioPendingStationCallback;
+    onRadioHostDisconnected?: RadioHostDisconnectedCallback;
   } = {};
 
   constructor() {
@@ -216,6 +234,16 @@ class SocketService {
       console.error('Radio error:', data);
       this.callbacks.onRadioError?.(data);
     });
+
+    this.socket.on('radio:pending-station', (data: RadioPendingStationData | null) => {
+      console.log('Pending station:', data);
+      this.callbacks.onRadioPendingStation?.(data);
+    });
+
+    this.socket.on('radio:host-disconnected', (data: RadioHostDisconnectedData) => {
+      console.log('Host disconnected:', data);
+      this.callbacks.onRadioHostDisconnected?.(data);
+    });
   }
 
   // 設定回調
@@ -299,6 +327,11 @@ class SocketService {
   // 發現電台
   discoverRadioStations(): void {
     this.socket?.emit('radio:discover');
+  }
+
+  // 檢查是否有待接管的電台
+  checkPendingStation(): void {
+    this.socket?.emit('radio:check-pending', { deviceId: this.deviceId });
   }
 
   // 主播：曲目變更

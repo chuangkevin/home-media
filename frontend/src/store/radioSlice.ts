@@ -30,6 +30,7 @@ interface RadioState {
   currentStationId: string | null;
   currentStationName: string | null;
   hostName: string | null;
+  hostDisconnected: boolean; // 主播暫時離線
   // 同步播放狀態
   syncTrack: RadioTrack | null;
   syncTime: number;
@@ -46,6 +47,7 @@ const initialState: RadioState = {
   currentStationId: null,
   currentStationName: null,
   hostName: null,
+  hostDisconnected: false,
   syncTrack: null,
   syncTime: 0,
   syncIsPlaying: false,
@@ -92,6 +94,7 @@ const radioSlice = createSlice({
       state.currentStationId = action.payload.stationId;
       state.currentStationName = action.payload.stationName;
       state.hostName = action.payload.hostName;
+      state.hostDisconnected = false;
       state.syncTrack = action.payload.currentTrack;
       state.syncTime = action.payload.currentTime;
       state.syncIsPlaying = action.payload.isPlaying;
@@ -126,6 +129,9 @@ const radioSlice = createSlice({
         isPlaying?: boolean;
       }>
     ) {
+      // 收到同步資料代表主播在線
+      state.hostDisconnected = false;
+
       const { type, track, currentTime, isPlaying } = action.payload;
       switch (type) {
         case 'track-change':
@@ -146,6 +152,10 @@ const radioSlice = createSlice({
     resetRadio(state) {
       Object.assign(state, initialState);
     },
+    // 聽眾：主播暫時離線
+    setHostDisconnected(state, action: PayloadAction<boolean>) {
+      state.hostDisconnected = action.payload;
+    },
   },
 });
 
@@ -159,6 +169,7 @@ export const {
   stationClosed,
   syncState,
   resetRadio,
+  setHostDisconnected,
 } = radioSlice.actions;
 
 export default radioSlice.reducer;
