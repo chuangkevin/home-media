@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Box, Typography, Drawer, CircularProgress, Alert, IconButton, Tooltip, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, List,
-  ListItem, ListItemText, ListItemButton, InputAdornment, ToggleButtonGroup, ToggleButton
+  ListItem, ListItemText, ListItemButton, InputAdornment, ToggleButtonGroup, ToggleButton,
+  ListItemAvatar, Avatar
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -14,15 +15,29 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import LyricsIcon from '@mui/icons-material/Lyrics';
+import OndemandVideoIcon from '@mui/icons-material/OndemandVideo';
+import AlbumIcon from '@mui/icons-material/Album';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
+
+type ViewMode = 'lyrics' | 'video' | 'cover';
+
+// 擴展 Window 介面以支援 YouTube API
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
 
 interface FullscreenLyricsProps {
   open: boolean;
@@ -35,9 +50,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
-  const { currentTime } = useSelector((state: RootState) => state.player);
+  const { currentTime, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+
+  // 顯示模式
+  const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
 
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
@@ -51,6 +71,79 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [isFineTuning, setIsFineTuning] = useState(false);
   const [fineTuneOffset, setFineTuneOffset] = useState(0);
   const [isReloadingLyrics, setIsReloadingLyrics] = useState(false);
+
+  // YouTube 播放器狀態
+  const [videoError, setVideoError] = useState<string | null>(null);
+
+  // 載入 YouTube IFrame API
+  useEffect(() => {
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    }
+  }, []);
+
+  // 初始化或銷毀 YouTube 播放器
+  useEffect(() => {
+    if (!open || viewMode !== 'video' || !videoContainerRef.current) {
+      // 銷毀播放器
+      if (playerRef.current && playerRef.current.destroy) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+      return;
+    }
+
+    let isMounted = true;
+    setVideoError(null);
+
+    const initPlayer = () => {
+      if (!isMounted || !videoContainerRef.current) return;
+
+      if (window.YT && window.YT.Player) {
+        playerRef.current = new window.YT.Player(videoContainerRef.current, {
+          videoId: track.videoId,
+          playerVars: {
+            autoplay: 1,
+            enablejsapi: 1,
+            origin: window.location.origin,
+            start: Math.floor(currentTime),
+          },
+          events: {
+            onReady: (event: any) => {
+              if (!isMounted) return;
+              event.target.playVideo();
+            },
+            onError: (event: any) => {
+              // YouTube 嵌入錯誤
+              const errorCode = event.data;
+              if (errorCode === 101 || errorCode === 150) {
+                setVideoError('此影片不允許嵌入播放，請切換到其他模式');
+              } else {
+                setVideoError('影片載入失敗');
+              }
+            },
+          },
+        });
+      }
+    };
+
+    if (window.YT && window.YT.Player) {
+      initPlayer();
+    } else {
+      window.onYouTubeIframeAPIReady = initPlayer;
+    }
+
+    return () => {
+      isMounted = false;
+      if (playerRef.current && playerRef.current.destroy) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
+  }, [open, viewMode, track.videoId]);
 
   // 載入儲存的偏好設定
   useEffect(() => {
@@ -102,7 +195,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 自動滾動到當前歌詞行
   useEffect(() => {
-    if (!open || isFineTuning) return;
+    if (!open || isFineTuning || viewMode !== 'lyrics') return;
 
     const container = lyricsContainerRef.current;
     const line = lineRefs.current[currentLineIndex];
@@ -119,7 +212,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         behavior: 'smooth',
       });
     }
-  }, [currentLineIndex, open, isFineTuning]);
+  }, [currentLineIndex, open, isFineTuning, viewMode]);
 
   // 點選歌詞跳轉
   const handleLyricClick = (time: number, index: number) => {
@@ -300,6 +393,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // 播放清單中的曲目
+  const handlePlayFromList = (item: Track) => {
+    apiService.recordChannelWatch(item.channel, item.thumbnail);
+    dispatch(setPendingTrack(item));
+    dispatch(setIsPlaying(true));
+  };
+
+  // 取得待播清單（當前索引之後的曲目）
+  const upcomingTracks = playlist.slice(currentIndex + 1);
+
   // 渲染歌詞
   const renderLyrics = () => {
     if (isLoading) {
@@ -337,7 +440,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     return (
       <Box sx={{ px: 2 }}>
         {/* 頂部填充 */}
-        <Box sx={{ height: '40vh' }} />
+        <Box sx={{ height: '30vh' }} />
         {currentLyrics.lines.map((line, index) => {
           const isActive = currentLyrics.isSynced && index === currentLineIndex;
           const isPassed = currentLyrics.isSynced && index < currentLineIndex;
@@ -379,8 +482,140 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           );
         })}
         {/* 底部填充 */}
-        <Box sx={{ height: '40vh' }} />
+        <Box sx={{ height: '30vh' }} />
       </Box>
+    );
+  };
+
+  // 渲染影片
+  const renderVideo = () => {
+    if (videoError) {
+      return (
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', p: 2 }}>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {videoError}
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            建議切換到「歌詞」或「封面」模式
+          </Typography>
+        </Box>
+      );
+    }
+
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Box
+          ref={videoContainerRef}
+          sx={{
+            width: '100%',
+            maxWidth: 640,
+            aspectRatio: '16/9',
+          }}
+        />
+      </Box>
+    );
+  };
+
+  // 渲染封面
+  const renderCover = () => {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          position: 'relative',
+        }}
+      >
+        {/* 模糊背景 */}
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: `url(${track.thumbnail})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            filter: 'blur(30px) brightness(0.3)',
+          }}
+        />
+        {/* 封面圖 */}
+        <Box
+          component="img"
+          src={track.thumbnail}
+          alt={track.title}
+          sx={{
+            position: 'relative',
+            maxWidth: '80%',
+            maxHeight: '60%',
+            borderRadius: 2,
+            boxShadow: 8,
+          }}
+        />
+      </Box>
+    );
+  };
+
+  // 渲染待播清單
+  const renderUpcoming = () => {
+    if (upcomingTracks.length === 0) {
+      return (
+        <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
+          沒有更多待播歌曲
+        </Typography>
+      );
+    }
+
+    return (
+      <List dense sx={{ py: 0 }}>
+        {upcomingTracks.slice(0, 10).map((item) => (
+          <ListItem
+            key={item.id}
+            disablePadding
+            secondaryAction={
+              <IconButton edge="end" size="small" onClick={() => handlePlayFromList(item)}>
+                <PlayArrowIcon fontSize="small" />
+              </IconButton>
+            }
+          >
+            <ListItemButton onClick={() => handlePlayFromList(item)} sx={{ py: 0.5 }}>
+              <ListItemAvatar sx={{ minWidth: 48 }}>
+                <Avatar
+                  variant="rounded"
+                  src={item.thumbnail}
+                  sx={{ width: 40, height: 40 }}
+                />
+              </ListItemAvatar>
+              <ListItemText
+                primary={
+                  <Typography variant="body2" noWrap sx={{ fontSize: '0.85rem' }}>
+                    {item.title}
+                  </Typography>
+                }
+                secondary={
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {item.channel}
+                  </Typography>
+                }
+              />
+            </ListItemButton>
+          </ListItem>
+        ))}
+        {upcomingTracks.length > 10 && (
+          <Typography variant="caption" color="text.secondary" sx={{ p: 2, display: 'block', textAlign: 'center' }}>
+            還有 {upcomingTracks.length - 10} 首歌曲
+          </Typography>
+        )}
+      </List>
     );
   };
 
@@ -392,28 +627,23 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: 'calc(100% - 140px)', // 保留底部播放器空間
+            height: 'calc(100% - 140px)',
             maxHeight: 'calc(100% - 140px)',
             borderTopLeftRadius: 16,
             borderTopRightRadius: 16,
-            bottom: 140, // 從播放器上方開始
+            bottom: 140,
+            display: 'flex',
+            flexDirection: 'column',
           },
         }}
         ModalProps={{
           keepMounted: true,
           sx: {
-            // 讓整個 Modal 容器不覆蓋播放器
             bottom: 140,
             height: 'calc(100% - 140px)',
             '& .MuiBackdrop-root': {
               bottom: 140,
             },
-          },
-        }}
-        sx={{
-          // Drawer 本身的樣式
-          '& .MuiDrawer-root': {
-            bottom: 140,
           },
         }}
       >
@@ -428,6 +658,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             borderColor: 'divider',
             px: 2,
             py: 1,
+            flexShrink: 0,
           }}
         >
           {/* 下拉指示器 */}
@@ -470,18 +701,43 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 )}
               </Box>
             </Box>
-            <Tooltip title="搜尋其他歌詞">
-              <IconButton size="small" onClick={handleOpenSearch}>
-                <EditIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            {viewMode === 'lyrics' && (
+              <Tooltip title="搜尋其他歌詞">
+                <IconButton size="small" onClick={handleOpenSearch}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             <IconButton onClick={onClose}>
               <KeyboardArrowDownIcon />
             </IconButton>
           </Box>
 
-          {/* 微調控制 */}
-          {currentLyrics?.isSynced && (
+          {/* 模式切換 */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              onChange={(_, newMode) => newMode && setViewMode(newMode)}
+              size="small"
+            >
+              <ToggleButton value="lyrics">
+                <LyricsIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                歌詞
+              </ToggleButton>
+              <ToggleButton value="video">
+                <OndemandVideoIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                影片
+              </ToggleButton>
+              <ToggleButton value="cover">
+                <AlbumIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                封面
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          {/* 歌詞微調控制（僅在歌詞模式顯示） */}
+          {viewMode === 'lyrics' && currentLyrics?.isSynced && (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: 1 }}>
               {isFineTuning ? (
                 <>
@@ -527,16 +783,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           )}
         </Box>
 
-        {/* 歌詞區域 */}
+        {/* 主內容區域 */}
         <Box
-          ref={lyricsContainerRef}
-          onScroll={isFineTuning ? handleFineTuneScroll : undefined}
+          ref={viewMode === 'lyrics' ? lyricsContainerRef : undefined}
+          onScroll={viewMode === 'lyrics' && isFineTuning ? handleFineTuneScroll : undefined}
           sx={{
-            flexGrow: 1,
+            flex: 1,
             overflow: 'auto',
             position: 'relative',
-            // 微調模式中心指示線
-            ...(isFineTuning && {
+            minHeight: 0,
+            ...(viewMode === 'lyrics' && isFineTuning && {
               '&::before': {
                 content: '""',
                 position: 'fixed',
@@ -552,7 +808,26 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             }),
           }}
         >
-          {renderLyrics()}
+          {viewMode === 'lyrics' && renderLyrics()}
+          {viewMode === 'video' && renderVideo()}
+          {viewMode === 'cover' && renderCover()}
+        </Box>
+
+        {/* 待播清單 */}
+        <Box
+          sx={{
+            borderTop: 1,
+            borderColor: 'divider',
+            backgroundColor: 'background.paper',
+            maxHeight: '25%',
+            overflow: 'auto',
+            flexShrink: 0,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block', fontWeight: 600 }}>
+            待播清單 ({upcomingTracks.length})
+          </Typography>
+          {renderUpcoming()}
         </Box>
       </Drawer>
 
