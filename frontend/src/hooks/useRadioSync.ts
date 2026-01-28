@@ -27,7 +27,7 @@ const LOAD_TIMEOUT_MS = 15000; // 聽眾載入超時（15 秒）
  */
 export function useRadioSync() {
   const dispatch = useDispatch();
-  const { currentTrack, pendingTrack, isPlaying, currentTime, isLoadingTrack } = useSelector(
+  const { currentTrack, isPlaying, currentTime, isLoadingTrack } = useSelector(
     (state: RootState) => state.player
   );
   const { isHost, isListener, syncTrack, syncTime, syncIsPlaying } = useSelector(
