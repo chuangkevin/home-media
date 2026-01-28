@@ -1,7 +1,9 @@
 import ytdl from '@distube/ytdl-core';
 import youtubedl from 'youtube-dl-exec';
+import fs from 'fs';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
+import config from '../config/environment';
 
 interface CachedUrl {
   url: string;
@@ -13,6 +15,39 @@ class YouTubeService {
   private pendingRequests: Map<string, Promise<string>> = new Map(); // 防止重複請求
   private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
   private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 小時（搜尋結果快取）
+  private cookiesPath: string | null = null;
+
+  constructor() {
+    // 檢查 cookies 文件是否存在
+    if (config.youtube?.cookiesPath && fs.existsSync(config.youtube.cookiesPath)) {
+      this.cookiesPath = config.youtube.cookiesPath;
+      logger.info(`📍 YouTube cookies 已配置: ${this.cookiesPath}`);
+    } else if (config.youtube?.cookiesPath) {
+      logger.warn(`⚠️ YouTube cookies 路徑不存在: ${config.youtube.cookiesPath}`);
+    }
+  }
+
+  /**
+   * 獲取 yt-dlp 基本選項（包含 cookies）
+   */
+  private getYtDlpBaseOptions(): Record<string, any> {
+    const baseOptions: Record<string, any> = {
+      noCheckCertificates: true,
+      noWarnings: true,
+      addHeader: [
+        'Accept-Language:zh-TW,zh;q=0.9',
+        'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      ],
+    };
+
+    // 如果有 cookies，加入選項
+    if (this.cookiesPath) {
+      baseOptions.cookies = this.cookiesPath;
+      logger.debug('Using cookies for yt-dlp request');
+    }
+
+    return baseOptions;
+  }
 
   /**
    * 搜尋 YouTube 影片（使用 yt-dlp，支援中文標題）
@@ -35,15 +70,10 @@ class YouTubeService {
 
       // 使用 yt-dlp 搜尋，指定台灣地區以獲取中文標題
       const result: any = await youtubedl(`ytsearch${limit}:${query}`, {
+        ...this.getYtDlpBaseOptions(),
         dumpSingleJson: true,
         flatPlaylist: true,
-        noCheckCertificates: true,
-        noWarnings: true,
         geoBypassCountry: 'TW', // 台灣地區
-        addHeader: [
-          'Accept-Language:zh-TW,zh;q=0.9',
-          'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        ],
         extractorArgs: 'youtube:lang=zh-TW', // 強制使用繁體中文
       } as any);
 
@@ -224,13 +254,13 @@ class YouTubeService {
       logger.info(`Fetching fresh audio URL via yt-dlp for: ${videoId}`);
 
       const startTime = Date.now();
+      // 優先選擇 m4a/aac 格式，這在手機瀏覽器上相容性更好
+      // bestaudio[ext=m4a] 優先，fallback 到 bestaudio
       const result: any = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
+        ...this.getYtDlpBaseOptions(),
         dumpSingleJson: true,
-        noCheckCertificates: true,
-        noWarnings: true,
-        preferFreeFormats: true,
-        addHeader: ['referer:youtube.com', 'user-agent:Mozilla/5.0'],
-        format: 'bestaudio',
+        preferFreeFormats: false, // 不優先免費格式，優先相容性
+        format: 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio',
       });
       const fetchTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
@@ -401,15 +431,10 @@ class YouTubeService {
 
       // 2. 使用 yt-dlp 搜尋 + 過濾
       const result: any = await youtubedl(`ytsearch${limit * 3}:${channelName}`, {
+        ...this.getYtDlpBaseOptions(),
         dumpSingleJson: true,
         flatPlaylist: true,
-        noCheckCertificates: true,
-        noWarnings: true,
         geoBypassCountry: 'TW',
-        addHeader: [
-          'Accept-Language:zh-TW,zh;q=0.9',
-          'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        ],
         extractorArgs: 'youtube:lang=zh-TW', // 強制使用繁體中文
       } as any);
 
