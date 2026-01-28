@@ -22,6 +22,7 @@ import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, 
 import { seekTo } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
+import { toTraditional } from '../../utils/chineseConvert';
 
 interface FullscreenLyricsProps {
   open: boolean;
@@ -372,7 +373,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   transition: 'all 0.3s ease',
                 }}
               >
-                {line.text}
+                {toTraditional(line.text)}
               </Typography>
             </Box>
           );

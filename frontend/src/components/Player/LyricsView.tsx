@@ -21,6 +21,7 @@ import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, 
 import { seekTo } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
+import { toTraditional } from '../../utils/chineseConvert';
 
 interface LyricsViewProps {
   track: Track;
@@ -445,7 +446,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
                   transition: 'all 0.3s ease',
                 }}
               >
-                {line.text}
+                {toTraditional(line.text)}
               </Typography>
             </Box>
           );
