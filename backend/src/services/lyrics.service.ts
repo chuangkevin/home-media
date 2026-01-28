@@ -53,73 +53,139 @@ interface NeteaseLyricResponse {
 
 class LyricsService {
   /**
-   * 獲取歌詞（優先從快取，然後嘗試 YouTube CC，最後嘗試 Genius）
+   * 獲取歌詞（優先從快取，然後嘗試多個來源）
+   * 改進版：更好的錯誤追蹤和日誌
    */
   async getLyrics(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
-    console.log(`🎵 [LyricsService.getLyrics] START: videoId=${videoId}, title=${title}`);
+    const startTime = Date.now();
+    console.log(`🎵 [LyricsService.getLyrics] START: videoId=${videoId}, title="${title}", artist="${artist || 'N/A'}"`);
+    logger.info(`[LyricsService] Starting lyrics fetch for: ${videoId}`);
+
+    const attemptResults: { source: string; success: boolean; error?: string; duration: number }[] = [];
+
     try {
-      console.log(`🎵 [LyricsService] Step 1: Checking cache...`);
       // 1. 檢查快取
+      console.log(`🎵 [LyricsService] Step 1/5: Checking cache...`);
+      const cacheStart = Date.now();
       const cached = this.getFromCache(videoId);
       if (cached) {
-        console.log(`🎵 [LyricsService] Cache hit!`);
-        logger.info(`📝 使用快取的歌詞: ${videoId}`);
+        console.log(`🎵 [LyricsService] ✅ Cache hit! (${Date.now() - cacheStart}ms)`);
+        logger.info(`📝 使用快取的歌詞: ${videoId} (來源: ${cached.source})`);
         return cached;
       }
+      attemptResults.push({ source: 'cache', success: false, duration: Date.now() - cacheStart });
 
-      console.log(`🎵 [LyricsService] Step 2: Fetching from YouTube CC...`);
       // 2. 嘗試從 YouTube 字幕獲取（通常有時間戳）
-      logger.info(`🔍 嘗試從 YouTube CC 獲取歌詞: ${videoId}`);
-      const youtubeLyrics = await this.fetchYouTubeCaptions(videoId);
-      console.log(`🎵 [LyricsService] YouTube CC result:`, youtubeLyrics ? 'Found' : 'Not found');
-      if (youtubeLyrics) {
-        this.saveToCache(youtubeLyrics);
-        return youtubeLyrics;
+      console.log(`🎵 [LyricsService] Step 2/5: Fetching from YouTube CC...`);
+      const ytStart = Date.now();
+      try {
+        const youtubeLyrics = await this.fetchYouTubeCaptions(videoId);
+        const ytDuration = Date.now() - ytStart;
+        if (youtubeLyrics) {
+          console.log(`🎵 [LyricsService] ✅ YouTube CC found! (${ytDuration}ms)`);
+          attemptResults.push({ source: 'youtube', success: true, duration: ytDuration });
+          this.saveToCache(youtubeLyrics);
+          this.logAttemptSummary(attemptResults, startTime);
+          return youtubeLyrics;
+        }
+        attemptResults.push({ source: 'youtube', success: false, duration: ytDuration });
+      } catch (ytErr) {
+        attemptResults.push({ source: 'youtube', success: false, error: ytErr instanceof Error ? ytErr.message : String(ytErr), duration: Date.now() - ytStart });
       }
 
-      console.log(`🎵 [LyricsService] Step 3: Fetching from NetEase...`);
       // 3. 嘗試從網易雲音樂獲取（華語歌詞最齊全）
-      logger.info(`🔍 嘗試從網易雲音樂獲取歌詞: ${title} - ${artist}`);
-      const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist);
-      console.log(`🎵 [LyricsService] NetEase result:`, neteaseLyrics ? 'Found' : 'Not found');
-      if (neteaseLyrics) {
-        this.saveToCache(neteaseLyrics);
-        return neteaseLyrics;
+      console.log(`🎵 [LyricsService] Step 3/5: Fetching from NetEase...`);
+      const neteaseStart = Date.now();
+      try {
+        const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist);
+        const neteaseDuration = Date.now() - neteaseStart;
+        if (neteaseLyrics) {
+          console.log(`🎵 [LyricsService] ✅ NetEase found! (${neteaseDuration}ms)`);
+          attemptResults.push({ source: 'netease', success: true, duration: neteaseDuration });
+          this.saveToCache(neteaseLyrics);
+          this.logAttemptSummary(attemptResults, startTime);
+          return neteaseLyrics;
+        }
+        attemptResults.push({ source: 'netease', success: false, duration: neteaseDuration });
+      } catch (neteaseErr) {
+        attemptResults.push({ source: 'netease', success: false, error: neteaseErr instanceof Error ? neteaseErr.message : String(neteaseErr), duration: Date.now() - neteaseStart });
       }
 
-      console.log(`🎵 [LyricsService] Step 4: Fetching from LRCLIB...`);
       // 4. 嘗試從 LRCLIB 獲取（有時間戳的 LRC 格式）
-      logger.info(`🔍 嘗試從 LRCLIB 獲取歌詞: ${title} - ${artist}`);
-      const lrclibLyrics = await this.fetchLRCLIB(videoId, title, artist);
-      console.log(`🎵 [LyricsService] LRCLIB result:`, lrclibLyrics ? 'Found' : 'Not found');
-      if (lrclibLyrics) {
-        this.saveToCache(lrclibLyrics);
-        return lrclibLyrics;
+      console.log(`🎵 [LyricsService] Step 4/5: Fetching from LRCLIB...`);
+      const lrclibStart = Date.now();
+      try {
+        const lrclibLyrics = await this.fetchLRCLIB(videoId, title, artist);
+        const lrclibDuration = Date.now() - lrclibStart;
+        if (lrclibLyrics) {
+          console.log(`🎵 [LyricsService] ✅ LRCLIB found! (${lrclibDuration}ms)`);
+          attemptResults.push({ source: 'lrclib', success: true, duration: lrclibDuration });
+          this.saveToCache(lrclibLyrics);
+          this.logAttemptSummary(attemptResults, startTime);
+          return lrclibLyrics;
+        }
+        attemptResults.push({ source: 'lrclib', success: false, duration: lrclibDuration });
+      } catch (lrclibErr) {
+        attemptResults.push({ source: 'lrclib', success: false, error: lrclibErr instanceof Error ? lrclibErr.message : String(lrclibErr), duration: Date.now() - lrclibStart });
       }
 
       // 5. 嘗試從 Genius 獲取（通常沒有時間戳，最後備用）
-      logger.info(`🔍 嘗試從 Genius 獲取歌詞: ${title} - ${artist}`);
-      const geniusLyrics = await this.fetchGeniusLyrics(videoId, title, artist);
-      if (geniusLyrics) {
-        this.saveToCache(geniusLyrics);
-        return geniusLyrics;
+      console.log(`🎵 [LyricsService] Step 5/5: Fetching from Genius...`);
+      const geniusStart = Date.now();
+      try {
+        const geniusLyrics = await this.fetchGeniusLyrics(videoId, title, artist);
+        const geniusDuration = Date.now() - geniusStart;
+        if (geniusLyrics) {
+          console.log(`🎵 [LyricsService] ✅ Genius found! (${geniusDuration}ms)`);
+          attemptResults.push({ source: 'genius', success: true, duration: geniusDuration });
+          this.saveToCache(geniusLyrics);
+          this.logAttemptSummary(attemptResults, startTime);
+          return geniusLyrics;
+        }
+        attemptResults.push({ source: 'genius', success: false, duration: geniusDuration });
+      } catch (geniusErr) {
+        attemptResults.push({ source: 'genius', success: false, error: geniusErr instanceof Error ? geniusErr.message : String(geniusErr), duration: Date.now() - geniusStart });
       }
 
-      logger.warn(`⚠️ 無法找到歌詞: ${videoId}`);
+      // 所有來源都失敗
+      console.log(`🎵 [LyricsService] ❌ No lyrics found from any source`);
+      this.logAttemptSummary(attemptResults, startTime);
+      logger.warn(`⚠️ 無法找到歌詞: ${videoId} - ${title}`);
       return null;
     } catch (error) {
+      console.error(`🎵 [LyricsService] ❌ Unexpected error:`, error);
       logger.error(`❌ 獲取歌詞失敗 (${videoId}):`, error);
       throw error;
     }
   }
 
   /**
+   * 記錄嘗試摘要
+   */
+  private logAttemptSummary(
+    attempts: { source: string; success: boolean; error?: string; duration: number }[],
+    startTime: number
+  ): void {
+    const totalDuration = Date.now() - startTime;
+    const summary = attempts.map(a =>
+      `${a.source}: ${a.success ? '✅' : '❌'} (${a.duration}ms)${a.error ? ` [${a.error}]` : ''}`
+    ).join(', ');
+    console.log(`🎵 [LyricsService] Summary: ${summary} | Total: ${totalDuration}ms`);
+    logger.info(`[LyricsService] Attempt summary: ${summary} | Total: ${totalDuration}ms`);
+  }
+
+  /**
    * 從 YouTube 字幕獲取同步歌詞（使用 yt-dlp）
+   * 改進版：更好的超時處理和錯誤日誌
    */
   private async fetchYouTubeCaptions(videoId: string): Promise<Lyrics | null> {
     console.log(`🎬 [fetchYouTubeCaptions] START: videoId=${videoId}`);
+    logger.info(`[YouTube CC] Starting subtitle fetch for: ${videoId}`);
     const tempDir = os.tmpdir();
     const tempFile = path.join(tempDir, `${videoId}-subtitle`);
+
+    // 設定 yt-dlp 執行超時（30 秒）
+    const YT_DLP_TIMEOUT = 30000;
 
     try {
       const url = `https://www.youtube.com/watch?v=${videoId}`;
@@ -135,8 +201,8 @@ class LyricsService {
             fs.unlinkSync(subtitleFile);
           }
 
-          // 使用 yt-dlp 下載字幕到臨時文件
-          await youtubedl(url, {
+          // 使用 yt-dlp 下載字幕到臨時文件（加入超時）
+          const ytdlpPromise = youtubedl(url, {
             skipDownload: true,
             writeAutoSub: true,
             writeSub: true,
@@ -145,8 +211,14 @@ class LyricsService {
             output: tempFile,
             noWarnings: true,
             quiet: true,
-            noCheckCertificates: true, // 繞過 SSL 證書驗證
+            noCheckCertificates: true, // 繞過 SSL 證書驗證（Docker 環境需要）
           });
+
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`yt-dlp timeout after ${YT_DLP_TIMEOUT}ms`)), YT_DLP_TIMEOUT);
+          });
+
+          await Promise.race([ytdlpPromise, timeoutPromise]);
 
           // 讀取字幕文件
           if (fs.existsSync(subtitleFile)) {
@@ -174,16 +246,20 @@ class LyricsService {
             console.log(`🎬 [fetchYouTubeCaptions] Subtitle file not found for ${lang}`);
           }
         } catch (langError) {
-          console.log(`🎬 [fetchYouTubeCaptions] Language ${lang} failed:`, langError instanceof Error ? langError.message : String(langError));
+          const errMsg = langError instanceof Error ? langError.message : String(langError);
+          console.log(`🎬 [fetchYouTubeCaptions] Language ${lang} failed: ${errMsg}`);
+          logger.warn(`[YouTube CC] Language ${lang} failed for ${videoId}: ${errMsg}`);
           continue;
         }
       }
 
-      console.log(`🎬 [fetchYouTubeCaptions] No subtitles found`);
+      console.log(`🎬 [fetchYouTubeCaptions] No subtitles found for any language`);
+      logger.info(`[YouTube CC] No subtitles found for: ${videoId}`);
       return null;
     } catch (error) {
-      console.log(`🎬 [fetchYouTubeCaptions] ERROR:`, error);
-      logger.error(`YouTube CC 獲取失敗 (${videoId}):`, error);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`🎬 [fetchYouTubeCaptions] ERROR: ${errMsg}`);
+      logger.error(`YouTube CC 獲取失敗 (${videoId}): ${errMsg}`);
       return null;
     } finally {
       // 清理所有可能的臨時文件
@@ -191,7 +267,9 @@ class LyricsService {
         const files = fs.readdirSync(tempDir);
         files.forEach(file => {
           if (file.startsWith(`${videoId}-subtitle`)) {
-            fs.unlinkSync(path.join(tempDir, file));
+            try {
+              fs.unlinkSync(path.join(tempDir, file));
+            } catch {}
           }
         });
       } catch (cleanupError) {
@@ -209,8 +287,8 @@ class LyricsService {
     title: string,
     artist?: string
   ): Promise<Lyrics | null> {
-    // 設定 15 秒 timeout
-    const NETEASE_TIMEOUT = 15000;
+    // 設定更長的 timeout（Docker 環境可能較慢）
+    const NETEASE_TIMEOUT = 30000;
 
     const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
       return Promise.race([
@@ -227,9 +305,17 @@ class LyricsService {
       const searchQuery = cleanArtist ? `${cleanTitle} ${cleanArtist}` : cleanTitle;
 
       console.log(`🎵 [NetEase] Searching: "${searchQuery}"`);
+      logger.info(`[NetEase] Starting search for: ${searchQuery}`);
 
       // 搜尋歌曲（加入 timeout）
-      const searchResult = await withTimeout(neteaseApi.search(searchQuery), NETEASE_TIMEOUT);
+      let searchResult;
+      try {
+        searchResult = await withTimeout(neteaseApi.search(searchQuery), NETEASE_TIMEOUT);
+      } catch (searchErr) {
+        console.error(`🎵 [NetEase] Search API error:`, searchErr instanceof Error ? searchErr.message : String(searchErr));
+        logger.error(`[NetEase] Search API failed:`, searchErr);
+        return null;
+      }
 
       if (!searchResult || !searchResult.result || !searchResult.result.songs || searchResult.result.songs.length === 0) {
         console.log(`🎵 [NetEase] No songs found for: ${searchQuery}`);
@@ -244,10 +330,17 @@ class LyricsService {
       console.log(`🎵 [NetEase] Using song: ${song.name} by ${song.artists?.map(a => a.name).join(', ') || 'Unknown'} (ID: ${song.id})`);
 
       // 獲取歌詞（加入 timeout）
-      const lyricResult = await withTimeout(
-        neteaseApi.lyric(String(song.id)),
-        NETEASE_TIMEOUT
-      ) as NeteaseLyricResponse;
+      let lyricResult: NeteaseLyricResponse;
+      try {
+        lyricResult = await withTimeout(
+          neteaseApi.lyric(String(song.id)),
+          NETEASE_TIMEOUT
+        ) as NeteaseLyricResponse;
+      } catch (lyricErr) {
+        console.error(`🎵 [NetEase] Lyric API error:`, lyricErr instanceof Error ? lyricErr.message : String(lyricErr));
+        logger.error(`[NetEase] Lyric API failed:`, lyricErr);
+        return null;
+      }
 
       if (!lyricResult || !lyricResult.lrc || !lyricResult.lrc.lyric) {
         console.log(`🎵 [NetEase] No lyrics found for song ID: ${song.id}`);
@@ -275,7 +368,7 @@ class LyricsService {
         isSynced: true,
       };
     } catch (error) {
-      console.log(`🎵 [NetEase] Error:`, error instanceof Error ? error.message : String(error));
+      console.error(`🎵 [NetEase] Unexpected error:`, error instanceof Error ? error.message : String(error));
       logger.error(`網易雲音樂獲取失敗 (${videoId}):`, error);
       return null;
     }
@@ -284,6 +377,7 @@ class LyricsService {
   /**
    * 從 LRCLIB 獲取同步歌詞（LRC 格式）
    * LRCLIB 是免費的歌詞 API，提供同步歌詞
+   * 改進版：更好的超時處理和錯誤日誌
    */
   private async fetchLRCLIB(
     videoId: string,
@@ -296,19 +390,30 @@ class LyricsService {
       const cleanArtist = artist ? this.cleanArtistName(artist) : '';
 
       console.log(`🎼 [LRCLIB] Searching: "${cleanTitle}" by "${cleanArtist}"`);
+      logger.info(`[LRCLIB] Starting search for: ${cleanTitle}`);
 
       // 使用 search API（只用歌名搜尋，因為藝術家名稱可能有不同語言版本）
       const url = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`;
       console.log(`🎼 [LRCLIB] Fetching: ${url}`);
 
-      // 使用 https 模組來繞過 SSL 問題
-      const response = await this.fetchWithSSLBypass(url);
+      // 使用 https 模組來繞過 SSL 問題，增加超時時間
+      const response = await this.fetchWithSSLBypass(url, 30000);
 
       if (!response.ok) {
-        throw new Error(`LRCLIB API error: ${response.status}`);
+        console.error(`🎼 [LRCLIB] API error: ${response.status}`);
+        logger.error(`[LRCLIB] API returned status ${response.status}`);
+        return null;
       }
 
-      const results = (await response.json()) as LRCLIBResponse[];
+      let results: LRCLIBResponse[];
+      try {
+        results = (await response.json()) as LRCLIBResponse[];
+      } catch (parseErr) {
+        console.error(`🎼 [LRCLIB] JSON parse error:`, parseErr);
+        logger.error(`[LRCLIB] JSON parse error:`, parseErr);
+        return null;
+      }
+
       console.log(`🎼 [LRCLIB] Search returned ${results.length} results`);
 
       if (!results || results.length === 0) {
@@ -318,6 +423,7 @@ class LyricsService {
 
       // 優先選擇有同步歌詞的結果
       const data = results.find(r => r.syncedLyrics) || results[0];
+      console.log(`🎼 [LRCLIB] Selected: ${data.trackName} by ${data.artistName} (ID: ${data.id})`);
 
       // 優先使用同步歌詞
       if (data.syncedLyrics) {
@@ -328,7 +434,7 @@ class LyricsService {
           return {
             videoId,
             lines,
-            source: 'lrclib', // 使用 musixmatch 作為 LRCLIB 的標識
+            source: 'lrclib',
             isSynced: true,
           };
         }
@@ -358,8 +464,9 @@ class LyricsService {
 
       return null;
     } catch (error) {
-      console.log(`🎼 [LRCLIB] Error:`, error instanceof Error ? error.message : String(error));
-      logger.error(`LRCLIB 獲取失敗 (${videoId}):`, error);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`🎼 [LRCLIB] Error: ${errMsg}`);
+      logger.error(`LRCLIB 獲取失敗 (${videoId}): ${errMsg}`);
       return null;
     }
   }
@@ -394,41 +501,65 @@ class LyricsService {
 
   /**
    * 使用 https 模組發送請求，繞過 SSL 驗證
+   * 改進版：更長的超時時間，更好的錯誤處理
    */
-  private fetchWithSSLBypass(url: string): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
+  private fetchWithSSLBypass(url: string, timeout: number = 30000): Promise<{ ok: boolean; status: number; json: () => Promise<unknown>; text: () => Promise<string> }> {
     return new Promise((resolve, reject) => {
       const https = require('https');
+      const http = require('http');
       const urlObj = new URL(url);
+      const isHttps = urlObj.protocol === 'https:';
+      const httpModule = isHttps ? https : http;
 
       const options = {
         hostname: urlObj.hostname,
+        port: urlObj.port || (isHttps ? 443 : 80),
         path: urlObj.pathname + urlObj.search,
         method: 'GET',
-        rejectUnauthorized: false, // 繞過 SSL 驗證
+        rejectUnauthorized: false, // 繞過 SSL 驗證（Docker 環境可能沒有正確的 CA 證書）
         headers: {
-          'User-Agent': 'HomeMediaPlayer/1.0.0 (https://github.com/user/home-media)',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
         },
       };
 
-      const req = https.request(options, (res: { statusCode: number; on: (event: string, callback: (data?: unknown) => void) => void }) => {
+      console.log(`🌐 [fetchWithSSLBypass] Requesting: ${url}`);
+
+      const req = httpModule.request(options, (res: { statusCode: number; on: (event: string, callback: (data?: unknown) => void) => void }) => {
         let data = '';
         res.on('data', (chunk: unknown) => {
           data += String(chunk);
         });
         res.on('end', () => {
+          console.log(`🌐 [fetchWithSSLBypass] Response: ${res.statusCode}, ${data.length} bytes`);
           resolve({
             ok: res.statusCode >= 200 && res.statusCode < 300,
             status: res.statusCode,
-            json: () => Promise.resolve(JSON.parse(data)),
+            json: () => {
+              try {
+                return Promise.resolve(JSON.parse(data));
+              } catch (e) {
+                console.error(`🌐 [fetchWithSSLBypass] JSON parse error:`, e);
+                return Promise.reject(new Error(`Failed to parse JSON: ${data.substring(0, 200)}`));
+              }
+            },
+            text: () => Promise.resolve(data),
           });
         });
       });
 
-      req.on('error', reject);
-      req.setTimeout(10000, () => {
-        req.destroy();
-        reject(new Error('Request timeout'));
+      req.on('error', (err: Error) => {
+        console.error(`🌐 [fetchWithSSLBypass] Request error:`, err.message);
+        reject(err);
       });
+
+      req.setTimeout(timeout, () => {
+        console.error(`🌐 [fetchWithSSLBypass] Request timeout after ${timeout}ms`);
+        req.destroy();
+        reject(new Error(`Request timeout after ${timeout}ms`));
+      });
+
       req.end();
     });
   }

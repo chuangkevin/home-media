@@ -20,7 +20,9 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install ffmpeg for audio processing (yt-dlp dependency)
-RUN apk add --no-cache ffmpeg python3 make g++
+# Also install ca-certificates for SSL/TLS support
+RUN apk add --no-cache ffmpeg python3 make g++ ca-certificates && \
+    update-ca-certificates
 
 # Copy package files and install production dependencies only
 COPY package*.json ./
