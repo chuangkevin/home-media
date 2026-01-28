@@ -392,10 +392,28 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: '100%',
-            maxHeight: '100%',
+            height: 'calc(100% - 140px)', // 保留底部播放器空間
+            maxHeight: 'calc(100% - 140px)',
             borderTopLeftRadius: 16,
             borderTopRightRadius: 16,
+            bottom: 140, // 從播放器上方開始
+          },
+        }}
+        ModalProps={{
+          keepMounted: true,
+          sx: {
+            // 讓整個 Modal 容器不覆蓋播放器
+            bottom: 140,
+            height: 'calc(100% - 140px)',
+            '& .MuiBackdrop-root': {
+              bottom: 140,
+            },
+          },
+        }}
+        sx={{
+          // Drawer 本身的樣式
+          '& .MuiDrawer-root': {
+            bottom: 140,
           },
         }}
       >
