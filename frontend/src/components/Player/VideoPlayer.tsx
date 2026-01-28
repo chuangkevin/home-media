@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box } from '@mui/material';
+import { Box, Typography, Button, Link } from '@mui/material';
+import MusicVideoIcon from '@mui/icons-material/MusicVideo';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import type { Track } from '../../types/track.types';
-import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext } from '../../store/playerSlice';
+import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
 import { RootState } from '../../store';
 
 interface VideoPlayerProps {
@@ -17,6 +19,15 @@ declare global {
   }
 }
 
+// YouTube IFrame Player error codes
+const YT_ERROR_CODES: Record<number, string> = {
+  2: '無效的影片 ID',
+  5: 'HTML5 播放器錯誤',
+  100: '找不到影片（已刪除或設為私人）',
+  101: '此影片不允許嵌入播放',
+  150: '此影片不允許嵌入播放', // Same as 101
+};
+
 export default function VideoPlayer({ track }: VideoPlayerProps) {
   const dispatch = useDispatch();
   const playerRef = useRef<any>(null);
@@ -26,6 +37,13 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   const isSeekingRef = useRef(false);
   // 記住切換到影片模式時的音訊播放位置
   const initialTimeRef = useRef<number>(currentTime);
+  // 錯誤狀態
+  const [error, setError] = useState<string | null>(null);
+
+  // 當曲目變化時重置錯誤
+  useEffect(() => {
+    setError(null);
+  }, [track.videoId]);
 
   // 載入 YouTube IFrame API
   useEffect(() => {
@@ -44,6 +62,9 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
     const initPlayer = () => {
       if (!isMounted || !containerRef.current) return;
 
+      // 重置錯誤狀態
+      setError(null);
+
       if (window.YT && window.YT.Player) {
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId: track.videoId,
@@ -51,6 +72,9 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             autoplay: 1,
             enablejsapi: 1,
             origin: window.location.origin,
+            // 嘗試放寬限制
+            rel: 0,
+            modestbranding: 1,
           },
           events: {
             onReady: (event: any) => {
@@ -74,6 +98,13 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
               } else if (event.data === 2) {
                 dispatch(setIsPlaying(false));
               }
+            },
+            onError: (event: any) => {
+              if (!isMounted) return;
+              const errorCode = event.data;
+              const errorMessage = YT_ERROR_CODES[errorCode] || `YouTube 錯誤碼: ${errorCode}`;
+              console.error(`🎬 YouTube 播放器錯誤: ${errorCode} - ${errorMessage}`);
+              setError(errorMessage);
             },
           },
         });
@@ -138,6 +169,122 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
       }, 500);
     }
   }, [seekTarget, dispatch]);
+
+  // 切換回音訊模式
+  const handleSwitchToAudio = () => {
+    dispatch(setDisplayMode('audio'));
+  };
+
+  // 重試
+  const handleRetry = () => {
+    setError(null);
+    // 強制重新載入播放器
+    if (playerRef.current && playerRef.current.destroy) {
+      playerRef.current.destroy();
+      playerRef.current = null;
+    }
+    // 清空容器並重新創建
+    if (containerRef.current) {
+      containerRef.current.innerHTML = '';
+    }
+    // 觸發重新初始化（通過改變 key 或重新 mount）
+    setTimeout(() => {
+      if (window.YT && window.YT.Player && containerRef.current) {
+        playerRef.current = new window.YT.Player(containerRef.current, {
+          videoId: track.videoId,
+          playerVars: {
+            autoplay: 1,
+            enablejsapi: 1,
+            origin: window.location.origin,
+            rel: 0,
+            modestbranding: 1,
+          },
+          events: {
+            onReady: (event: any) => {
+              dispatch(setDuration(event.target.getDuration()));
+              event.target.playVideo();
+            },
+            onStateChange: (event: any) => {
+              if (event.data === 0) {
+                dispatch(playNext());
+              } else if (event.data === 1) {
+                dispatch(setIsPlaying(true));
+              } else if (event.data === 2) {
+                dispatch(setIsPlaying(false));
+              }
+            },
+            onError: (event: any) => {
+              const errorCode = event.data;
+              const errorMessage = YT_ERROR_CODES[errorCode] || `YouTube 錯誤碼: ${errorCode}`;
+              console.error(`🎬 YouTube 播放器錯誤: ${errorCode} - ${errorMessage}`);
+              setError(errorMessage);
+            },
+          },
+        });
+      }
+    }, 100);
+  };
+
+  // 如果有錯誤，顯示錯誤訊息和切換選項
+  if (error) {
+    return (
+      <Box
+        sx={{
+          width: '100%',
+          maxWidth: 800,
+          mx: 'auto',
+          aspectRatio: '16/9',
+          borderRadius: 2,
+          overflow: 'hidden',
+          boxShadow: 3,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          bgcolor: 'grey.900',
+          color: 'white',
+          gap: 2,
+          p: 3,
+        }}
+      >
+        <MusicVideoIcon sx={{ fontSize: 64, opacity: 0.5 }} />
+        <Typography variant="h6" textAlign="center">
+          {error}
+        </Typography>
+        <Typography variant="body2" color="grey.400" textAlign="center">
+          此影片無法在嵌入式播放器中播放
+          <br />
+          可能原因：影片版權限制、地區限制或網路問題
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 2, mt: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
+          <Button
+            variant="outlined"
+            onClick={handleRetry}
+            color="inherit"
+          >
+            重試
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSwitchToAudio}
+          >
+            使用純音訊模式
+          </Button>
+          <Button
+            variant="outlined"
+            color="inherit"
+            component={Link}
+            href={`https://www.youtube.com/watch?v=${track.videoId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            startIcon={<OpenInNewIcon />}
+          >
+            在 YouTube 開啟
+          </Button>
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box

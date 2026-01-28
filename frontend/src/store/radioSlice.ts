@@ -35,6 +35,7 @@ interface RadioState {
   syncTrack: RadioTrack | null;
   syncTime: number;
   syncIsPlaying: boolean;
+  syncVersion: number; // 同步版本號，用於解決競態條件
 }
 
 const initialState: RadioState = {
@@ -51,6 +52,7 @@ const initialState: RadioState = {
   syncTrack: null,
   syncTime: 0,
   syncIsPlaying: false,
+  syncVersion: 0,
 };
 
 const radioSlice = createSlice({
@@ -88,6 +90,7 @@ const radioSlice = createSlice({
         currentTrack: RadioTrack | null;
         currentTime: number;
         isPlaying: boolean;
+        syncVersion?: number;
       }>
     ) {
       state.isListener = true;
@@ -98,6 +101,7 @@ const radioSlice = createSlice({
       state.syncTrack = action.payload.currentTrack;
       state.syncTime = action.payload.currentTime;
       state.syncIsPlaying = action.payload.isPlaying;
+      state.syncVersion = action.payload.syncVersion ?? 0;
     },
     // 聽眾：離開電台
     leaveStation(state) {
@@ -108,6 +112,7 @@ const radioSlice = createSlice({
       state.syncTrack = null;
       state.syncTime = 0;
       state.syncIsPlaying = false;
+      state.syncVersion = 0;
     },
     // 聽眾：電台關閉
     stationClosed(state) {
@@ -118,6 +123,7 @@ const radioSlice = createSlice({
       state.syncTrack = null;
       state.syncTime = 0;
       state.syncIsPlaying = false;
+      state.syncVersion = 0;
     },
     // 聽眾：同步狀態
     syncState(
@@ -127,12 +133,25 @@ const radioSlice = createSlice({
         track?: RadioTrack | null;
         currentTime?: number;
         isPlaying?: boolean;
+        syncVersion?: number;
       }>
     ) {
       // 收到同步資料代表主播在線
       state.hostDisconnected = false;
 
-      const { type, track, currentTime, isPlaying } = action.payload;
+      const { type, track, currentTime, isPlaying, syncVersion } = action.payload;
+
+      // 檢查版本號，防止舊事件覆蓋新狀態
+      if (syncVersion !== undefined && syncVersion < state.syncVersion) {
+        console.log(`📻 [Radio] Ignoring outdated sync event (received: ${syncVersion}, current: ${state.syncVersion})`);
+        return;
+      }
+
+      // 更新版本號
+      if (syncVersion !== undefined) {
+        state.syncVersion = syncVersion;
+      }
+
       switch (type) {
         case 'track-change':
           state.syncTrack = track ?? null;

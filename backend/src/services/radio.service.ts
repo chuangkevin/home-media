@@ -17,6 +17,7 @@ export interface RadioStation {
   isPlaying: boolean;
   createdAt: number;
   lastActivity: number;
+  syncVersion: number; // 同步版本號，用於解決競態條件
 }
 
 export interface RadioTrack {
@@ -81,6 +82,7 @@ class RadioService {
       isPlaying: false,
       createdAt: Date.now(),
       lastActivity: Date.now(),
+      syncVersion: 0,
     };
 
     this.stations.set(stationId, station);
@@ -295,15 +297,26 @@ class RadioService {
       return null;
     }
 
+    // 追蹤是否有重要狀態變更
+    let hasStateChange = false;
+
     if (update.currentTrack !== undefined) {
       station.currentTrack = update.currentTrack;
+      hasStateChange = true;
     }
     if (update.currentTime !== undefined) {
       station.currentTime = update.currentTime;
     }
     if (update.isPlaying !== undefined) {
       station.isPlaying = update.isPlaying;
+      hasStateChange = true;
     }
+
+    // 如果有重要狀態變更，遞增版本號
+    if (hasStateChange) {
+      station.syncVersion++;
+    }
+
     station.lastActivity = Date.now();
 
     return station;
