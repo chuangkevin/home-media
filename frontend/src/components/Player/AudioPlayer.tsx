@@ -14,12 +14,10 @@ import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 
 interface AudioPlayerProps {
-  showLyricsButton?: boolean;
-  onScrollToLyrics?: () => void;
   onOpenLyrics?: () => void;
 }
 
-export default function AudioPlayer({ showLyricsButton, onScrollToLyrics, onOpenLyrics }: AudioPlayerProps) {
+export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
@@ -407,11 +405,18 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics, onOpen
       return;
     }
 
+    let stalledTimeout: ReturnType<typeof setTimeout> | null = null;
+    let lastTimeUpdate = Date.now();
+    let lastCurrentTime = 0;
+
     const handleTimeUpdate = () => {
       // 影片模式時不更新時間（由 VideoPlayer 負責）
       if (displayMode !== 'video') {
         dispatch(setCurrentTime(audio.currentTime));
       }
+      // 追蹤時間更新，用於偵測假播放
+      lastTimeUpdate = Date.now();
+      lastCurrentTime = audio.currentTime;
     };
 
     const handleDurationChange = () => {
@@ -428,22 +433,67 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics, onOpen
       }
     };
 
-    const handleError = () => {
+    const handleError = (e: Event) => {
+      const error = (e.target as HTMLAudioElement).error;
+      console.error('Audio error:', error?.code, error?.message);
       dispatch(setIsPlaying(false));
     };
+
+    // 手機端特殊處理：偵測假播放（進度在跑但沒聲音）
+    const handleStalled = () => {
+      console.warn('⚠️ Audio stalled - 音訊載入停滯');
+      // 嘗試重新載入
+      if (stalledTimeout) clearTimeout(stalledTimeout);
+      stalledTimeout = setTimeout(() => {
+        if (audio.paused === false && audio.currentTime === lastCurrentTime) {
+          console.log('🔄 嘗試重新載入音訊...');
+          const currentSrc = audio.src;
+          const currentPosition = audio.currentTime;
+          audio.src = '';
+          audio.src = currentSrc;
+          audio.currentTime = currentPosition;
+          audio.play().catch(console.error);
+        }
+      }, 3000);
+    };
+
+    const handleWaiting = () => {
+      console.log('⏳ Audio waiting - 等待緩衝...');
+    };
+
+    // 偵測假播放：播放中但時間沒有更新
+    const checkFakePlayback = setInterval(() => {
+      if (!audio.paused && isPlaying && displayMode !== 'video') {
+        const timeSinceUpdate = Date.now() - lastTimeUpdate;
+        // 如果超過 5 秒沒有時間更新，可能是假播放
+        if (timeSinceUpdate > 5000 && audio.currentTime === lastCurrentTime && audio.currentTime > 0) {
+          console.warn('⚠️ 偵測到假播放，嘗試恢復...');
+          // 嘗試 seek 到當前位置來觸發重新載入
+          const pos = audio.currentTime;
+          audio.currentTime = pos + 0.1;
+          audio.play().catch(console.error);
+        }
+      }
+    }, 5000);
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('durationchange', handleDurationChange);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', handleError);
+    audio.addEventListener('stalled', handleStalled);
+    audio.addEventListener('waiting', handleWaiting);
 
     return () => {
+      if (stalledTimeout) clearTimeout(stalledTimeout);
+      clearInterval(checkFakePlayback);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('durationchange', handleDurationChange);
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
+      audio.removeEventListener('stalled', handleStalled);
+      audio.removeEventListener('waiting', handleWaiting);
     };
-  }, [currentTrack, displayMode, dispatch]);
+  }, [currentTrack, displayMode, isPlaying, dispatch]);
 
   // Media Session API - 支援手機鎖屏播放控制與背景播放
   useEffect(() => {
@@ -640,23 +690,6 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics, onOpen
                 <LyricsIcon />
               </IconButton>
             </Tooltip>
-          )}
-
-          {/* 看歌詞按鈕 - 當歌詞區域不可見時顯示（桌面版滾動到歌詞區） */}
-          {showLyricsButton && onScrollToLyrics && !autoplayBlocked && (
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={onScrollToLyrics}
-              sx={{
-                ml: 1,
-                whiteSpace: 'nowrap',
-                minWidth: 'auto',
-                display: { xs: 'none', md: 'flex' },
-              }}
-            >
-              滾動到歌詞
-            </Button>
           )}
         </Box>
       </CardContent>

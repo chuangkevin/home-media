@@ -4,6 +4,7 @@ import https from 'https';
 import http from 'http';
 import { URL } from 'url';
 import logger from '../utils/logger';
+import youtubeService from './youtube.service';
 
 const AUDIO_CACHE_DIR = process.env.AUDIO_CACHE_DIR || path.join(process.cwd(), 'data', 'audio-cache');
 const MAX_CACHE_SIZE_MB = parseInt(process.env.AUDIO_CACHE_MAX_SIZE_MB || '5000', 10); // 預設 5GB
@@ -184,20 +185,33 @@ class AudioCacheService {
   }
 
   /**
-   * 執行下載（支援重試）
+   * 執行下載（支援重試，失敗時重新取得 URL）
    */
   private async doDownload(videoId: string, audioUrl: string): Promise<string | null> {
     const MAX_RETRIES = 3;
     const RETRY_DELAYS = [1000, 3000, 5000]; // 1秒, 3秒, 5秒
+    let currentUrl = audioUrl;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (attempt > 0) {
         const delay = RETRY_DELAYS[attempt - 1] || 5000;
         console.log(`🔄 [AudioCache] Retry ${attempt}/${MAX_RETRIES} for ${videoId} after ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
+
+        // 第二次重試時，清除 URL 快取並重新取得
+        if (attempt >= 2) {
+          console.log(`🔄 [AudioCache] Clearing URL cache and getting fresh URL for ${videoId}...`);
+          youtubeService.clearUrlCache(videoId);
+          try {
+            currentUrl = await youtubeService.getAudioStreamUrl(videoId);
+            console.log(`✅ [AudioCache] Got fresh URL for ${videoId}`);
+          } catch (err) {
+            console.error(`❌ [AudioCache] Failed to get fresh URL for ${videoId}:`, err);
+          }
+        }
       }
 
-      const result = await this.doDownloadAttempt(videoId, audioUrl);
+      const result = await this.doDownloadAttempt(videoId, currentUrl);
       if (result !== null) {
         return result;
       }
@@ -218,6 +232,8 @@ class AudioCacheService {
     }
 
     console.error(`❌ [AudioCache] All ${MAX_RETRIES} retries failed for: ${videoId}`);
+    // 清除 URL 快取，下次會重新取得
+    youtubeService.clearUrlCache(videoId);
     this.downloadProgressMap.set(videoId, {
       ...this.downloadProgressMap.get(videoId)!,
       status: 'failed',
