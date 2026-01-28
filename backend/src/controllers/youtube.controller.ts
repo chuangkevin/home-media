@@ -350,6 +350,66 @@ export class YouTubeController {
   }
 
   /**
+   * GET /api/cache/status/:videoId
+   * 檢查單一曲目的快取狀態
+   */
+  async getCacheStatus(req: Request, res: Response): Promise<void> {
+    try {
+      const { videoId } = req.params;
+
+      if (!videoId) {
+        res.status(400).json({ error: 'Video ID is required' });
+        return;
+      }
+
+      const cached = audioCacheService.has(videoId);
+      const downloading = audioCacheService.isDownloading(videoId);
+      const progress = audioCacheService.getDownloadProgress(videoId);
+
+      res.json({
+        videoId,
+        cached,
+        downloading,
+        progress,
+      });
+    } catch (error) {
+      logger.error('Get cache status error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to get cache status',
+      });
+    }
+  }
+
+  /**
+   * POST /api/cache/status/batch
+   * 批量檢查多個曲目的快取狀態
+   */
+  async getCacheStatusBatch(req: Request, res: Response): Promise<void> {
+    try {
+      const { videoIds } = req.body;
+
+      if (!videoIds || !Array.isArray(videoIds)) {
+        res.status(400).json({ error: 'videoIds array is required' });
+        return;
+      }
+
+      const statusMap = audioCacheService.getCacheStatusBatch(videoIds);
+      const result: Record<string, { cached: boolean; downloading: boolean; progress: unknown }> = {};
+
+      statusMap.forEach((status, videoId) => {
+        result[videoId] = status;
+      });
+
+      res.json(result);
+    } catch (error) {
+      logger.error('Get batch cache status error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to get batch cache status',
+      });
+    }
+  }
+
+  /**
    * 從伺服器快取串流音訊（支援 Range requests）
    */
   private streamFromCache(req: Request, res: Response, videoId: string): void {

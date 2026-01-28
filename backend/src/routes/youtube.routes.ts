@@ -21,4 +21,10 @@ router.post('/preload-wait/:videoId', (req, res) => youtubeController.preloadAud
 // 獲取音訊快取統計
 router.get('/cache/stats', (req, res) => youtubeController.getCacheStats(req, res));
 
+// 檢查單一曲目快取狀態
+router.get('/cache/status/:videoId', (req, res) => youtubeController.getCacheStatus(req, res));
+
+// 批量檢查快取狀態
+router.post('/cache/status/batch', (req, res) => youtubeController.getCacheStatusBatch(req, res));
+
 export default router;
