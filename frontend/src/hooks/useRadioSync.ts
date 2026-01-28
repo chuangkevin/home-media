@@ -21,7 +21,7 @@ import {
  */
 export function useRadioSync() {
   const dispatch = useDispatch();
-  const { currentTrack, isPlaying, currentTime } = useSelector(
+  const { currentTrack, isPlaying, currentTime, isLoadingTrack } = useSelector(
     (state: RootState) => state.player
   );
   const { isHost, isListener, syncTrack, syncTime, syncIsPlaying } = useSelector(
@@ -32,6 +32,10 @@ export function useRadioSync() {
   const prevTrackRef = useRef<string | null>(null);
   const prevIsPlayingRef = useRef<boolean>(false);
   const timeSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 聽眾同步防抖：避免連續 seek 導致跳針
+  const lastSyncTimeRef = useRef<number>(0);
+  const syncCooldownMs = 5000; // 同步後 5 秒內不再同步
 
   // 設定電台回調（在連線後執行）
   useEffect(() => {
@@ -143,6 +147,8 @@ export function useRadioSync() {
     // 如果當前播放的曲目和同步曲目不同，切換曲目
     if (currentTrack?.videoId !== syncTrack.videoId) {
       console.log('📻 [Listener] Switching to track:', syncTrack.title);
+      // 重置同步冷卻，允許新曲目立即同步時間
+      lastSyncTimeRef.current = 0;
       dispatch(setPendingTrack({
         id: syncTrack.videoId,
         videoId: syncTrack.videoId,
@@ -165,13 +171,26 @@ export function useRadioSync() {
   useEffect(() => {
     if (!isListener || syncTime === undefined) return;
 
+    // 如果正在載入曲目，不進行時間同步（避免跳針）
+    if (isLoadingTrack) {
+      console.log('📻 [Listener] Skipping time sync - track is loading');
+      return;
+    }
+
+    // 檢查同步冷卻時間（避免連續 seek 導致跳針）
+    const now = Date.now();
+    if (now - lastSyncTimeRef.current < syncCooldownMs) {
+      return;
+    }
+
     // 如果時間差超過 3 秒，才進行同步
     const timeDiff = Math.abs(currentTime - syncTime);
     if (timeDiff > 3) {
       console.log('📻 [Listener] Syncing time:', syncTime, '(diff:', timeDiff, ')');
+      lastSyncTimeRef.current = now;
       dispatch(seekTo(syncTime));
     }
-  }, [isListener, syncTime, currentTime, dispatch]);
+  }, [isListener, syncTime, currentTime, isLoadingTrack, dispatch]);
 
   return {
     isHost,
