@@ -273,10 +273,10 @@ class SocketService {
   // ===== Radio methods =====
 
   // 建立電台
-  createRadioStation(stationName?: string): void {
+  createRadioStation(stationName?: string, djName?: string): void {
     this.socket?.emit('radio:create', {
       deviceId: this.deviceId,
-      hostName: this.deviceName,
+      hostName: djName || this.deviceName,
       stationName,
     });
   }

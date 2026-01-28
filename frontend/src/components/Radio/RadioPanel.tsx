@@ -50,6 +50,7 @@ function TabPanel({ children, value, index }: TabPanelProps) {
 export default function RadioPanel({ open, onClose }: RadioPanelProps) {
   const [tabIndex, setTabIndex] = useState(0);
   const [stationName, setStationName] = useState('');
+  const [djName, setDjName] = useState('');
   const {
     stations,
     isHost,
@@ -73,7 +74,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
     }
   }, [open, refreshStations]);
 
-  // 如果已經是主播或聽眾，自動切換到對應的 tab
+  // 如果已經是 DJ 或聽眾，自動切換到對應的 tab
   useEffect(() => {
     if (isHost) {
       setTabIndex(1);
@@ -83,8 +84,9 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
   }, [isHost, isListener]);
 
   const handleCreateStation = () => {
-    createStation(stationName || undefined);
+    createStation(stationName || undefined, djName || undefined);
     setStationName('');
+    setDjName('');
   };
 
   const handleCloseStation = () => {
@@ -104,7 +106,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <RadioIcon color="primary" />
-        電台
+        Radio
       </DialogTitle>
 
       <Tabs
@@ -112,8 +114,8 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
         onChange={(_, newValue) => setTabIndex(newValue)}
         sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
       >
-        <Tab label="發現電台" />
-        <Tab label="開台" />
+        <Tab label="Discover" />
+        <Tab label="On Air" />
       </Tabs>
 
       <DialogContent sx={{ minHeight: 300 }}>
@@ -124,13 +126,13 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <HeadphonesIcon sx={{ fontSize: 60, color: 'primary.main', mb: 2 }} />
               <Typography variant="h6" gutterBottom>
-                正在收聽
+                Listening
               </Typography>
               <Typography variant="h5" color="primary" gutterBottom>
                 {currentStationName}
               </Typography>
               <Typography color="text.secondary" gutterBottom>
-                主播: {hostName}
+                DJ: {hostName}
               </Typography>
               <Button
                 variant="outlined"
@@ -138,16 +140,16 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
                 onClick={handleLeaveStation}
                 sx={{ mt: 2 }}
               >
-                離開電台
+                Leave
               </Button>
             </Box>
           ) : stations.length === 0 ? (
             // 沒有電台
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <RadioIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
-              <Typography color="text.secondary">目前沒有電台在播放</Typography>
+              <Typography color="text.secondary">No stations on air</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                點擊「開台」分享你正在聽的音樂
+                Go to "On Air" tab to start your own station
               </Typography>
               <IconButton onClick={refreshStations} sx={{ mt: 2 }}>
                 <RefreshIcon />
@@ -201,7 +203,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
                         secondary={
                           <Box>
                             <Typography variant="body2" color="text.secondary">
-                              主播: {station.hostName}
+                              DJ: {station.hostName}
                             </Typography>
                             {station.currentTrack && (
                               <Typography variant="body2" color="text.secondary" noWrap>
@@ -228,33 +230,35 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
           )}
         </TabPanel>
 
-        {/* 開台 */}
+        {/* On Air */}
         <TabPanel value={tabIndex} index={1}>
           {isHost ? (
             // 已經開台
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <RadioIcon sx={{ fontSize: 60, color: 'success.main', mb: 2 }} />
-              <Typography variant="h6" gutterBottom>
-                電台播放中
-              </Typography>
+              <Chip
+                label="ON AIR"
+                color="error"
+                sx={{ mb: 2, fontWeight: 700, animation: 'pulse 2s infinite' }}
+              />
               <Typography variant="h5" color="primary" gutterBottom>
                 {myStationName}
               </Typography>
               <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1, mb: 2 }}>
                 <PeopleIcon color="action" />
                 <Typography color="text.secondary">
-                  {listenerCount} 位聽眾
+                  {listenerCount} listeners
                 </Typography>
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                你的播放內容會同步給所有聽眾
+                Your playback is synced to all listeners
               </Typography>
               <Button
                 variant="outlined"
                 color="error"
                 onClick={handleCloseStation}
               >
-                關閉電台
+                Stop Broadcasting
               </Button>
             </Box>
           ) : isListener ? (
@@ -262,34 +266,43 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <HeadphonesIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
               <Typography color="text.secondary">
-                你正在收聽「{currentStationName}」
+                You're listening to "{currentStationName}"
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                離開電台後才能開始自己的電台
+                Leave the station first to go on air
               </Typography>
             </Box>
           ) : (
             // 可以開台
             <Box sx={{ py: 2 }}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                開始播放後，其他人可以加入收聽你正在播放的音樂
+                Start broadcasting and share what you're listening to with others
               </Typography>
               <TextField
                 fullWidth
-                label="電台名稱（選填）"
-                placeholder="例如：深夜電台、周杰倫精選..."
+                label="Station Name"
+                placeholder="e.g., Late Night Vibes, Chill Hits..."
                 value={stationName}
                 onChange={(e) => setStationName(e.target.value)}
+                sx={{ mt: 2 }}
+              />
+              <TextField
+                fullWidth
+                label="DJ Name"
+                placeholder="Your DJ name (optional)"
+                value={djName}
+                onChange={(e) => setDjName(e.target.value)}
                 sx={{ mt: 2 }}
               />
               <Button
                 fullWidth
                 variant="contained"
+                color="error"
                 startIcon={<RadioIcon />}
                 onClick={handleCreateStation}
-                sx={{ mt: 2 }}
+                sx={{ mt: 2, fontWeight: 700 }}
               >
-                開始直播
+                Go On Air
               </Button>
             </Box>
           )}
@@ -297,7 +310,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose}>關閉</Button>
+        <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>
   );

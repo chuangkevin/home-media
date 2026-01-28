@@ -55,8 +55,8 @@ export function useRadio() {
   }, [dispatch]);
 
   // 建立電台
-  const createStation = useCallback((stationName?: string) => {
-    socketService.createRadioStation(stationName);
+  const createStation = useCallback((stationName?: string, djName?: string) => {
+    socketService.createRadioStation(stationName, djName);
   }, []);
 
   // 關閉電台
