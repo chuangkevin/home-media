@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Box,
@@ -16,17 +16,19 @@ import SearchResults from './components/Search/SearchResults';
 import AudioPlayer from './components/Player/AudioPlayer';
 import DisplayModeToggle from './components/Player/DisplayModeToggle';
 import VideoPlayer from './components/Player/VideoPlayer';
-import LyricsView from './components/Player/LyricsView';
 import FullscreenLyrics from './components/Player/FullscreenLyrics';
 import VisualizerView from './components/Player/VisualizerView';
 import HomeRecommendations from './components/Home/HomeRecommendations';
 import PlaylistSection from './components/Playlist/PlaylistSection';
+import RadioButton from './components/Radio/RadioButton';
+import RadioIndicator from './components/Radio/RadioIndicator';
 import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
 import { RootState } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
 import type { Track } from './types/track.types';
 import { useSocketConnection } from './hooks/useSocketConnection';
+import { useRadioSync } from './hooks/useRadioSync';
 
 function App() {
   const dispatch = useDispatch();
@@ -37,24 +39,14 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
-  const [isLyricsVisible, setIsLyricsVisible] = useState(true);
   const [homeTab, setHomeTab] = useState(0); // 0: 首頁推薦, 1: 播放清單
   const [lyricsDrawerOpen, setLyricsDrawerOpen] = useState(false); // 歌詞抽屜狀態
-  const lyricsContainerRef = useRef<HTMLDivElement>(null);
 
   // Socket 連線（遠端控制）
   useSocketConnection();
 
-  // 滾動到歌詞區域（直接跳到歌詞 Paper 容器，略過專輯封面和曲目資訊）
-  const scrollToLyrics = useCallback(() => {
-    const lyricsTarget = document.getElementById('lyrics-scroll-target');
-    if (lyricsTarget) {
-      lyricsTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else {
-      // 回退：滾動到整個歌詞區域
-      lyricsContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, []);
+  // 電台同步（主播/聽眾）
+  useRadioSync();
 
   // 初始化音訊快取服務
   useEffect(() => {
@@ -137,6 +129,9 @@ function App() {
       <Container maxWidth="lg" sx={{ py: 4 }}>
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+            <RadioButton />
+          </Box>
           <Typography
             variant="h3"
             component="h1"
@@ -148,14 +143,17 @@ function App() {
           <Typography variant="subtitle1" color="text.secondary">
             搜尋並播放 YouTube 音樂
           </Typography>
+          {/* 電台收聽指示器 */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+            <RadioIndicator />
+          </Box>
         </Box>
 
         {/* 播放視圖區域 */}
         {currentTrack && (
-          <Box ref={lyricsContainerRef} sx={{ mb: 4 }}>
+          <Box sx={{ mb: 4 }}>
             <DisplayModeToggle />
             {displayMode === 'video' && <VideoPlayer track={currentTrack} />}
-            {displayMode === 'lyrics' && <LyricsView track={currentTrack} onVisibilityChange={setIsLyricsVisible} />}
             {displayMode === 'visualizer' && <VisualizerView track={currentTrack} />}
           </Box>
         )}
@@ -208,8 +206,6 @@ function App() {
 
       {/* 播放器（固定在底部）*/}
       <AudioPlayer
-        showLyricsButton={displayMode === 'lyrics' && !isLyricsVisible && !!currentTrack}
-        onScrollToLyrics={scrollToLyrics}
         onOpenLyrics={() => setLyricsDrawerOpen(true)}
       />
 

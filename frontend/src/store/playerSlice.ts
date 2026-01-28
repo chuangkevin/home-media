@@ -1,7 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { Track } from '../types/track.types';
 
-export type DisplayMode = 'video' | 'lyrics' | 'visualizer';
+export type DisplayMode = 'video' | 'visualizer';
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -31,7 +31,7 @@ const initialState: PlayerState = {
   queue: [],
   repeat: 'all', // 預設循環播放整個列表
   shuffle: false,
-  displayMode: 'lyrics', // 預設顯示歌詞模式
+  displayMode: 'video', // 預設顯示影片模式
   seekTarget: null,
   playlist: [],
   currentIndex: -1,
