@@ -170,9 +170,9 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
     }
   }, [seekTarget, dispatch]);
 
-  // 切換回音訊模式
+  // 切換回音訊模式（使用視覺化器）
   const handleSwitchToAudio = () => {
-    dispatch(setDisplayMode('audio'));
+    dispatch(setDisplayMode('visualizer'));
   };
 
   // 重試
