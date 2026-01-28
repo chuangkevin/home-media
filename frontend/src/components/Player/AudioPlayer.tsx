@@ -225,13 +225,31 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         audio.addEventListener('loadeddata', handleLoadedData, { once: true });
         audio.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
 
-        // Timeout fallback：5秒後如果還沒觸發任何事件，強制確認
+        // Timeout fallback：10秒後如果還沒觸發任何事件，根據 readyState 決定
         fallbackTimeoutId = setTimeout(() => {
           if (!hasConfirmed) {
-            console.warn(`⚠️ Audio events timeout, forcing confirm: ${pendingTrack.title}`);
-            confirmAndPlay('timeout-fallback');
+            if (audio.readyState >= 2) {
+              // readyState >= 2 表示有足夠數據可以播放
+              console.warn(`⚠️ Audio events timeout (readyState: ${audio.readyState}), confirming: ${pendingTrack.title}`);
+              confirmAndPlay('timeout-fallback');
+            } else if (audio.readyState >= 1) {
+              // readyState 1 表示有元數據但數據不足，再等 5 秒
+              console.warn(`⚠️ Audio not ready (readyState: ${audio.readyState}), waiting 5 more seconds...`);
+              setTimeout(() => {
+                if (!hasConfirmed) {
+                  console.warn(`⚠️ Extended timeout, forcing confirm (readyState: ${audio.readyState})`);
+                  confirmAndPlay('extended-timeout');
+                }
+              }, 5000);
+            } else {
+              // readyState 0 表示沒有任何數據，可能載入失敗
+              console.error(`❌ Audio failed to load (readyState: ${audio.readyState}): ${pendingTrack.title}`);
+              setIsLoading(false);
+              dispatch(cancelPendingTrack());
+              dispatch(setIsPlaying(false));
+            }
           }
-        }, 5000);
+        }, 10000);
 
         audio.load();
 
@@ -353,8 +371,17 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         audio.pause();
       }
     } else if (audioRef.current && displayMode === 'video') {
-      // 在影片模式下暫停音訊播放器
+      // 在影片模式下暫停音訊播放器（但不更新 isPlaying 狀態，由 VideoPlayer 控制）
       audioRef.current.pause();
+    }
+
+    // 從影片模式切回音訊模式時，根據 isPlaying 狀態決定是否播放
+    if (displayMode !== 'video' && audioRef.current && isPlaying && !isLoadingTrack) {
+      const audio = audioRef.current;
+      if (audio.paused && audio.readyState >= 2) {
+        console.log('🔄 從影片模式切回，恢復音訊播放');
+        audio.play().catch(console.error);
+      }
     }
   }, [isPlaying, isLoadingTrack, displayMode, dispatch]);
 
@@ -462,19 +489,62 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
     };
 
     // 偵測假播放：播放中但時間沒有更新
+    let fakePlaybackRetryCount = 0;
+    const MAX_FAKE_PLAYBACK_RETRIES = 3;
+
     const checkFakePlayback = setInterval(() => {
       if (!audio.paused && isPlaying && displayMode !== 'video') {
         const timeSinceUpdate = Date.now() - lastTimeUpdate;
-        // 如果超過 5 秒沒有時間更新，可能是假播放
-        if (timeSinceUpdate > 5000 && audio.currentTime === lastCurrentTime && audio.currentTime > 0) {
-          console.warn('⚠️ 偵測到假播放，嘗試恢復...');
-          // 嘗試 seek 到當前位置來觸發重新載入
-          const pos = audio.currentTime;
-          audio.currentTime = pos + 0.1;
-          audio.play().catch(console.error);
+        // 如果超過 4 秒沒有時間更新，可能是假播放
+        if (timeSinceUpdate > 4000 && audio.currentTime === lastCurrentTime && audio.currentTime > 0) {
+          fakePlaybackRetryCount++;
+          console.warn(`⚠️ 偵測到假播放 (第 ${fakePlaybackRetryCount} 次)，嘗試恢復...`);
+
+          // 多策略恢復
+          const recoveryStrategies = [
+            // 策略 1: seek 到當前位置觸發重新載入
+            () => {
+              console.log('🔄 策略 1: Seek 恢復');
+              audio.currentTime = audio.currentTime + 0.1;
+              return audio.play();
+            },
+            // 策略 2: 暫停後重新播放
+            () => {
+              console.log('🔄 策略 2: 暫停重播');
+              audio.pause();
+              return new Promise<void>((resolve) => {
+                setTimeout(() => {
+                  audio.play().then(resolve).catch(() => resolve());
+                }, 200);
+              });
+            },
+            // 策略 3: 重新載入音訊源
+            () => {
+              console.log('🔄 策略 3: 重新載入');
+              const src = audio.src;
+              const pos = audio.currentTime;
+              audio.src = '';
+              audio.src = src;
+              audio.currentTime = pos;
+              return audio.play();
+            },
+          ];
+
+          const strategyIndex = Math.min(fakePlaybackRetryCount - 1, recoveryStrategies.length - 1);
+          recoveryStrategies[strategyIndex]().catch((err) => {
+            console.error('恢復失敗:', err);
+            if (fakePlaybackRetryCount >= MAX_FAKE_PLAYBACK_RETRIES) {
+              console.error('❌ 已達最大重試次數，停止播放');
+              dispatch(setIsPlaying(false));
+              fakePlaybackRetryCount = 0;
+            }
+          });
+        } else if (timeSinceUpdate < 2000) {
+          // 正常播放中，重置重試計數
+          fakePlaybackRetryCount = 0;
         }
       }
-    }, 5000);
+    }, 3000); // 改為 3 秒檢查一次
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('durationchange', handleDurationChange);
