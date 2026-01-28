@@ -10,6 +10,7 @@ interface CachedUrl {
 
 class YouTubeService {
   private urlCache: Map<string, CachedUrl> = new Map();
+  private pendingRequests: Map<string, Promise<string>> = new Map(); // 防止重複請求
   private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
   private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 小時（搜尋結果快取）
 
@@ -179,21 +180,46 @@ class YouTubeService {
   }
 
   /**
-   * 獲取音訊串流（用於播放）- 使用 yt-dlp + 緩存
+   * 獲取音訊串流（用於播放）- 使用 yt-dlp + 緩存 + 請求去重
    */
   async getAudioStreamUrl(videoId: string): Promise<string> {
+    // 檢查緩存
+    const cached = this.urlCache.get(videoId);
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp) < this.URL_CACHE_TTL) {
+      const ageMinutes = Math.floor((now - cached.timestamp) / 1000 / 60);
+      console.log(`✅ 使用緩存 URL: ${videoId} (快取時間: ${ageMinutes}分鐘)`);
+      logger.info(`Using cached audio URL for: ${videoId} (age: ${ageMinutes}min)`);
+      return cached.url;
+    }
+
+    // 檢查是否有正在進行的請求（請求去重）
+    const pendingRequest = this.pendingRequests.get(videoId);
+    if (pendingRequest) {
+      console.log(`⏳ 等待現有請求完成: ${videoId}`);
+      logger.info(`Waiting for pending request for: ${videoId}`);
+      return pendingRequest;
+    }
+
+    // 創建新請求並加入 pending map
+    const requestPromise = this.fetchAudioUrl(videoId);
+    this.pendingRequests.set(videoId, requestPromise);
+
     try {
-      // 檢查緩存
-      const cached = this.urlCache.get(videoId);
-      const now = Date.now();
+      const url = await requestPromise;
+      return url;
+    } finally {
+      // 無論成功或失敗，都要清除 pending 狀態
+      this.pendingRequests.delete(videoId);
+    }
+  }
 
-      if (cached && (now - cached.timestamp) < this.URL_CACHE_TTL) {
-        const ageMinutes = Math.floor((now - cached.timestamp) / 1000 / 60);
-        console.log(`✅ 使用緩存 URL: ${videoId} (快取時間: ${ageMinutes}分鐘)`);
-        logger.info(`Using cached audio URL for: ${videoId} (age: ${ageMinutes}min)`);
-        return cached.url;
-      }
-
+  /**
+   * 實際執行 yt-dlp 獲取 URL（內部方法）
+   */
+  private async fetchAudioUrl(videoId: string): Promise<string> {
+    try {
       console.log(`⏳ 首次播放，正在獲取 URL: ${videoId} (這需要幾秒鐘...)`);
       logger.info(`Fetching fresh audio URL via yt-dlp for: ${videoId}`);
 
@@ -216,6 +242,7 @@ class YouTubeService {
       }
 
       // 緩存 URL
+      const now = Date.now();
       this.urlCache.set(videoId, {
         url: audioUrl,
         timestamp: now,
