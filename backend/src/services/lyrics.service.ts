@@ -952,6 +952,18 @@ class LyricsService {
     }
   }
 
+  /**
+   * 手動獲取 YouTube CC 字幕（讓使用者強制使用 YouTube 字幕）
+   */
+  async getYouTubeCaptions(videoId: string): Promise<Lyrics | null> {
+    console.log(`🎬 [getYouTubeCaptions] Manual request for: ${videoId}`);
+    const lyrics = await this.fetchYouTubeCaptions(videoId);
+    if (lyrics) {
+      this.saveToCache(lyrics);
+    }
+    return lyrics;
+  }
+
   // ==================== 歌詞偏好設定（跨裝置同步）====================
 
   /**

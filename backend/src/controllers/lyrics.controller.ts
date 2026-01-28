@@ -195,6 +195,42 @@ export class LyricsController {
   }
 
   /**
+   * GET /api/lyrics/youtube-cc/:videoId
+   * 手動獲取 YouTube CC 字幕
+   */
+  async getYouTubeCaptions(req: Request, res: Response): Promise<void> {
+    try {
+      const { videoId } = req.params;
+
+      if (!videoId) {
+        res.status(400).json({ error: 'Video ID is required' });
+        return;
+      }
+
+      console.log(`🎬 [Lyrics API] YouTube CC request for: ${videoId}`);
+      const lyrics = await lyricsService.getYouTubeCaptions(videoId);
+
+      if (!lyrics) {
+        res.status(404).json({
+          error: 'No YouTube CC subtitles found for this video',
+          videoId,
+        });
+        return;
+      }
+
+      res.json({
+        videoId,
+        lyrics,
+      });
+    } catch (error) {
+      logger.error('YouTube CC fetch error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to fetch YouTube CC',
+      });
+    }
+  }
+
+  /**
    * GET /api/lyrics/:videoId?title=...&artist=...
    * 獲取歌詞
    */
