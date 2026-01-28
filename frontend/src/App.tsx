@@ -17,6 +17,7 @@ import AudioPlayer from './components/Player/AudioPlayer';
 import DisplayModeToggle from './components/Player/DisplayModeToggle';
 import VideoPlayer from './components/Player/VideoPlayer';
 import LyricsView from './components/Player/LyricsView';
+import FullscreenLyrics from './components/Player/FullscreenLyrics';
 import VisualizerView from './components/Player/VisualizerView';
 import HomeRecommendations from './components/Home/HomeRecommendations';
 import PlaylistSection from './components/Playlist/PlaylistSection';
@@ -38,6 +39,7 @@ function App() {
   const [hasSearched, setHasSearched] = useState(false);
   const [isLyricsVisible, setIsLyricsVisible] = useState(true);
   const [homeTab, setHomeTab] = useState(0); // 0: 首頁推薦, 1: 播放清單
+  const [lyricsDrawerOpen, setLyricsDrawerOpen] = useState(false); // 歌詞抽屜狀態
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
 
   // Socket 連線（遠端控制）
@@ -208,7 +210,17 @@ function App() {
       <AudioPlayer
         showLyricsButton={displayMode === 'lyrics' && !isLyricsVisible && !!currentTrack}
         onScrollToLyrics={scrollToLyrics}
+        onOpenLyrics={() => setLyricsDrawerOpen(true)}
       />
+
+      {/* 全螢幕歌詞抽屜 */}
+      {currentTrack && (
+        <FullscreenLyrics
+          open={lyricsDrawerOpen}
+          onClose={() => setLyricsDrawerOpen(false)}
+          track={currentTrack}
+        />
+      )}
     </Box>
   );
 }

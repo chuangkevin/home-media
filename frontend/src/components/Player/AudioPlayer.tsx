@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, LinearProgress, Chip } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, LinearProgress, Chip, IconButton, Tooltip } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
@@ -16,9 +16,10 @@ import lyricsCacheService from '../../services/lyrics-cache.service';
 interface AudioPlayerProps {
   showLyricsButton?: boolean;
   onScrollToLyrics?: () => void;
+  onOpenLyrics?: () => void;
 }
 
-export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: AudioPlayerProps) {
+export default function AudioPlayer({ showLyricsButton, onScrollToLyrics, onOpenLyrics }: AudioPlayerProps) {
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
@@ -101,7 +102,7 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
         setIsCached(false);
         setDownloadProgress(null);
 
-        // 首先檢查伺服器端快取狀態
+        // 檢查伺服器端快取狀態（這是唯一的快取來源指標）
         let serverCached = false;
         try {
           const serverStatus = await apiService.getCacheStatus(videoId);
@@ -110,45 +111,46 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
           console.warn('Failed to check server cache status:', err);
         }
 
-        // 檢查前端 IndexedDB 快取
-        const cached = await audioCacheService.get(videoId);
+        // 檢查前端 IndexedDB 快取（僅用於離線播放優化）
+        const browserCached = await audioCacheService.get(videoId);
         const streamUrl = apiService.getStreamUrl(videoId);
 
         let audioSrc: string;
-        let isFromCache = false;
 
-        if (cached) {
-          // 使用前端快取的 blob URL
-          audioSrc = URL.createObjectURL(cached);
-          isFromCache = true;
-          setIsCached(true);
-          console.log(`🎵 從前端快取播放: ${pendingTrack.title}`);
-        } else if (serverCached) {
-          // 伺服器有快取，使用串流 URL
-          audioSrc = streamUrl;
-          isFromCache = true;
-          setIsCached(true);
-          console.log(`🎵 從伺服器快取播放: ${pendingTrack.title}`);
+        if (browserCached) {
+          // 使用前端快取的 blob URL（但 UI 仍顯示伺服器狀態）
+          audioSrc = URL.createObjectURL(browserCached);
+          console.log(`🎵 從瀏覽器快取播放: ${pendingTrack.title}`);
         } else {
-          // 都沒有快取，從網路串流並開始輪詢下載進度
+          // 使用伺服器串流
           audioSrc = streamUrl;
-          setIsCached(false);
-          console.log(`🌐 從網路串流: ${pendingTrack.title}`);
-
-          // 開始輪詢伺服器端下載進度
-          pollDownloadProgress(videoId);
-
-          // 背景下載到前端快取（不阻塞播放）
-          audioCacheService.fetchAndCache(videoId, streamUrl)
-            .then(() => console.log(`💾 前端背景快取完成: ${pendingTrack.title}`))
-            .catch(err => console.warn(`前端背景快取失敗: ${pendingTrack.title}`, err));
+          console.log(`🎵 從伺服器串流播放: ${pendingTrack.title}`);
         }
 
-        // 儲存 pending blob URL (只有 cached 才是 blob URL)
-        pendingBlobUrlRef.current = (isFromCache && cached) ? audioSrc : null;
+        // UI 顯示伺服器快取狀態（跨裝置一致）
+        if (serverCached) {
+          setIsCached(true);
+          console.log(`✅ 伺服器已快取: ${pendingTrack.title}`);
+        } else {
+          setIsCached(false);
+          console.log(`🌐 伺服器未快取: ${pendingTrack.title}`);
+
+          // 如果伺服器正在下載或尚未開始，輪詢下載進度
+          pollDownloadProgress(videoId);
+
+          // 同時嘗試前端快取（離線優化）
+          if (!browserCached) {
+            audioCacheService.fetchAndCache(videoId, streamUrl)
+              .then(() => console.log(`💾 瀏覽器背景快取完成: ${pendingTrack.title}`))
+              .catch(err => console.warn(`瀏覽器背景快取失敗: ${pendingTrack.title}`, err));
+          }
+        }
+
+        // 儲存 pending blob URL (只有 browserCached 才是 blob URL)
+        pendingBlobUrlRef.current = browserCached ? audioSrc : null;
 
         // 音訊準備好了，現在確認切換
-        console.log(`✅ Pending track ready: ${pendingTrack.title} (來源: ${isFromCache ? '快取' : '網路'})`);
+        console.log(`✅ Pending track ready: ${pendingTrack.title} (伺服器快取: ${serverCached ? '是' : '否'})`);
 
         // 保存舊的 blob URL，稍後釋放
         const oldBlobUrl = currentBlobUrlRef.current;
@@ -157,7 +159,7 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
         // 設置新音訊源
         audio.src = audioSrc;
         currentVideoIdRef.current = videoId;
-        currentBlobUrlRef.current = (isFromCache && cached) ? audioSrc : null;
+        currentBlobUrlRef.current = browserCached ? audioSrc : null;
         pendingBlobUrlRef.current = null;
 
         // 等待音訊準備好再確認切換
@@ -504,21 +506,16 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
               {displayTrack.channel}
             </Typography>
 
-            {/* 下載進度條 - 非快取曲目顯示 */}
+            {/* 下載進度條 - 非快取曲目顯示（縮小版） */}
             {!isCached && downloadProgress && downloadProgress.status === 'downloading' && (
-              <Box sx={{ mt: 0.5, mb: 0.5 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <LinearProgress
-                    variant="determinate"
-                    value={downloadProgress.percentage}
-                    sx={{ flexGrow: 1, height: 4, borderRadius: 2 }}
-                  />
-                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 35 }}>
-                    {downloadProgress.percentage}%
-                  </Typography>
-                </Box>
-                <Typography variant="caption" color="text.secondary">
-                  下載中... {downloadProgress.totalBytes ? `${Math.round(downloadProgress.downloadedBytes / 1024 / 1024 * 10) / 10}/${Math.round(downloadProgress.totalBytes / 1024 / 1024 * 10) / 10} MB` : ''}
+              <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <LinearProgress
+                  variant="determinate"
+                  value={downloadProgress.percentage}
+                  sx={{ width: 60, height: 3, borderRadius: 1.5, opacity: 0.7 }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                  {downloadProgress.percentage}%
                 </Typography>
               </Box>
             )}
@@ -555,20 +552,32 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics }: Audi
             </Button>
           )}
 
-          {/* 看歌詞按鈕 - 當歌詞區域不可見時顯示 */}
+          {/* 歌詞按鈕 */}
+          {!autoplayBlocked && onOpenLyrics && (
+            <Tooltip title="開啟歌詞">
+              <IconButton
+                onClick={onOpenLyrics}
+                sx={{ ml: 1 }}
+              >
+                <LyricsIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+
+          {/* 看歌詞按鈕 - 當歌詞區域不可見時顯示（桌面版滾動到歌詞區） */}
           {showLyricsButton && onScrollToLyrics && !autoplayBlocked && (
             <Button
-              variant="contained"
+              variant="outlined"
               size="small"
-              startIcon={<LyricsIcon />}
               onClick={onScrollToLyrics}
               sx={{
-                ml: 2,
+                ml: 1,
                 whiteSpace: 'nowrap',
                 minWidth: 'auto',
+                display: { xs: 'none', md: 'flex' },
               }}
             >
-              看歌詞
+              滾動到歌詞
             </Button>
           )}
         </Box>
