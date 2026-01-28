@@ -21,9 +21,9 @@ services:
       - MAX_CACHE_TRACKS=400
       - ALLOWED_ORIGINS=*
     volumes:
-      - home-media-cache:/app/data/cache
-      - home-media-db:/app/data/db
-      - home-media-audio:/app/data/audio-cache
+      - ./data/cache:/app/data/cache
+      - ./data/db:/app/data/db
+      - ./data/audio-cache:/app/data/audio-cache
     restart: unless-stopped
     networks:
       - home-media-network
@@ -56,7 +56,3 @@ networks:
   home-media-network:
     driver: bridge
 
-volumes:
-  home-media-cache:
-  home-media-db:
-  home-media-audio:
