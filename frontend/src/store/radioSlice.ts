@@ -31,6 +31,7 @@ interface RadioState {
   currentStationName: string | null;
   hostName: string | null;
   hostDisconnected: boolean; // 主播暫時離線
+  hostGracePeriod: number; // 主播離線寬限期倒計時（秒）
   // 同步播放狀態
   syncTrack: RadioTrack | null;
   syncTime: number;
@@ -49,6 +50,7 @@ const initialState: RadioState = {
   currentStationName: null,
   hostName: null,
   hostDisconnected: false,
+  hostGracePeriod: 0,
   syncTrack: null,
   syncTime: 0,
   syncIsPlaying: false,
@@ -109,6 +111,8 @@ const radioSlice = createSlice({
       state.currentStationId = null;
       state.currentStationName = null;
       state.hostName = null;
+      state.hostDisconnected = false;
+      state.hostGracePeriod = 0;
       state.syncTrack = null;
       state.syncTime = 0;
       state.syncIsPlaying = false;
@@ -120,6 +124,8 @@ const radioSlice = createSlice({
       state.currentStationId = null;
       state.currentStationName = null;
       state.hostName = null;
+      state.hostDisconnected = false;
+      state.hostGracePeriod = 0;
       state.syncTrack = null;
       state.syncTime = 0;
       state.syncIsPlaying = false;
@@ -171,9 +177,14 @@ const radioSlice = createSlice({
     resetRadio(state) {
       Object.assign(state, initialState);
     },
-    // 聽眾：主播暫時離線
-    setHostDisconnected(state, action: PayloadAction<boolean>) {
-      state.hostDisconnected = action.payload;
+    // 聽眾：主播暫時離線（含寬限期）
+    setHostDisconnected(state, action: PayloadAction<{ disconnected: boolean; gracePeriod?: number }>) {
+      state.hostDisconnected = action.payload.disconnected;
+      state.hostGracePeriod = action.payload.gracePeriod ?? 0;
+    },
+    // 聽眾：更新寬限期倒計時
+    updateGracePeriod(state, action: PayloadAction<number>) {
+      state.hostGracePeriod = action.payload;
     },
   },
 });
@@ -189,6 +200,7 @@ export const {
   syncState,
   resetRadio,
   setHostDisconnected,
+  updateGracePeriod,
 } = radioSlice.actions;
 
 export default radioSlice.reducer;

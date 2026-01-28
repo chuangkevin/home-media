@@ -279,7 +279,7 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
         // 通知聽眾主播暫時離線（但電台仍在）
         io.to(`radio:${station.id}`).emit('radio:host-disconnected', {
           stationId: station.id,
-          gracePeriod: 30,
+          gracePeriod: 10, // 與 radio.service.ts 的 GRACE_PERIOD_MS 保持一致
         });
         return;
       }

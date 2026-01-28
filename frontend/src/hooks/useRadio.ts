@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { socketService } from '../services/socket.service';
@@ -13,6 +13,7 @@ import {
   stationClosed,
   syncState,
   setHostDisconnected,
+  updateGracePeriod,
 } from '../store/radioSlice';
 
 // localStorage key for tracking host status
@@ -22,6 +23,7 @@ export function useRadio() {
   const dispatch = useDispatch();
   const radioState = useSelector((state: RootState) => state.radio);
   const hasCheckedPending = useRef(false);
+  const gracePeriodTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     // 設定電台回調
@@ -42,10 +44,20 @@ export function useRadio() {
       },
       onRadioSync: (data) => {
         dispatch(syncState(data));
+        // 收到同步資料表示主播已重連，清除倒計時
+        if (gracePeriodTimerRef.current) {
+          clearInterval(gracePeriodTimerRef.current);
+          gracePeriodTimerRef.current = null;
+        }
       },
       onRadioClosed: () => {
         dispatch(stationClosed());
         localStorage.removeItem(RADIO_HOST_KEY);
+        // 清除倒計時
+        if (gracePeriodTimerRef.current) {
+          clearInterval(gracePeriodTimerRef.current);
+          gracePeriodTimerRef.current = null;
+        }
       },
       onRadioListenerJoined: (data) => {
         dispatch(setListenerCount(data.listenerCount));
@@ -68,7 +80,26 @@ export function useRadio() {
       },
       onRadioHostDisconnected: (data) => {
         console.log('📻 主播暫時離線，電台將在', data.gracePeriod, '秒後關閉');
-        dispatch(setHostDisconnected(true));
+        dispatch(setHostDisconnected({ disconnected: true, gracePeriod: data.gracePeriod }));
+
+        // 清除舊的計時器
+        if (gracePeriodTimerRef.current) {
+          clearInterval(gracePeriodTimerRef.current);
+        }
+
+        // 開始倒計時
+        let remaining = data.gracePeriod;
+        gracePeriodTimerRef.current = setInterval(() => {
+          remaining--;
+          if (remaining <= 0) {
+            if (gracePeriodTimerRef.current) {
+              clearInterval(gracePeriodTimerRef.current);
+              gracePeriodTimerRef.current = null;
+            }
+          } else {
+            dispatch(updateGracePeriod(remaining));
+          }
+        }, 1000);
       },
     });
 
@@ -87,6 +118,14 @@ export function useRadio() {
         }, 500);
       }
     }
+
+    // 清理函數
+    return () => {
+      if (gracePeriodTimerRef.current) {
+        clearInterval(gracePeriodTimerRef.current);
+        gracePeriodTimerRef.current = null;
+      }
+    };
   }, [dispatch]);
 
   // 建立電台
@@ -110,6 +149,11 @@ export function useRadio() {
   const leaveRadio = useCallback(() => {
     socketService.leaveRadioStation();
     dispatch(leaveStation());
+    // 清除倒計時
+    if (gracePeriodTimerRef.current) {
+      clearInterval(gracePeriodTimerRef.current);
+      gracePeriodTimerRef.current = null;
+    }
   }, [dispatch]);
 
   // 重新發現電台

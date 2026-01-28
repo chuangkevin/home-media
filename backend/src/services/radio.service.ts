@@ -43,7 +43,7 @@ class RadioService {
   private listenerToStation = new Map<string, string>(); // socketId -> stationId (for listeners)
   private deviceIdToStation = new Map<string, string>(); // deviceId -> stationId (for reconnection)
   private pendingCloseTimers = new Map<string, ReturnType<typeof setTimeout>>(); // stationId -> timer
-  private readonly GRACE_PERIOD_MS = 30000; // 30 秒寬限期
+  private readonly GRACE_PERIOD_MS = 10000; // 10 秒寬限期（縮短以提升用戶體驗）
 
   /**
    * 建立電台
