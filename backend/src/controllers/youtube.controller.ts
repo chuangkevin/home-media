@@ -170,9 +170,11 @@ export class YouTubeController {
               res.status(proxyRes.statusCode || 200);
 
               // 轉發重要的 headers
+              // 注意：不轉發 content-length，因為 YouTube 連線可能中斷（ECONNRESET）
+              // 使用 chunked transfer encoding 代替，避免 ERR_CONTENT_LENGTH_MISMATCH
               const headersToForward = [
                 'content-type',
-                'content-length',
+                // 'content-length', // 故意不轉發，改用 chunked transfer
                 'content-range',
                 'accept-ranges',
                 'cache-control',
@@ -186,6 +188,9 @@ export class YouTubeController {
                   res.setHeader(header, value);
                 }
               });
+
+              // 使用 chunked transfer encoding
+              res.setHeader('Transfer-Encoding', 'chunked');
 
               // 如果沒有 accept-ranges，添加它（支援 seek）
               if (!proxyRes.headers['accept-ranges']) {
