@@ -7,7 +7,7 @@ import CloudIcon from '@mui/icons-material/Cloud';
 import StorageIcon from '@mui/icons-material/Storage';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
-import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, confirmPendingTrack, cancelPendingTrack } from '../../store/playerSlice';
+import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack } from '../../store/playerSlice';
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
 import apiService, { type CacheStatus } from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
@@ -444,6 +444,84 @@ export default function AudioPlayer({ showLyricsButton, onScrollToLyrics, onOpen
       audio.removeEventListener('error', handleError);
     };
   }, [currentTrack, displayMode, dispatch]);
+
+  // Media Session API - 支援手機鎖屏播放控制與背景播放
+  useEffect(() => {
+    if (!currentTrack || !('mediaSession' in navigator)) {
+      return;
+    }
+
+    // 設定媒體元資料（鎖屏顯示）
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: currentTrack.title,
+      artist: currentTrack.channel,
+      artwork: [
+        { src: currentTrack.thumbnail, sizes: '96x96', type: 'image/jpeg' },
+        { src: currentTrack.thumbnail, sizes: '128x128', type: 'image/jpeg' },
+        { src: currentTrack.thumbnail, sizes: '192x192', type: 'image/jpeg' },
+        { src: currentTrack.thumbnail, sizes: '256x256', type: 'image/jpeg' },
+        { src: currentTrack.thumbnail, sizes: '384x384', type: 'image/jpeg' },
+        { src: currentTrack.thumbnail, sizes: '512x512', type: 'image/jpeg' },
+      ],
+    });
+
+    // 設定播放控制按鈕回調
+    navigator.mediaSession.setActionHandler('play', () => {
+      dispatch(setIsPlaying(true));
+      audioRef.current?.play();
+    });
+
+    navigator.mediaSession.setActionHandler('pause', () => {
+      dispatch(setIsPlaying(false));
+      audioRef.current?.pause();
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      dispatch(playPrevious());
+    });
+
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      dispatch(playNext());
+    });
+
+    // 支援快進快退（如果瀏覽器支援）
+    try {
+      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+        const skipTime = details.seekOffset || 10;
+        if (audioRef.current) {
+          audioRef.current.currentTime = Math.max(audioRef.current.currentTime - skipTime, 0);
+        }
+      });
+
+      navigator.mediaSession.setActionHandler('seekforward', (details) => {
+        const skipTime = details.seekOffset || 10;
+        if (audioRef.current) {
+          audioRef.current.currentTime = Math.min(
+            audioRef.current.currentTime + skipTime,
+            audioRef.current.duration || 0
+          );
+        }
+      });
+    } catch {
+      // 某些瀏覽器不支援 seekbackward/seekforward
+    }
+
+    console.log('🎵 Media Session API 已設定:', currentTrack.title);
+
+    return () => {
+      // 清理 action handlers
+      try {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('seekbackward', null);
+        navigator.mediaSession.setActionHandler('seekforward', null);
+      } catch {
+        // 忽略清理錯誤
+      }
+    };
+  }, [currentTrack, dispatch]);
 
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
