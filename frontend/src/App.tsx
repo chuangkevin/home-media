@@ -80,23 +80,29 @@ function App() {
       // 設置播放列表
       dispatch(setPlaylist(results));
 
-      // 前端快取預加載：背景預加載前 3 首歌曲
+      // 預加載前 3 首歌曲（同時觸發後端和前端快取）
       if (results.length > 0) {
-        console.log(`🔄 預加載前 ${Math.min(3, results.length)} 首歌曲...`);
+        const preloadCount = Math.min(3, results.length);
+        console.log(`🔄 預加載前 ${preloadCount} 首歌曲...`);
 
-        results.slice(0, 3).forEach(async (track, index) => {
+        results.slice(0, preloadCount).forEach(async (track, index) => {
+          // 1. 觸發後端預載入（獲取 yt-dlp URL，非阻塞）
+          apiService.preloadAudio(track.videoId).then(() => {
+            console.log(`🔗 第 ${index + 1} 首後端 URL 預載完成: ${track.title}`);
+          }).catch(err => {
+            console.warn(`⚠️ 第 ${index + 1} 首後端預載失敗:`, err);
+          });
+
+          // 2. 前端快取預載入
           const streamUrl = apiService.getStreamUrl(track.videoId);
-
-          // 檢查是否已快取
           const cached = await audioCacheService.get(track.videoId);
           if (cached) {
-            console.log(`✅ 第 ${index + 1} 首已在快取中: ${track.title}`);
+            console.log(`✅ 第 ${index + 1} 首已在前端快取中: ${track.title}`);
           } else {
-            // 背景預載
             audioCacheService.preload(track.videoId, streamUrl).then(() => {
-              console.log(`✅ 第 ${index + 1} 首預載完成: ${track.title}`);
+              console.log(`💾 第 ${index + 1} 首前端快取完成: ${track.title}`);
             }).catch(err => {
-              console.warn(`⚠️ 第 ${index + 1} 首預載失敗: ${track.title}`, err);
+              console.warn(`⚠️ 第 ${index + 1} 首前端快取失敗:`, err);
             });
           }
         });
