@@ -33,9 +33,13 @@ interface DownloadProgress {
   startedAt: number;
 }
 
+const MAX_CONCURRENT_DOWNLOADS = 2; // 最大同時下載數量
+
 class AudioCacheService {
   private downloadingMap = new Map<string, Promise<string | null>>(); // 正在下載的任務
   private downloadProgressMap = new Map<string, DownloadProgress>(); // 下載進度追蹤
+  private downloadQueue: Array<{ videoId: string; audioUrl: string; resolve: (value: string | null) => void }> = []; // 等待下載的佇列
+  private activeDownloads = 0; // 當前正在下載的數量
 
   /**
    * 獲取快取檔案路徑
@@ -115,6 +119,7 @@ class AudioCacheService {
 
   /**
    * 下載並快取音訊（背景執行，不阻塞串流）
+   * 使用佇列限制同時下載數量
    */
   async downloadAndCache(videoId: string, audioUrl: string): Promise<string | null> {
     // 如果已經在下載中，等待該任務完成
@@ -129,15 +134,52 @@ class AudioCacheService {
       return this.getCachePath(videoId);
     }
 
-    // 開始下載任務
-    const downloadPromise = this.doDownload(videoId, audioUrl);
+    // 建立 Promise 並加入佇列
+    const downloadPromise = new Promise<string | null>((resolve) => {
+      this.downloadQueue.push({ videoId, audioUrl, resolve });
+    });
+
     this.downloadingMap.set(videoId, downloadPromise);
+
+    // 嘗試處理佇列
+    this.processQueue();
 
     try {
       const result = await downloadPromise;
       return result;
     } finally {
       this.downloadingMap.delete(videoId);
+    }
+  }
+
+  /**
+   * 處理下載佇列
+   */
+  private processQueue(): void {
+    while (this.activeDownloads < MAX_CONCURRENT_DOWNLOADS && this.downloadQueue.length > 0) {
+      const task = this.downloadQueue.shift();
+      if (!task) break;
+
+      this.activeDownloads++;
+      console.log(`📥 [AudioCache] Starting download (${this.activeDownloads}/${MAX_CONCURRENT_DOWNLOADS}): ${task.videoId}`);
+
+      this.doDownload(task.videoId, task.audioUrl)
+        .then((result) => {
+          task.resolve(result);
+        })
+        .catch(() => {
+          task.resolve(null);
+        })
+        .finally(() => {
+          this.activeDownloads--;
+          console.log(`📤 [AudioCache] Download slot freed (${this.activeDownloads}/${MAX_CONCURRENT_DOWNLOADS})`);
+          // 繼續處理佇列中的下一個
+          this.processQueue();
+        });
+    }
+
+    if (this.downloadQueue.length > 0) {
+      console.log(`⏳ [AudioCache] ${this.downloadQueue.length} downloads waiting in queue`);
     }
   }
 
