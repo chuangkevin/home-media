@@ -29,11 +29,6 @@ export const config = {
   logging: {
     level: process.env.LOG_LEVEL || 'info',
   },
-
-  youtube: {
-    // PoToken 用於繞過 YouTube 機器人偵測（預設啟用）
-    poTokenEnabled: process.env.YOUTUBE_POTOKEN_ENABLED !== 'false',
-  },
 };
 
 export default config;

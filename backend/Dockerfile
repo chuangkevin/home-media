@@ -3,18 +3,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install build tools for native modules (better-sqlite3, canvas for jsdom)
-RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    # canvas/jsdom dependencies for youtube-po-token-generator
-    cairo-dev \
-    pango-dev \
-    jpeg-dev \
-    giflib-dev \
-    librsvg-dev \
-    pixman-dev
+# Install build tools for native modules (better-sqlite3)
+RUN apk add --no-cache python3 make g++
 
 # Install all dependencies (including devDependencies for TypeScript)
 COPY package*.json ./
@@ -31,22 +21,14 @@ WORKDIR /app
 
 # Install required dependencies:
 # - ffmpeg: audio processing (yt-dlp)
-# - python3, make, g++: native module compilation
+# - python3, make, g++: native module compilation (better-sqlite3)
 # - ca-certificates: SSL/TLS support
-# - canvas dependencies for youtube-po-token-generator (both build and runtime)
 RUN apk add --no-cache \
     ffmpeg \
     python3 \
     make \
     g++ \
     ca-certificates \
-    # canvas build dependencies (for npm ci native module compilation)
-    cairo-dev \
-    pango-dev \
-    jpeg-dev \
-    giflib-dev \
-    librsvg-dev \
-    pixman-dev \
     && update-ca-certificates
 
 # Copy package files and install production dependencies only

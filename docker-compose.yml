@@ -20,8 +20,6 @@ services:
       - AUDIO_CACHE_MAX_SIZE_MB=5000
       - MAX_CACHE_TRACKS=400
       - ALLOWED_ORIGINS=*
-      # PoToken 自動生成（用於繞過 YouTube 機器人偵測）
-      - YOUTUBE_POTOKEN_ENABLED=true
     volumes:
       - ./data/cache:/app/data/cache
       - ./data/db:/app/data/db

@@ -2,7 +2,6 @@ import ytdl from '@distube/ytdl-core';
 import youtubedl from 'youtube-dl-exec';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
-import poTokenService from './potoken.service';
 
 interface CachedUrl {
   url: string;
@@ -30,30 +29,19 @@ class YouTubeService {
   }
 
   /**
-   * 獲取包含 PoToken 的 yt-dlp 選項（用於音訊串流）
-   * PoToken 可以繞過 YouTube 的機器人偵測，避免 403 錯誤
+   * 獲取用於音訊串流的 yt-dlp 選項
+   * 使用 iOS 客戶端繞過 YouTube 的機器人偵測，避免 403 錯誤
    */
-  private async getYtDlpOptionsWithPoToken(): Promise<Record<string, any>> {
-    const baseOptions: Record<string, any> = {
+  private getYtDlpStreamOptions(): Record<string, any> {
+    return {
       noCheckCertificates: true,
       noWarnings: true,
       addHeader: [
         'Accept-Language:zh-TW,zh;q=0.9',
-        'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       ],
+      // 使用 iOS 客戶端，這個不需要 PoToken 且更穩定
+      extractorArgs: 'youtube:player_client=ios',
     };
-
-    // 獲取 PoToken（必要）
-    const poTokenArgs = await poTokenService.getYtDlpArgs();
-
-    if (!poTokenArgs) {
-      throw new Error('無法獲取 PoToken，請檢查 PoToken 服務');
-    }
-
-    baseOptions.extractorArgs = poTokenArgs;
-    logger.info('🔐 使用 PoToken 進行請求');
-
-    return baseOptions;
   }
 
   /**
@@ -262,8 +250,9 @@ class YouTubeService {
 
       const startTime = Date.now();
 
-      // 獲取包含 PoToken 的選項（用於繞過機器人偵測）
-      const ytdlpOptions = await this.getYtDlpOptionsWithPoToken();
+      // 使用 iOS 客戶端繞過機器人偵測
+      const ytdlpOptions = this.getYtDlpStreamOptions();
+      logger.info('📱 使用 iOS 客戶端獲取音訊');
 
       // 優先選擇 m4a/aac 格式，這在手機瀏覽器上相容性更好
       // bestaudio[ext=m4a] 優先，fallback 到 bestaudio
