@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import https from 'https';
 import http from 'http';
+import { pipeline } from 'stream';
 import { URL } from 'url';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
@@ -231,14 +232,21 @@ export class YouTubeController {
                   });
               }
 
-              // 串流數據
-              proxyRes.pipe(res);
-
-              // 處理錯誤
-              proxyRes.on('error', (error) => {
-                logger.error(`Proxy stream error for ${videoId}:`, error);
-                if (!res.headersSent) {
-                  res.status(500).end();
+              // 使用 pipeline 安全地串流數據，它會自動處理錯誤和清理
+              pipeline(proxyRes, res, (err) => {
+                if (err) {
+                  // ECONNRESET 經常發生，當客戶端在串流結束前斷開連接
+                  // 我們可以安全地忽略它，因為請求已經結束
+                  if ((err as NodeJS.ErrnoException).code === 'ECONNRESET') {
+                    logger.warn(`Client disconnected prematurely for ${videoId}: ${err.message}`);
+                  } else {
+                    logger.error(`Stream pipeline error for ${videoId}:`, err);
+                  }
+                  // 確保在發生任何錯誤時銷毀兩個串流
+                  proxyRes.destroy();
+                  if (!res.writableEnded) {
+                    res.destroy();
+                  }
                 }
               });
             }
@@ -497,11 +505,11 @@ export class YouTubeController {
 
       const stream = audioCacheService.createReadStream(videoId, { start, end });
       if (stream) {
-        stream.pipe(res);
-        stream.on('error', (error) => {
-          logger.error(`Cache stream error for ${videoId}:`, error);
-          if (!res.headersSent) {
-            res.status(500).end();
+        pipeline(stream, res, (err) => {
+          if (err) {
+            logger.error(`Cache stream pipeline error for ${videoId}:`, err);
+            stream.destroy();
+            res.destroy();
           }
         });
       } else {
@@ -513,11 +521,11 @@ export class YouTubeController {
 
       const stream = audioCacheService.createReadStream(videoId);
       if (stream) {
-        stream.pipe(res);
-        stream.on('error', (error) => {
-          logger.error(`Cache stream error for ${videoId}:`, error);
-          if (!res.headersSent) {
-            res.status(500).end();
+        pipeline(stream, res, (err) => {
+          if (err) {
+            logger.error(`Cache stream pipeline error for ${videoId}:`, err);
+            stream.destroy();
+            res.destroy();
           }
         });
       } else {
