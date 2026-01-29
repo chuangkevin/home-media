@@ -21,15 +21,18 @@ WORKDIR /app
 
 # Install required dependencies:
 # - ffmpeg: audio processing (yt-dlp)
-# - python3, make, g++: native module compilation (better-sqlite3)
+# - python3, py3-pip: for installing latest yt-dlp
+# - make, g++: native module compilation (better-sqlite3)
 # - ca-certificates: SSL/TLS support
 RUN apk add --no-cache \
     ffmpeg \
     python3 \
+    py3-pip \
     make \
     g++ \
     ca-certificates \
-    && update-ca-certificates
+    && update-ca-certificates \
+    && pip3 install --break-system-packages yt-dlp
 
 # Copy package files and install production dependencies only
 COPY package*.json ./

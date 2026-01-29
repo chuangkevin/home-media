@@ -1,7 +1,13 @@
 import ytdl from '@distube/ytdl-core';
-import youtubedl from 'youtube-dl-exec';
+import youtubedlExec from 'youtube-dl-exec';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
+
+// 使用系統安裝的 yt-dlp（透過 pip3 安裝的最新版本）
+// 在 Docker 中會使用 /usr/bin/yt-dlp，本地開發則使用 npm 內建的
+const youtubedl = process.env.NODE_ENV === 'production'
+  ? youtubedlExec.create('/usr/bin/yt-dlp')
+  : youtubedlExec;
 
 interface CachedUrl {
   url: string;
