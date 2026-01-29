@@ -36,6 +36,8 @@ export default function HomeRecommendations() {
           videoId: v.videoId,
           title: v.title,
           channel: channel.channelName,
+          thumbnail: v.thumbnail,
+          duration: v.duration,
         }))
       );
 
@@ -66,7 +68,12 @@ export default function HomeRecommendations() {
 
             const streamUrl = apiService.getStreamUrl(video.videoId);
             try {
-              await audioCacheService.preload(video.videoId, streamUrl);
+              await audioCacheService.preload(video.videoId, streamUrl, {
+                title: video.title,
+                channel: video.channel,
+                thumbnail: video.thumbnail,
+                duration: video.duration,
+              });
               console.log(`✅ 音訊預載完成: ${video.title}`);
             } catch (err) {
               console.warn(`⚠️ 音訊預載失敗: ${video.title}`, err);

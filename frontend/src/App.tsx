@@ -11,12 +11,14 @@ import {
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
+import SettingsIcon from '@mui/icons-material/Settings';
 import SearchBar from './components/Search/SearchBar';
 import SearchResults from './components/Search/SearchResults';
 import AudioPlayer from './components/Player/AudioPlayer';
 import FullscreenLyrics from './components/Player/FullscreenLyrics';
 import HomeRecommendations from './components/Home/HomeRecommendations';
 import PlaylistSection from './components/Playlist/PlaylistSection';
+import SettingsPage from './components/Settings/SettingsPage';
 import RadioButton from './components/Radio/RadioButton';
 import RadioIndicator from './components/Radio/RadioIndicator';
 import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
@@ -97,7 +99,12 @@ function App() {
           if (cached) {
             console.log(`✅ 第 ${index + 1} 首已在前端快取中: ${track.title}`);
           } else {
-            audioCacheService.preload(track.videoId, streamUrl).then(() => {
+            audioCacheService.preload(track.videoId, streamUrl, {
+              title: track.title,
+              channel: track.channel,
+              thumbnail: track.thumbnail,
+              duration: track.duration,
+            }).then(() => {
               console.log(`💾 第 ${index + 1} 首前端快取完成: ${track.title}`);
             }).catch(err => {
               console.warn(`⚠️ 第 ${index + 1} 首前端快取失敗:`, err);
@@ -192,9 +199,11 @@ function App() {
             >
               <Tab icon={<HomeIcon />} label="首頁推薦" />
               <Tab icon={<QueueMusicIcon />} label="播放清單" />
+              <Tab icon={<SettingsIcon />} label="系統設定" />
             </Tabs>
             {homeTab === 0 && <HomeRecommendations />}
             {homeTab === 1 && <PlaylistSection />}
+            {homeTab === 2 && <SettingsPage />}
           </>
         )}
       </Container>

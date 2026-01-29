@@ -3,17 +3,35 @@
  * 使用 IndexedDB 儲存音訊 blob，實現離線播放和快速重播
  */
 
+export interface CachedAudioMetadata {
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration?: number;
+}
+
 interface CachedAudio {
   videoId: string;
   blob: Blob;
   timestamp: number;
   size: number;
+  metadata?: CachedAudioMetadata; // 可選，向後相容舊快取
+}
+
+export interface CacheListItem {
+  videoId: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  size: number;
+  timestamp: number;
+  duration?: number;
 }
 
 class AudioCacheService {
   private dbName = 'AudioCacheDB';
   private storeName = 'audioCache';
-  private dbVersion = 1;
+  private dbVersion = 2; // 升級版本以支援 metadata
   private db: IDBDatabase | null = null;
 
   // 快取設置
@@ -100,7 +118,7 @@ class AudioCacheService {
   /**
    * 儲存音訊到快取
    */
-  async set(videoId: string, blob: Blob): Promise<void> {
+  async set(videoId: string, blob: Blob, metadata?: CachedAudioMetadata): Promise<void> {
     await this.init();
     if (!this.db) return;
 
@@ -109,6 +127,7 @@ class AudioCacheService {
       blob,
       timestamp: Date.now(),
       size: blob.size,
+      metadata,
     };
 
     // 檢查快取大小限制
@@ -342,9 +361,10 @@ class AudioCacheService {
    * 下載並快取音訊
    * @param videoId 影片 ID
    * @param streamUrl 串流 URL
+   * @param metadata 曲目資訊（標題、頻道等）
    * @returns Blob URL 供 audio 元素使用
    */
-  async fetchAndCache(videoId: string, streamUrl: string): Promise<string> {
+  async fetchAndCache(videoId: string, streamUrl: string, metadata?: CachedAudioMetadata): Promise<string> {
     try {
       // 先檢查快取
       const cached = await this.get(videoId);
@@ -373,7 +393,7 @@ class AudioCacheService {
       console.log(`✅ Downloaded: ${videoId} (${sizeMB}MB in ${downloadTime}s)`);
 
       // 儲存到快取（異步，不阻塞播放）
-      this.set(videoId, blob).catch(err => {
+      this.set(videoId, blob, metadata).catch(err => {
         console.error(`Failed to cache ${videoId}:`, err);
       });
 
@@ -388,7 +408,7 @@ class AudioCacheService {
   /**
    * 預加載音訊（背景下載並快取）
    */
-  async preload(videoId: string, streamUrl: string): Promise<void> {
+  async preload(videoId: string, streamUrl: string, metadata?: CachedAudioMetadata): Promise<void> {
     if (!this.PRELOAD_ENABLED) return;
 
     try {
@@ -400,11 +420,27 @@ class AudioCacheService {
       }
 
       console.log(`🔄 Preloading: ${videoId}`);
-      await this.fetchAndCache(videoId, streamUrl);
+      await this.fetchAndCache(videoId, streamUrl, metadata);
     } catch (error) {
       // 預載失敗不影響主流程
       console.warn(`Preload failed for ${videoId}:`, error);
     }
+  }
+
+  /**
+   * 獲取快取列表（含 metadata，供 UI 顯示）
+   */
+  async getCacheList(): Promise<CacheListItem[]> {
+    const all = await this.getAll();
+    return all.map(item => ({
+      videoId: item.videoId,
+      title: item.metadata?.title || '未知曲目',
+      channel: item.metadata?.channel || '未知頻道',
+      thumbnail: item.metadata?.thumbnail || `https://i.ytimg.com/vi/${item.videoId}/default.jpg`,
+      size: item.size,
+      timestamp: item.timestamp,
+      duration: item.metadata?.duration,
+    })).sort((a, b) => b.timestamp - a.timestamp); // 最新的在前面
   }
 }
 

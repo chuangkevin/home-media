@@ -138,7 +138,12 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
           // 同時嘗試前端快取（離線優化）
           if (!browserCached) {
-            audioCacheService.fetchAndCache(videoId, streamUrl)
+            audioCacheService.fetchAndCache(videoId, streamUrl, {
+              title: pendingTrack.title,
+              channel: pendingTrack.channel,
+              thumbnail: pendingTrack.thumbnail,
+              duration: pendingTrack.duration,
+            })
               .then(() => console.log(`💾 瀏覽器背景快取完成: ${pendingTrack.title}`))
               .catch(err => console.warn(`瀏覽器背景快取失敗: ${pendingTrack.title}`, err));
           }
@@ -413,7 +418,12 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
           const streamUrl = apiService.getStreamUrl(track.videoId);
 
           // 背景預載（不阻塞主流程）
-          audioCacheService.preload(track.videoId, streamUrl)
+          audioCacheService.preload(track.videoId, streamUrl, {
+            title: track.title,
+            channel: track.channel,
+            thumbnail: track.thumbnail,
+            duration: track.duration,
+          })
             .then(() => {
               console.log(`✅ 預載完成 (#${idx + 1}): ${track.title}`);
             })
