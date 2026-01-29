@@ -1,8 +1,5 @@
 import { Request, Response } from 'express';
-import https from 'https';
-import http from 'http';
 import { pipeline } from 'stream';
-import { URL } from 'url';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
 import logger from '../utils/logger';
@@ -74,243 +71,116 @@ export class YouTubeController {
 
   /**
    * GET /api/stream/:videoId
-   * 串流音訊 - 優先從伺服器快取讀取，否則代理並背景下載
+   * 串流音訊 - 優先從伺服器快取讀取，否則使用 yt-dlp 直接串流
    */
   async streamAudio(req: Request, res: Response): Promise<void> {
     const { videoId } = req.params;
-    let retryCount = 0;
-    const maxRetries = 3;
-    const retryDelays = [1000, 3000, 5000]; // 指數退避延遲
-    const requestTimeout = 60000; // 60 秒請求超時
 
-    const attemptStream = async (): Promise<void> => {
-      try {
-        if (!videoId) {
-          res.status(400).json({
-            error: 'Video ID is required',
-          });
-          return;
-        }
+    try {
+      if (!videoId) {
+        res.status(400).json({
+          error: 'Video ID is required',
+        });
+        return;
+      }
 
-        const isValid = await youtubeService.validateVideoId(videoId);
-        if (!isValid) {
-          res.status(400).json({
-            error: 'Invalid video ID',
-          });
-          return;
-        }
+      const isValid = await youtubeService.validateVideoId(videoId);
+      if (!isValid) {
+        res.status(400).json({
+          error: 'Invalid video ID',
+        });
+        return;
+      }
 
-        // 檢查伺服器端快取
-        if (audioCacheService.has(videoId)) {
-          console.log(`🎵 [Stream] Serving from server cache: ${videoId}`);
-          logger.info(`Streaming audio for video: ${videoId} from server cache`);
-          this.streamFromCache(req, res, videoId);
-          return;
-        }
+      // 檢查伺服器端快取
+      if (audioCacheService.has(videoId)) {
+        console.log(`🎵 [Stream] Serving from server cache: ${videoId}`);
+        logger.info(`Streaming audio for video: ${videoId} from server cache`);
+        this.streamFromCache(req, res, videoId);
+        return;
+      }
 
-        logger.info(`Streaming audio for video: ${videoId} via proxy (attempt ${retryCount + 1})`);
-        console.log(`🌐 [Stream] Proxying from network: ${videoId}`);
+      logger.info(`Streaming audio for video: ${videoId} via yt-dlp direct stream`);
+      console.log(`🌐 [Stream] Direct streaming via yt-dlp: ${videoId}`);
 
-        // 使用 yt-dlp 獲取音訊 URL
-        const audioUrl = await youtubeService.getAudioStreamUrl(videoId);
+      // 設定 response headers
+      res.setHeader('Content-Type', 'audio/webm');
+      res.setHeader('Transfer-Encoding', 'chunked');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+      res.setHeader('Cache-Control', 'no-cache');
 
-        // 準備代理請求的 headers
-        const proxyHeaders: any = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': '*/*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': 'https://www.youtube.com/',
-          'Origin': 'https://www.youtube.com',
-        };
+      // 使用 yt-dlp 直接串流
+      const ytdlpProcess = youtubeService.streamAudioToStdout(videoId);
 
-        // 支援 Range requests（讓瀏覽器可以 seek）
-        if (req.headers.range) {
-          proxyHeaders['Range'] = req.headers.range;
-        }
-
-        // 發起代理請求（自動處理重定向）
-        const makeProxyRequest = (url: string, redirectCount = 0): void => {
-          if (redirectCount > 5) {
-            logger.error(`Too many redirects for ${videoId}`);
-            if (!res.headersSent) {
-              res.status(500).json({ error: 'Too many redirects' });
+      // 背景下載到伺服器快取（不阻塞串流）
+      // 只有非 Range request 才下載完整檔案
+      if (!req.headers.range) {
+        audioCacheService.downloadAndCacheViaYtDlp(videoId)
+          .then((cachePath) => {
+            if (cachePath) {
+              console.log(`💾 [Stream] Background cache completed: ${videoId}`);
             }
-            return;
-          }
-
-          const parsedRedirectUrl = new URL(url);
-          const redirectHttpModule = parsedRedirectUrl.protocol === 'https:' ? https : http;
-
-          const proxyReq = redirectHttpModule.get(
-            url,
-            {
-              headers: proxyHeaders,
-            },
-            (proxyRes) => {
-              // 處理重定向
-              if (proxyRes.statusCode === 301 || proxyRes.statusCode === 302 || proxyRes.statusCode === 303 || proxyRes.statusCode === 307 || proxyRes.statusCode === 308) {
-                const location = proxyRes.headers.location;
-                if (location) {
-                  logger.info(`Following redirect for ${videoId}: ${proxyRes.statusCode} -> ${location}`);
-                  proxyRes.resume(); // 消耗響應體
-                  makeProxyRequest(location, redirectCount + 1);
-                  return;
-                }
-              }
-
-              // 處理 403 錯誤（URL 過期）- 清除緩存並使用指數退避重試
-              if (proxyRes.statusCode === 403 && retryCount < maxRetries) {
-                const delay = retryDelays[retryCount] || 5000;
-                logger.warn(`Got 403 for ${videoId}, retry in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
-                console.log(`⚠️ URL 過期 (403): ${videoId}，${delay}ms 後重試 (${retryCount + 1}/${maxRetries})...`);
-                proxyRes.resume(); // 消耗響應體
-                youtubeService.clearUrlCache(videoId);
-                retryCount++;
-                setTimeout(() => attemptStream(), delay);
-                return;
-              }
-
-              // 處理 5xx 伺服器錯誤 - 重試
-              if (proxyRes.statusCode && proxyRes.statusCode >= 500 && retryCount < maxRetries) {
-                const delay = retryDelays[retryCount] || 5000;
-                logger.warn(`Got ${proxyRes.statusCode} for ${videoId}, retry in ${delay}ms`);
-                console.log(`⚠️ 伺服器錯誤 (${proxyRes.statusCode}): ${videoId}，${delay}ms 後重試...`);
-                proxyRes.resume();
-                retryCount++;
-                setTimeout(() => attemptStream(), delay);
-                return;
-              }
-
-              // 轉發狀態碼
-              res.status(proxyRes.statusCode || 200);
-
-              // 轉發重要的 headers
-              // 注意：不轉發 content-length，因為 YouTube 連線可能中斷（ECONNRESET）
-              // 使用 chunked transfer encoding 代替，避免 ERR_CONTENT_LENGTH_MISMATCH
-              const headersToForward = [
-                'content-type',
-                // 'content-length', // 故意不轉發，改用 chunked transfer
-                'content-range',
-                'accept-ranges',
-                'cache-control',
-                'etag',
-                'last-modified',
-              ];
-
-              headersToForward.forEach((header) => {
-                const value = proxyRes.headers[header];
-                if (value) {
-                  res.setHeader(header, value);
-                }
-              });
-
-              // 使用 chunked transfer encoding
-              res.setHeader('Transfer-Encoding', 'chunked');
-
-              // 如果沒有 accept-ranges，添加它（支援 seek）
-              if (!proxyRes.headers['accept-ranges']) {
-                res.setHeader('Accept-Ranges', 'bytes');
-              }
-
-              // 啟用 CORS
-              res.setHeader('Access-Control-Allow-Origin', '*');
-              res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
-
-              logger.info(`Proxying audio stream for ${videoId} (status: ${proxyRes.statusCode})`);
-
-              // 背景下載到伺服器快取（不阻塞串流）
-              // 只有非 Range request 才下載完整檔案
-              if (!req.headers.range) {
-                audioCacheService.downloadAndCache(videoId, audioUrl)
-                  .then((cachePath) => {
-                    if (cachePath) {
-                      console.log(`💾 [Stream] Background cache completed: ${videoId}`);
-                    }
-                  })
-                  .catch((err) => {
-                    console.warn(`⚠️ [Stream] Background cache failed: ${videoId}`, err);
-                  });
-              }
-
-              // 使用 pipeline 安全地串流數據，它會自動處理錯誤和清理
-              pipeline(proxyRes, res, (err) => {
-                if (err) {
-                  // ECONNRESET 經常發生，當客戶端在串流結束前斷開連接
-                  // 我們可以安全地忽略它，因為請求已經結束
-                  if ((err as NodeJS.ErrnoException).code === 'ECONNRESET') {
-                    logger.warn(`Client disconnected prematurely for ${videoId}: ${err.message}`);
-                  } else {
-                    logger.error(`Stream pipeline error for ${videoId}:`, err);
-                  }
-                  // 確保在發生任何錯誤時銷毀兩個串流
-                  proxyRes.destroy();
-                  if (!res.writableEnded) {
-                    res.destroy();
-                  }
-                }
-              });
-            }
-          );
-
-          // 設置請求超時
-          proxyReq.setTimeout(requestTimeout, () => {
-            logger.error(`Request timeout for ${videoId} after ${requestTimeout}ms`);
-            console.log(`⏱️ 請求超時: ${videoId}`);
-            proxyReq.destroy();
-
-            // 嘗試重試
-            if (retryCount < maxRetries && !res.headersSent) {
-              const delay = retryDelays[retryCount] || 5000;
-              console.log(`🔄 超時重試 ${retryCount + 1}/${maxRetries}，${delay}ms 後...`);
-              retryCount++;
-              setTimeout(() => attemptStream(), delay);
-            } else if (!res.headersSent) {
-              res.status(504).json({ error: 'Gateway Timeout' });
-            }
+          })
+          .catch((err) => {
+            console.warn(`⚠️ [Stream] Background cache failed: ${videoId}`, err);
           });
+      }
 
-          // 處理代理請求錯誤（網路錯誤、連線中斷等）
-          proxyReq.on('error', (error: NodeJS.ErrnoException) => {
-            logger.error(`Proxy request error for ${videoId}:`, error);
+      // 處理 yt-dlp 進程錯誤
+      let hasError = false;
 
-            // 可重試的網路錯誤
-            const retryableErrors = ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'];
-            const isRetryable = retryableErrors.includes(error.code || '');
-
-            if (isRetryable && retryCount < maxRetries && !res.headersSent) {
-              const delay = retryDelays[retryCount] || 5000;
-              logger.warn(`Retryable error (${error.code}) for ${videoId}, retry in ${delay}ms`);
-              console.log(`🔄 網路錯誤 (${error.code}): ${videoId}，${delay}ms 後重試...`);
-              youtubeService.clearUrlCache(videoId); // 清除 URL 緩存
-              retryCount++;
-              setTimeout(() => attemptStream(), delay);
-            } else if (!res.headersSent) {
-              res.status(500).json({
-                error: 'Failed to proxy audio stream',
-              });
-            }
-          });
-
-          // 當客戶端關閉連接時，中止代理請求
-          req.on('close', () => {
-            proxyReq.destroy();
-          });
-        };
-
-        // 開始代理請求
-        makeProxyRequest(audioUrl);
-
-      } catch (error) {
-        logger.error('Stream controller error:', error);
+      ytdlpProcess.on('error', (error) => {
+        hasError = true;
+        logger.error(`yt-dlp process error for ${videoId}:`, error);
         if (!res.headersSent) {
           res.status(500).json({
-            error: error instanceof Error ? error.message : 'Failed to stream audio',
+            error: 'Failed to start audio stream',
           });
         }
-      }
-    };
+      });
 
-    await attemptStream();
+      // 使用 pipeline 安全地串流數據
+      if (ytdlpProcess.stdout) {
+        pipeline(ytdlpProcess.stdout, res, (err) => {
+          if (err) {
+            if ((err as NodeJS.ErrnoException).code === 'ECONNRESET') {
+              logger.warn(`Client disconnected prematurely for ${videoId}: ${err.message}`);
+            } else if (!hasError) {
+              logger.error(`Stream pipeline error for ${videoId}:`, err);
+            }
+            // 確保清理
+            ytdlpProcess.kill();
+            if (!res.writableEnded) {
+              res.destroy();
+            }
+          }
+        });
+      } else {
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: 'Failed to create audio stream',
+          });
+        }
+        return;
+      }
+
+      // 當客戶端關閉連接時，終止 yt-dlp 進程
+      req.on('close', () => {
+        if (!ytdlpProcess.killed) {
+          ytdlpProcess.kill();
+          console.log(`🔌 [Stream] Client disconnected, killed yt-dlp process: ${videoId}`);
+        }
+      });
+
+    } catch (error) {
+      logger.error('Stream controller error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : 'Failed to stream audio',
+        });
+      }
+    }
   }
 
   /**

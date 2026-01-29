@@ -1,5 +1,6 @@
 import ytdl from '@distube/ytdl-core';
 import youtubedlExec from 'youtube-dl-exec';
+import { spawn, ChildProcess } from 'child_process';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
 
@@ -292,6 +293,106 @@ class YouTubeService {
       logger.error(`yt-dlp failed for ${videoId}:`, error);
       throw new Error(`Failed to get audio URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /**
+   * 使用 yt-dlp 直接串流音訊到 stdout
+   * 這是解決 403 問題的關鍵：讓 yt-dlp 處理所有的認證和 headers
+   */
+  streamAudioToStdout(videoId: string): ChildProcess {
+    const ytdlpPath = process.env.NODE_ENV === 'production' ? '/usr/bin/yt-dlp' : 'yt-dlp';
+
+    const args = [
+      '--no-warnings',
+      '--no-check-certificates',
+      '-f', 'bestaudio/best',
+      '-o', '-', // 輸出到 stdout
+      '--add-header', 'Accept-Language:zh-TW,zh;q=0.9',
+      '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      `https://www.youtube.com/watch?v=${videoId}`,
+    ];
+
+    console.log(`🎵 [yt-dlp] 開始直接串流: ${videoId}`);
+    logger.info(`Starting yt-dlp direct stream for: ${videoId}`);
+
+    const ytdlpProcess = spawn(ytdlpPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'], // stdin忽略, stdout管道, stderr管道
+    });
+
+    ytdlpProcess.stderr?.on('data', (data: Buffer) => {
+      const message = data.toString().trim();
+      if (message && !message.includes('[download]')) {
+        logger.warn(`yt-dlp stderr for ${videoId}: ${message}`);
+      }
+    });
+
+    ytdlpProcess.on('error', (error) => {
+      console.error(`❌ [yt-dlp] 進程錯誤: ${videoId}`, error);
+      logger.error(`yt-dlp process error for ${videoId}:`, error);
+    });
+
+    ytdlpProcess.on('exit', (code, signal) => {
+      if (code !== 0 && code !== null) {
+        console.warn(`⚠️ [yt-dlp] 進程結束: ${videoId} (code: ${code}, signal: ${signal})`);
+        logger.warn(`yt-dlp exited for ${videoId} with code ${code}, signal ${signal}`);
+      } else {
+        console.log(`✅ [yt-dlp] 串流完成: ${videoId}`);
+      }
+    });
+
+    return ytdlpProcess;
+  }
+
+  /**
+   * 使用 yt-dlp 下載音訊到指定檔案
+   * 用於背景快取
+   */
+  async downloadAudioToFile(videoId: string, outputPath: string): Promise<void> {
+    const ytdlpPath = process.env.NODE_ENV === 'production' ? '/usr/bin/yt-dlp' : 'yt-dlp';
+
+    return new Promise((resolve, reject) => {
+      const args = [
+        '--no-warnings',
+        '--no-check-certificates',
+        '-f', 'bestaudio/best',
+        '-o', outputPath,
+        '--add-header', 'Accept-Language:zh-TW,zh;q=0.9',
+        '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        `https://www.youtube.com/watch?v=${videoId}`,
+      ];
+
+      console.log(`💾 [yt-dlp] 開始下載到快取: ${videoId}`);
+      logger.info(`Starting yt-dlp download for cache: ${videoId}`);
+
+      const ytdlpProcess = spawn(ytdlpPath, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stderrOutput = '';
+
+      ytdlpProcess.stderr?.on('data', (data: Buffer) => {
+        stderrOutput += data.toString();
+      });
+
+      ytdlpProcess.on('error', (error) => {
+        console.error(`❌ [yt-dlp] 下載進程錯誤: ${videoId}`, error);
+        logger.error(`yt-dlp download error for ${videoId}:`, error);
+        reject(error);
+      });
+
+      ytdlpProcess.on('exit', (code) => {
+        if (code === 0) {
+          console.log(`✅ [yt-dlp] 下載完成: ${videoId}`);
+          logger.info(`yt-dlp download completed for: ${videoId}`);
+          resolve();
+        } else {
+          const error = new Error(`yt-dlp exited with code ${code}: ${stderrOutput}`);
+          console.error(`❌ [yt-dlp] 下載失敗: ${videoId}`, error);
+          logger.error(`yt-dlp download failed for ${videoId}:`, error);
+          reject(error);
+        }
+      });
+    });
   }
 
   /**
