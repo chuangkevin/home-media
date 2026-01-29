@@ -1,9 +1,8 @@
 import ytdl from '@distube/ytdl-core';
 import youtubedl from 'youtube-dl-exec';
-import fs from 'fs';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
-import config from '../config/environment';
+import poTokenService from './potoken.service';
 
 interface CachedUrl {
   url: string;
@@ -15,22 +14,26 @@ class YouTubeService {
   private pendingRequests: Map<string, Promise<string>> = new Map(); // 防止重複請求
   private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
   private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 小時（搜尋結果快取）
-  private cookiesPath: string | null = null;
 
-  constructor() {
-    // 檢查 cookies 文件是否存在
-    if (config.youtube?.cookiesPath && fs.existsSync(config.youtube.cookiesPath)) {
-      this.cookiesPath = config.youtube.cookiesPath;
-      logger.info(`📍 YouTube cookies 已配置: ${this.cookiesPath}`);
-    } else if (config.youtube?.cookiesPath) {
-      logger.warn(`⚠️ YouTube cookies 路徑不存在: ${config.youtube.cookiesPath}`);
-    }
+  /**
+   * 獲取 yt-dlp 基本選項
+   */
+  private getYtDlpBaseOptions(): Record<string, any> {
+    return {
+      noCheckCertificates: true,
+      noWarnings: true,
+      addHeader: [
+        'Accept-Language:zh-TW,zh;q=0.9',
+        'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      ],
+    };
   }
 
   /**
-   * 獲取 yt-dlp 基本選項（包含 cookies）
+   * 獲取包含 PoToken 的 yt-dlp 選項（用於音訊串流）
+   * PoToken 可以繞過 YouTube 的機器人偵測，避免 403 錯誤
    */
-  private getYtDlpBaseOptions(): Record<string, any> {
+  private async getYtDlpOptionsWithPoToken(): Promise<Record<string, any>> {
     const baseOptions: Record<string, any> = {
       noCheckCertificates: true,
       noWarnings: true,
@@ -40,11 +43,15 @@ class YouTubeService {
       ],
     };
 
-    // 如果有 cookies，加入選項
-    if (this.cookiesPath) {
-      baseOptions.cookies = this.cookiesPath;
-      logger.debug('Using cookies for yt-dlp request');
+    // 獲取 PoToken（必要）
+    const poTokenArgs = await poTokenService.getYtDlpArgs();
+
+    if (!poTokenArgs) {
+      throw new Error('無法獲取 PoToken，請檢查 PoToken 服務');
     }
+
+    baseOptions.extractorArgs = poTokenArgs;
+    logger.info('🔐 使用 PoToken 進行請求');
 
     return baseOptions;
   }
@@ -254,10 +261,14 @@ class YouTubeService {
       logger.info(`Fetching fresh audio URL via yt-dlp for: ${videoId}`);
 
       const startTime = Date.now();
+
+      // 獲取包含 PoToken 的選項（用於繞過機器人偵測）
+      const ytdlpOptions = await this.getYtDlpOptionsWithPoToken();
+
       // 優先選擇 m4a/aac 格式，這在手機瀏覽器上相容性更好
       // bestaudio[ext=m4a] 優先，fallback 到 bestaudio
       const result: any = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
-        ...this.getYtDlpBaseOptions(),
+        ...ytdlpOptions,
         dumpSingleJson: true,
         preferFreeFormats: false, // 不優先免費格式，優先相容性
         format: 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio',

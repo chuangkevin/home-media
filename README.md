@@ -97,6 +97,24 @@ npm install
 npm run dev
 ```
 
+## 🔧 疑難排解
+
+### YouTube 403 錯誤（無法播放）
+
+本專案使用 **PoToken 自動生成**技術繞過 YouTube 的機器人偵測。啟動時會看到：
+
+```
+🔐 PoToken 服務已初始化（已啟用）
+🔄 正在生成 PoToken...
+✅ PoToken 生成成功
+```
+
+如果遇到 403 錯誤，重新部署讓 PoToken 重新生成：
+
+```bash
+docker compose down && docker compose up -d
+```
+
 ## 📁 專案結構
 
 ```

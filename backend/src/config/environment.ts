@@ -31,7 +31,8 @@ export const config = {
   },
 
   youtube: {
-    cookiesPath: process.env.YOUTUBE_COOKIES_PATH || '',
+    // PoToken 用於繞過 YouTube 機器人偵測（預設啟用）
+    poTokenEnabled: process.env.YOUTUBE_POTOKEN_ENABLED !== 'false',
   },
 };
 
