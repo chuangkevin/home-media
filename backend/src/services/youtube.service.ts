@@ -30,7 +30,7 @@ class YouTubeService {
 
   /**
    * 獲取用於音訊串流的 yt-dlp 選項
-   * 使用 Android 客戶端繞過 YouTube 的機器人偵測，避免 403 錯誤
+   * 不指定特定客戶端，讓 yt-dlp 自動選擇最佳方式
    */
   private getYtDlpStreamOptions(): Record<string, any> {
     return {
@@ -38,9 +38,8 @@ class YouTubeService {
       noWarnings: true,
       addHeader: [
         'Accept-Language:zh-TW,zh;q=0.9',
+        'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       ],
-      // 使用 Android 客戶端，提供獨立音訊串流且不需要 PoToken
-      extractorArgs: 'youtube:player_client=android',
     };
   }
 
@@ -250,15 +249,14 @@ class YouTubeService {
 
       const startTime = Date.now();
 
-      // 使用 Android 客戶端繞過機器人偵測
+      // 使用預設 yt-dlp 設定獲取音訊
       const ytdlpOptions = this.getYtDlpStreamOptions();
-      logger.info('📱 使用 Android 客戶端獲取音訊');
 
-      // 使用 bestaudio 讓 yt-dlp 自動選擇最佳音訊格式
+      // 優先 bestaudio，fallback 到 best（視訊+音訊合併）
       const result: any = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
         ...ytdlpOptions,
         dumpSingleJson: true,
-        format: 'bestaudio',
+        format: 'bestaudio/best',
       });
       const fetchTime = ((Date.now() - startTime) / 1000).toFixed(2);
 

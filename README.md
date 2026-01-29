@@ -101,7 +101,7 @@ npm run dev
 
 ### YouTube 403 錯誤（無法播放）
 
-本專案使用 **iOS 客戶端模式** 繞過 YouTube 的機器人偵測。如果遇到 403 錯誤，嘗試重新部署更新 yt-dlp：
+本專案使用 **yt-dlp** 獲取 YouTube 音訊。如果遇到播放錯誤，嘗試重新部署更新 yt-dlp：
 
 ```bash
 docker compose down && docker compose pull && docker compose up -d
