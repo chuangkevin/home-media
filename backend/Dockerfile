@@ -19,10 +19,24 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install ffmpeg for audio processing (yt-dlp dependency)
-# Also install ca-certificates for SSL/TLS support
-RUN apk add --no-cache ffmpeg python3 make g++ ca-certificates && \
-    update-ca-certificates
+# Install required dependencies:
+# - ffmpeg: audio processing (yt-dlp)
+# - python3, make, g++: native module compilation
+# - ca-certificates: SSL/TLS support
+# - jsdom dependencies: canvas support for youtube-po-token-generator
+RUN apk add --no-cache \
+    ffmpeg \
+    python3 \
+    make \
+    g++ \
+    ca-certificates \
+    # jsdom/canvas dependencies
+    cairo-dev \
+    pango-dev \
+    jpeg-dev \
+    giflib-dev \
+    librsvg-dev \
+    && update-ca-certificates
 
 # Copy package files and install production dependencies only
 COPY package*.json ./

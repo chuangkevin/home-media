@@ -26,6 +26,7 @@ class PoTokenService {
   // 重試設定
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 2000;
+  private readonly GENERATION_TIMEOUT = 60000; // 60 秒超時
 
   constructor() {
     if (config.youtube?.poTokenEnabled) {
@@ -110,10 +111,8 @@ class PoTokenService {
         logger.info(`🔄 正在生成 PoToken (嘗試 ${attempt}/${this.MAX_RETRIES})...`);
         const startTime = Date.now();
 
-        // 動態載入 youtube-po-token-generator
-        // 使用動態 import 避免啟動時就載入
-        const { generate } = await import('youtube-po-token-generator');
-        const result = await generate();
+        // 使用超時包裝，防止無限等待
+        const result = await this.generateWithTimeout();
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
 
@@ -143,6 +142,29 @@ class PoTokenService {
     }
 
     throw lastError || new Error('PoToken 生成失敗（未知錯誤）');
+  }
+
+  /**
+   * 帶超時的 PoToken 生成
+   */
+  private async generateWithTimeout(): Promise<{ visitorData: string; poToken: string }> {
+    return new Promise(async (resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`PoToken 生成超時（${this.GENERATION_TIMEOUT / 1000}秒）`));
+      }, this.GENERATION_TIMEOUT);
+
+      try {
+        // 動態載入 youtube-po-token-generator
+        // 使用動態 import 避免啟動時就載入
+        const { generate } = await import('youtube-po-token-generator');
+        const result = await generate();
+        clearTimeout(timeoutId);
+        resolve(result);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    });
   }
 
   /**
