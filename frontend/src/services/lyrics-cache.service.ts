@@ -23,8 +23,8 @@ class LyricsCacheService {
   private dbName = 'LyricsCacheDB';
   private storeName = 'lyricsCache';
   private prefsStoreName = 'lyricsPrefs'; // 使用者偏好設定
-  private dbVersion = 2; // 升級版本以新增 prefs store
   private db: IDBDatabase | null = null;
+  private initPromise: Promise<void> | null = null;
 
   // 快取設置
   private readonly CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 天快取期限
@@ -32,40 +32,97 @@ class LyricsCacheService {
 
   /**
    * 初始化資料庫
+   * 注意：不指定版本，讓 IndexedDB 自動使用現有版本或創建版本 1
    */
   async init(): Promise<void> {
     if (this.db) return;
+    if (this.initPromise) return this.initPromise;
 
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, this.dbVersion);
+    this.initPromise = new Promise((resolve, reject) => {
+      // 不指定版本號，使用現有版本
+      const request = indexedDB.open(this.dbName);
 
       request.onerror = () => {
-        console.error('Failed to open LyricsCache IndexedDB:', request.error);
+        console.error('❌ Failed to open LyricsCache IndexedDB:', request.error);
+        this.initPromise = null;
         reject(request.error);
       };
 
       request.onsuccess = () => {
         this.db = request.result;
-        console.log('✅ LyricsCache IndexedDB initialized');
+
+        // 檢查兩個 store 是否都存在
+        const hasCache = this.db.objectStoreNames.contains(this.storeName);
+        const hasPrefs = this.db.objectStoreNames.contains(this.prefsStoreName);
+
+        if (!hasCache || !hasPrefs) {
+          // 需要創建 store，關閉連接並重新以更高版本打開
+          const currentVersion = this.db.version;
+          this.db.close();
+          this.db = null;
+          this.upgradeDatabase(currentVersion + 1).then(resolve).catch(reject);
+        } else {
+          console.log(`✅ LyricsCache IndexedDB initialized (version ${this.db.version})`);
+          resolve();
+        }
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        this.createStoresIfNeeded(db);
+      };
+
+      request.onblocked = () => {
+        console.warn('⚠️ LyricsCache IndexedDB upgrade blocked - close other tabs');
+      };
+    });
+
+    return this.initPromise;
+  }
+
+  /**
+   * 升級資料庫版本以創建 store
+   */
+  private async upgradeDatabase(newVersion: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, newVersion);
+
+      request.onerror = () => {
+        console.error('❌ Failed to upgrade LyricsCache IndexedDB:', request.error);
+        reject(request.error);
+      };
+
+      request.onsuccess = () => {
+        this.db = request.result;
+        console.log(`✅ LyricsCache IndexedDB upgraded to version ${this.db.version}`);
         resolve();
       };
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        this.createStoresIfNeeded(db);
+      };
 
-        if (!db.objectStoreNames.contains(this.storeName)) {
-          const objectStore = db.createObjectStore(this.storeName, { keyPath: 'videoId' });
-          objectStore.createIndex('timestamp', 'timestamp', { unique: false });
-          console.log('✅ Created lyricsCache object store');
-        }
-
-        // 新增使用者偏好設定 store
-        if (!db.objectStoreNames.contains(this.prefsStoreName)) {
-          db.createObjectStore(this.prefsStoreName, { keyPath: 'videoId' });
-          console.log('✅ Created lyricsPrefs object store');
-        }
+      request.onblocked = () => {
+        console.warn('⚠️ LyricsCache IndexedDB upgrade blocked - close other tabs');
       };
     });
+  }
+
+  /**
+   * 創建 object stores（如果不存在）
+   */
+  private createStoresIfNeeded(db: IDBDatabase): void {
+    if (!db.objectStoreNames.contains(this.storeName)) {
+      const objectStore = db.createObjectStore(this.storeName, { keyPath: 'videoId' });
+      objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+      console.log('✅ Created lyricsCache object store');
+    }
+
+    if (!db.objectStoreNames.contains(this.prefsStoreName)) {
+      db.createObjectStore(this.prefsStoreName, { keyPath: 'videoId' });
+      console.log('✅ Created lyricsPrefs object store');
+    }
   }
 
   /**

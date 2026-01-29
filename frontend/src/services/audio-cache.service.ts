@@ -31,8 +31,8 @@ export interface CacheListItem {
 class AudioCacheService {
   private dbName = 'AudioCacheDB';
   private storeName = 'audioCache';
-  private dbVersion = 2; // 升級版本以支援 metadata
   private db: IDBDatabase | null = null;
+  private initPromise: Promise<void> | null = null;
 
   // 快取設置
   private readonly MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB 最大快取
@@ -42,35 +42,89 @@ class AudioCacheService {
 
   /**
    * 初始化資料庫
+   * 注意：不指定版本，讓 IndexedDB 自動使用現有版本或創建版本 1
    */
   async init(): Promise<void> {
     if (this.db) return;
+    if (this.initPromise) return this.initPromise;
 
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, this.dbVersion);
+    this.initPromise = new Promise((resolve, reject) => {
+      // 不指定版本號，使用現有版本
+      const request = indexedDB.open(this.dbName);
 
       request.onerror = () => {
-        console.error('Failed to open IndexedDB:', request.error);
+        console.error('❌ Failed to open IndexedDB:', request.error);
+        this.initPromise = null;
         reject(request.error);
       };
 
       request.onsuccess = () => {
         this.db = request.result;
-        console.log('✅ AudioCache IndexedDB initialized');
+
+        // 檢查 store 是否存在
+        if (!this.db.objectStoreNames.contains(this.storeName)) {
+          // 需要創建 store，關閉連接並重新以更高版本打開
+          const currentVersion = this.db.version;
+          this.db.close();
+          this.db = null;
+          this.upgradeDatabase(currentVersion + 1).then(resolve).catch(reject);
+        } else {
+          console.log(`✅ AudioCache IndexedDB initialized (version ${this.db.version}, ${this.storeName} exists)`);
+          resolve();
+        }
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        this.createStoreIfNeeded(db);
+      };
+
+      request.onblocked = () => {
+        console.warn('⚠️ IndexedDB upgrade blocked - close other tabs');
+      };
+    });
+
+    return this.initPromise;
+  }
+
+  /**
+   * 升級資料庫版本以創建 store
+   */
+  private async upgradeDatabase(newVersion: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, newVersion);
+
+      request.onerror = () => {
+        console.error('❌ Failed to upgrade IndexedDB:', request.error);
+        reject(request.error);
+      };
+
+      request.onsuccess = () => {
+        this.db = request.result;
+        console.log(`✅ AudioCache IndexedDB upgraded to version ${this.db.version}`);
         resolve();
       };
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        this.createStoreIfNeeded(db);
+      };
 
-        // 創建 object store
-        if (!db.objectStoreNames.contains(this.storeName)) {
-          const objectStore = db.createObjectStore(this.storeName, { keyPath: 'videoId' });
-          objectStore.createIndex('timestamp', 'timestamp', { unique: false });
-          console.log('✅ Created audioCache object store');
-        }
+      request.onblocked = () => {
+        console.warn('⚠️ IndexedDB upgrade blocked - close other tabs');
       };
     });
+  }
+
+  /**
+   * 創建 object store（如果不存在）
+   */
+  private createStoreIfNeeded(db: IDBDatabase): void {
+    if (!db.objectStoreNames.contains(this.storeName)) {
+      const objectStore = db.createObjectStore(this.storeName, { keyPath: 'videoId' });
+      objectStore.createIndex('timestamp', 'timestamp', { unique: false });
+      console.log('✅ Created audioCache object store');
+    }
   }
 
   /**
