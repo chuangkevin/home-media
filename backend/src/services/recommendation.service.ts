@@ -24,13 +24,14 @@ class RecommendationService {
     pageSize: number = 5
   ): Promise<ChannelRecommendation[]> {
     try {
-      console.log(`📊 生成推薦 (頁碼: ${page}, 每頁: ${pageSize})`);
-
+      logger.info(`[Recommend] Starting recommendation generation (page: ${page}, size: ${pageSize})`);
+      
       // 1. 獲取觀看過的頻道（按權重排序）
       const channels = historyService.getWatchedChannels(100, 'popular');
+      logger.info(`[Recommend] Found ${channels.length} watched channels.`);
 
       if (channels.length === 0) {
-        console.log('⚠️ 無觀看歷史，無法生成推薦');
+        logger.warn('[Recommend] No watch history found. Cannot generate recommendations.');
         return [];
       }
 
@@ -39,24 +40,27 @@ class RecommendationService {
         ...ch,
         score: this.calculateChannelScore(ch)
       }));
+      logger.info(`[Recommend] Calculated scores for ${scoredChannels.length} channels.`);
 
       scoredChannels.sort((a, b) => b.score - a.score);
+      logger.info('[Recommend] Sorted channels by score.');
+
 
       // 3. 分頁
       const pageChannels = scoredChannels.slice(
         page * pageSize,
         (page + 1) * pageSize
       );
-
-      console.log(`📺 選擇 ${pageChannels.length} 個頻道生成推薦`);
+      logger.info(`[Recommend] Sliced channels for current page. Found ${pageChannels.length} channels for this page.`);
 
       // 4. 為每個頻道獲取影片（並發請求）
       const recommendations = await Promise.all(
         pageChannels.map(async (channel) => {
+          logger.info(`[Recommend] Processing channel: ${channel.channelName}`);
           // 檢查 6 小時快取
           const cached = this.getCachedRecommendations(channel.channelName);
           if (cached) {
-            console.log(`✅ 使用推薦快取: ${channel.channelName}`);
+            logger.info(`[Recommend] Cache hit for channel: ${channel.channelName}`);
             return {
               channelName: channel.channelName,
               channelThumbnail: channel.channelThumbnail,
@@ -66,11 +70,13 @@ class RecommendationService {
           }
 
           // 獲取新影片
-          console.log(`⏳ 獲取頻道影片: ${channel.channelName}`);
+          logger.info(`[Recommend] No cache. Fetching videos for channel: ${channel.channelName}`);
           const videos = await youtubeService.getChannelVideos(
             channel.channelName,
             this.VIDEOS_PER_CHANNEL
           );
+          logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
+
 
           // 快取結果（6 小時）
           if (videos.length > 0) {
@@ -86,15 +92,17 @@ class RecommendationService {
         })
       );
 
+      logger.info('[Recommend] Finished processing all channels for the page.');
+
       // 5. 過濾掉沒有影片的頻道
       const validRecommendations = recommendations.filter(r => r.videos.length > 0);
 
-      console.log(`✅ 生成 ${validRecommendations.length} 個頻道推薦`);
+      logger.info(`[Recommend] Found ${validRecommendations.length} valid recommendations.`);
 
       return validRecommendations;
     } catch (error) {
       logger.error('Failed to get channel recommendations:', error);
-      return [];
+      throw error; // 重新拋出錯誤，讓 controller 捕捉並返回 500
     }
   }
 
