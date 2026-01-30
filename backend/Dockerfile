@@ -19,24 +19,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install required dependencies:
-# - ffmpeg: audio processing (yt-dlp)
-# - python3, py3-pip: for installing latest yt-dlp
-# - make, g++: native module compilation (better-sqlite3)
-# - ca-certificates: SSL/TLS support
-# - curl, gcompat: for Deno installation (JS runtime required by yt-dlp for YouTube)
-RUN apk add --no-cache \
-    ffmpeg \
-    python3 \
-    py3-pip \
-    make \
-    g++ \
-    ca-certificates \
-    curl \
-    gcompat \
-    && update-ca-certificates \
-    && pip3 install --break-system-packages "yt-dlp[default]" \
-    && (curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh || echo "⚠️ Deno install failed, will use Node.js as JS runtime fallback")
+# Install ffmpeg for audio processing (yt-dlp dependency)
+# Also install ca-certificates for SSL/TLS support
+RUN apk add --no-cache ffmpeg python3 make g++ ca-certificates && \
+    update-ca-certificates
 
 # Copy package files and install production dependencies only
 COPY package*.json ./

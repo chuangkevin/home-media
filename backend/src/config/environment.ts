@@ -29,6 +29,10 @@ export const config = {
   logging: {
     level: process.env.LOG_LEVEL || 'info',
   },
+
+  youtube: {
+    cookiesPath: process.env.YOUTUBE_COOKIES_PATH || '',
+  },
 };
 
 export default config;
