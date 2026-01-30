@@ -430,13 +430,13 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
     }
   }, [volume]);
 
-  // 當需要 seek 時（僅在非影片模式下）
+  // 當需要 seek 時（僅在非影片模式下，且不在載入中）
   useEffect(() => {
-    if (seekTarget !== null && audioRef.current && displayMode !== 'video') {
+    if (seekTarget !== null && audioRef.current && displayMode !== 'video' && !isLoadingTrack) {
       audioRef.current.currentTime = seekTarget;
       dispatch(clearSeekTarget());
     }
-  }, [seekTarget, displayMode, dispatch]);
+  }, [seekTarget, displayMode, isLoadingTrack, dispatch]);
 
   // 預加載後面三首歌曲到前端快取
   useEffect(() => {

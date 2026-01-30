@@ -19,6 +19,7 @@ const TIME_SYNC_INTERVAL_MS = 3000; // 主播時間同步間隔（3 秒）
 const SYNC_COOLDOWN_MS = 3000; // 聽眾同步冷卻時間（3 秒）
 const TIME_DIFF_THRESHOLD = 2; // 時間差閾值（2 秒才同步）
 const LOAD_TIMEOUT_MS = 15000; // 聽眾載入超時（15 秒）
+const POST_LOAD_GRACE_MS = 2000; // 載入完成後的靜默期（避免立刻跳針）
 
 /**
  * 電台同步 Hook
@@ -47,6 +48,8 @@ export function useRadioSync() {
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 追蹤上一次 isLoadingTrack 值（避免初始 false 誤觸清除邏輯）
   const prevIsLoadingTrackRef = useRef<boolean>(false);
+  // 載入完成後的靜默期時間戳
+  const loadCompletedAtRef = useRef<number>(0);
 
   // 設定電台回調（在連線後執行）
   useEffect(() => {
@@ -169,8 +172,8 @@ export function useRadioSync() {
     // 如果當前播放的曲目和同步曲目不同，切換曲目
     if (currentTrack?.videoId !== syncTrack.videoId) {
       console.log('📻 [Listener] Switching to track:', syncTrack.title);
-      // 重置同步冷卻，允許新曲目立即同步時間
-      lastSyncTimeRef.current = 0;
+      // 設定冷卻為當前時間，載入完成後的靜默期會再保護一段時間
+      lastSyncTimeRef.current = Date.now();
 
       // 清除舊的載入超時
       if (loadTimeoutRef.current) {
@@ -198,9 +201,13 @@ export function useRadioSync() {
 
   // 載入完成時清除超時（僅在 isLoadingTrack 從 true 變為 false 時觸發）
   useEffect(() => {
-    if (isListener && !isLoadingTrack && prevIsLoadingTrackRef.current && loadTimeoutRef.current) {
-      clearTimeout(loadTimeoutRef.current);
-      loadTimeoutRef.current = null;
+    if (isListener && !isLoadingTrack && prevIsLoadingTrackRef.current) {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
+      // 記錄載入完成時間，給予靜默期避免立刻 seek 跳針
+      loadCompletedAtRef.current = Date.now();
       console.log('📻 [Listener] Track loaded successfully');
     }
     prevIsLoadingTrackRef.current = isLoadingTrack;
@@ -218,29 +225,37 @@ export function useRadioSync() {
   // 當收到播放狀態變更時
   useEffect(() => {
     if (!isListener) return;
+    // 載入中不變更播放狀態，避免衝突
+    if (isLoadingTrack) return;
 
     dispatch(setIsPlaying(syncIsPlaying));
-  }, [isListener, syncIsPlaying, dispatch]);
+  }, [isListener, syncIsPlaying, isLoadingTrack, dispatch]);
 
   // 當收到顯示模式變更時
   useEffect(() => {
     if (!isListener) return;
+    // 載入中不切換顯示模式，避免觸發音訊重啟
+    if (isLoadingTrack) return;
 
     dispatch(setDisplayMode(syncDisplayMode));
     console.log('📻 [Listener] Display mode synced:', syncDisplayMode);
-  }, [isListener, syncDisplayMode, dispatch]);
+  }, [isListener, syncDisplayMode, isLoadingTrack, dispatch]);
 
   // 當收到 seek/time-sync 時
   useEffect(() => {
     if (!isListener || syncTime === undefined) return;
 
-    // 如果正在載入曲目，不進行時間同步（避免跳針）
-    if (isLoadingTrack) {
+    // 載入中不進行時間同步
+    if (isLoadingTrack) return;
+
+    const now = Date.now();
+
+    // 載入完成後的靜默期（避免剛載入完就被 seek 跳針）
+    if (now - loadCompletedAtRef.current < POST_LOAD_GRACE_MS) {
       return;
     }
 
-    // 檢查同步冷卻時間（避免連續 seek 導致跳針）
-    const now = Date.now();
+    // 同步冷卻時間
     if (now - lastSyncTimeRef.current < SYNC_COOLDOWN_MS) {
       return;
     }
