@@ -122,13 +122,29 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         let audioSrc: string;
 
         if (browserCached) {
-          // 使用前端快取的 blob URL（但 UI 仍顯示伺服器狀態）
+          // 使用前端快取的 blob URL
           audioSrc = URL.createObjectURL(browserCached);
           console.log(`🎵 從瀏覽器快取播放: ${pendingTrack.title}`);
-        } else {
-          // 使用伺服器串流
+        } else if (serverCached) {
+          // 伺服器有快取，直接串流（檔案讀取，速度快）
           audioSrc = streamUrl;
-          console.log(`🎵 從伺服器串流播放: ${pendingTrack.title}`);
+          console.log(`🎵 從伺服器快取串流: ${pendingTrack.title}`);
+        } else {
+          // 伺服器也沒快取：先下載完再播放（yt-dlp 串流啟動慢，audio element 會 timeout）
+          console.log(`⏬ 下載後播放: ${pendingTrack.title}`);
+          pollDownloadProgress(videoId);
+          try {
+            audioSrc = await audioCacheService.fetchAndCache(videoId, streamUrl, {
+              title: pendingTrack.title,
+              channel: pendingTrack.channel,
+              thumbnail: pendingTrack.thumbnail,
+              duration: pendingTrack.duration,
+            });
+            console.log(`💾 下載完成，準備播放: ${pendingTrack.title}`);
+          } catch (err) {
+            console.warn(`下載失敗，改用串流: ${pendingTrack.title}`, err);
+            audioSrc = streamUrl;
+          }
         }
 
         // UI 顯示伺服器快取狀態（跨裝置一致）
@@ -139,24 +155,24 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
           setIsCached(false);
           console.log(`🌐 伺服器未快取: ${pendingTrack.title}`);
 
-          // 如果伺服器正在下載或尚未開始，輪詢下載進度
-          pollDownloadProgress(videoId);
-
-          // 同時嘗試前端快取（離線優化）
+          // 如果還沒下載到瀏覽器快取，背景下載
           if (!browserCached) {
-            audioCacheService.fetchAndCache(videoId, streamUrl, {
-              title: pendingTrack.title,
-              channel: pendingTrack.channel,
-              thumbnail: pendingTrack.thumbnail,
-              duration: pendingTrack.duration,
-            })
-              .then(() => console.log(`💾 瀏覽器背景快取完成: ${pendingTrack.title}`))
-              .catch(err => console.warn(`瀏覽器背景快取失敗: ${pendingTrack.title}`, err));
+            const alreadyCached = await audioCacheService.get(videoId);
+            if (!alreadyCached) {
+              audioCacheService.fetchAndCache(videoId, streamUrl, {
+                title: pendingTrack.title,
+                channel: pendingTrack.channel,
+                thumbnail: pendingTrack.thumbnail,
+                duration: pendingTrack.duration,
+              })
+                .then(() => console.log(`💾 瀏覽器背景快取完成: ${pendingTrack.title}`))
+                .catch(err => console.warn(`瀏覽器背景快取失敗: ${pendingTrack.title}`, err));
+            }
           }
         }
 
-        // 儲存 pending blob URL (只有 browserCached 才是 blob URL)
-        pendingBlobUrlRef.current = browserCached ? audioSrc : null;
+        // 儲存 pending blob URL (blob: 開頭的才需要追蹤釋放)
+        pendingBlobUrlRef.current = audioSrc.startsWith('blob:') ? audioSrc : null;
 
         // 音訊準備好了，現在確認切換
         console.log(`✅ Pending track ready: ${pendingTrack.title} (伺服器快取: ${serverCached ? '是' : '否'})`);
@@ -168,7 +184,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         // 設置新音訊源
         audio.src = audioSrc;
         currentVideoIdRef.current = videoId;
-        currentBlobUrlRef.current = browserCached ? audioSrc : null;
+        currentBlobUrlRef.current = audioSrc.startsWith('blob:') ? audioSrc : null;
         pendingBlobUrlRef.current = null;
 
         // 等待音訊準備好再確認切換

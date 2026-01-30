@@ -446,6 +446,11 @@ class AudioCacheService {
 
       console.log(`✅ Downloaded: ${videoId} (${sizeMB}MB in ${downloadTime}s)`);
 
+      // 檢查是否下載到有效資料（0 byte 表示伺服器串流失敗）
+      if (blob.size === 0) {
+        throw new Error(`Downloaded empty audio for ${videoId}`);
+      }
+
       // 儲存到快取（異步，不阻塞播放）
       this.set(videoId, blob, metadata).catch(err => {
         console.error(`Failed to cache ${videoId}:`, err);
