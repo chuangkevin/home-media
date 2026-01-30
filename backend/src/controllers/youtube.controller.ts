@@ -191,7 +191,8 @@ export class YouTubeController {
 
     // stdout 結束
     ytdlp.stdout.on('end', () => {
-      if (!res.writableEnded) {
+      // 只有收到資料才結束 response；沒資料時讓 close 事件處理錯誤
+      if (hasData && !res.writableEnded) {
         res.end();
       }
 
@@ -233,6 +234,22 @@ export class YouTubeController {
         }
 
         // 清理快取臨時檔案
+        if (cacheStream) {
+          cacheStream.destroy();
+          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+        }
+      } else if (!hasData) {
+        // yt-dlp 正常結束但沒有產出資料
+        console.error(`❌ [Stream] yt-dlp produced no output for ${videoId}: ${stderrOutput.slice(-300)}`);
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: 'No audio data received',
+            details: stderrOutput.slice(-200),
+          });
+        } else if (!res.writableEnded) {
+          res.end();
+        }
+        // 清理空的快取臨時檔案
         if (cacheStream) {
           cacheStream.destroy();
           try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
