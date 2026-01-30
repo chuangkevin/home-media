@@ -31,6 +31,15 @@ export class YouTubeController {
         count: results.length,
         results,
       });
+
+      // 搜尋結果返回後，背景預快取所有結果的音訊
+      if (results.length > 0) {
+        const videoIds = results.map(r => r.videoId);
+        console.log(`📦 [Search] Triggering pre-cache for ${videoIds.length} search results`);
+        audioCacheService.precacheVideos(videoIds).catch((err) => {
+          console.warn('⚠️ [Search] Pre-cache batch failed:', err);
+        });
+      }
     } catch (error) {
       logger.error('Search controller error:', error);
       res.status(500).json({

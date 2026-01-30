@@ -17,7 +17,7 @@ services:
       - DB_PATH=/app/data/db/home-media.sqlite
       - CACHE_DIR=/app/data/cache
       - AUDIO_CACHE_DIR=/app/data/audio-cache
-      - AUDIO_CACHE_MAX_SIZE_MB=5000
+      - AUDIO_CACHE_MAX_SIZE_MB=10000
       - MAX_CACHE_TRACKS=400
       - ALLOWED_ORIGINS=*
     volumes:

@@ -7,7 +7,7 @@ import logger from '../utils/logger';
 import youtubeService from './youtube.service';
 
 const AUDIO_CACHE_DIR = process.env.AUDIO_CACHE_DIR || path.join(process.cwd(), 'data', 'audio-cache');
-const MAX_CACHE_SIZE_MB = parseInt(process.env.AUDIO_CACHE_MAX_SIZE_MB || '5000', 10); // 預設 5GB
+const MAX_CACHE_SIZE_MB = parseInt(process.env.AUDIO_CACHE_MAX_SIZE_MB || '10000', 10); // 預設 10GB
 const CACHE_FILE_EXTENSION = '.webm'; // YouTube 音訊通常是 webm 格式
 
 // 確保快取目錄存在
@@ -34,7 +34,7 @@ interface DownloadProgress {
   startedAt: number;
 }
 
-const MAX_CONCURRENT_DOWNLOADS = 2; // 最大同時下載數量
+const MAX_CONCURRENT_DOWNLOADS = 3; // 最大同時下載數量
 
 class AudioCacheService {
   private downloadingMap = new Map<string, Promise<string | null>>(); // 正在下載的任務
@@ -538,6 +538,45 @@ class AudioCacheService {
    */
   isDownloading(videoId: string): boolean {
     return this.downloadingMap.has(videoId);
+  }
+
+  /**
+   * 批量預快取多個影片（搜尋結果出來後背景下載全部）
+   * 會自動跳過已快取和正在下載的項目
+   */
+  async precacheVideos(videoIds: string[]): Promise<void> {
+    const uncachedIds = videoIds.filter(id => !this.has(id) && !this.downloadingMap.has(id));
+
+    if (uncachedIds.length === 0) {
+      console.log(`✅ [AudioCache] All ${videoIds.length} videos already cached or downloading`);
+      return;
+    }
+
+    console.log(`📦 [AudioCache] Pre-caching ${uncachedIds.length}/${videoIds.length} videos...`);
+
+    // 逐個取得 URL 並排入下載佇列，不阻塞
+    for (const videoId of uncachedIds) {
+      // 用 fire-and-forget 方式，不等每個完成
+      this.precacheSingle(videoId).catch((err) => {
+        console.warn(`⚠️ [AudioCache] Pre-cache failed for ${videoId}:`, err?.message || err);
+      });
+    }
+  }
+
+  /**
+   * 預快取單一影片：取得 URL → 排入下載佇列
+   */
+  private async precacheSingle(videoId: string): Promise<void> {
+    try {
+      // 再次檢查，避免重複
+      if (this.has(videoId) || this.downloadingMap.has(videoId)) return;
+
+      const audioUrl = await youtubeService.getAudioStreamUrl(videoId);
+      await this.downloadAndCache(videoId, audioUrl);
+    } catch (error) {
+      // 靜默失敗，不影響其他預快取
+      logger.warn(`Pre-cache failed for ${videoId}:`, error);
+    }
   }
 
   /**
