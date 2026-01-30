@@ -969,6 +969,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   <ListItemButton onClick={() => handleSelectLyrics(result)} disabled={isApplying}>
                     <ListItemText
                       primary={result.trackName}
+                      secondaryTypographyProps={{ component: 'div' }}
                       secondary={
                         <Box component="span" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                           <span>{result.artistName}</span>
