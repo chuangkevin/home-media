@@ -28,6 +28,36 @@ import PauseIcon from '@mui/icons-material/Pause';
 import PeopleIcon from '@mui/icons-material/People';
 import { useRadio } from '../../hooks/useRadio';
 
+const FUNNY_DJ_NAMES = [
+  'DJ 已讀不回',
+  'MC 薪水小偷',
+  'DJ 拖延症末期',
+  'DJ 沒睡飽',
+  'MC WiFi 密碼是什麼',
+  'DJ 鍵盤俠本人',
+  'MC 明天再說',
+  'DJ 上班打卡王',
+  'MC 外送到了嗎',
+  'DJ 我只聽團',
+];
+
+const FUNNY_STATION_NAMES = [
+  '深夜不睡覺電台',
+  '上班摸魚電台',
+  '社畜療癒電台',
+  '半夜肚子餓電台',
+  '假裝在認真電台',
+  '老闆不在電台',
+  '薪水小偷放送局',
+  '人生好難電台',
+  '耳機裡的避難所',
+  '今天也要加班電台',
+];
+
+function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
 interface RadioPanelProps {
   open: boolean;
   onClose: () => void;
@@ -67,12 +97,16 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
     refreshStations,
   } = useRadio();
 
-  // 開啟對話框時刷新電台列表
+  // 開啟對話框時刷新電台列表 & 產生隨機預設名稱
   useEffect(() => {
     if (open) {
       refreshStations();
+      if (!isHost && !isListener) {
+        setStationName(pickRandom(FUNNY_STATION_NAMES));
+        setDjName(pickRandom(FUNNY_DJ_NAMES));
+      }
     }
-  }, [open, refreshStations]);
+  }, [open, refreshStations, isHost, isListener]);
 
   // 如果已經是 DJ 或聽眾，自動切換到對應的 tab
   useEffect(() => {
@@ -283,7 +317,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
               <TextField
                 fullWidth
                 label="Station Name"
-                placeholder="e.g., Late Night Vibes, Chill Hits..."
+                placeholder="幫你的電台取個名字吧"
                 value={stationName}
                 onChange={(e) => setStationName(e.target.value)}
                 sx={{ mt: 2 }}
@@ -291,7 +325,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
               <TextField
                 fullWidth
                 label="DJ Name"
-                placeholder="Your DJ name (optional)"
+                placeholder="你的 DJ 藝名"
                 value={djName}
                 onChange={(e) => setDjName(e.target.value)}
                 sx={{ mt: 2 }}
