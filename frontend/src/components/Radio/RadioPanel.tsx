@@ -200,6 +200,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
                             )}
                           </Box>
                         }
+                        primaryTypographyProps={{ component: 'div' }}
                         secondary={
                           <Box>
                             <Typography variant="body2" color="text.secondary">
@@ -212,6 +213,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
                             )}
                           </Box>
                         }
+                        secondaryTypographyProps={{ component: 'div' }}
                         sx={{ ml: 1 }}
                       />
                       <ListItemSecondaryAction>

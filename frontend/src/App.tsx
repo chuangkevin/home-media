@@ -15,6 +15,8 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import SearchBar from './components/Search/SearchBar';
 import SearchResults from './components/Search/SearchResults';
 import AudioPlayer from './components/Player/AudioPlayer';
+import VideoPlayer from './components/Player/VideoPlayer';
+import DisplayModeToggle from './components/Player/DisplayModeToggle';
 import FullscreenLyrics from './components/Player/FullscreenLyrics';
 import HomeRecommendations from './components/Home/HomeRecommendations';
 import PlaylistSection from './components/Playlist/PlaylistSection';
@@ -31,7 +33,7 @@ import { useRadioSync } from './hooks/useRadioSync';
 
 function App() {
   const dispatch = useDispatch();
-  const { currentTrack } = useSelector(
+  const { currentTrack, displayMode } = useSelector(
     (state: RootState) => state.player
   );
   const [searchResults, setSearchResults] = useState<Track[]>([]);
@@ -159,6 +161,14 @@ function App() {
             <RadioIndicator />
           </Box>
         </Box>
+
+        {/* 影片播放器 + 模式切換 */}
+        {currentTrack && (
+          <>
+            <DisplayModeToggle />
+            {displayMode === 'video' && <VideoPlayer track={currentTrack} />}
+          </>
+        )}
 
         {/* 搜尋列 */}
         <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>

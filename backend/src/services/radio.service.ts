@@ -5,6 +5,8 @@
 
 import logger from '../utils/logger';
 
+export type DisplayMode = 'video' | 'visualizer';
+
 export interface RadioStation {
   id: string;
   hostSocketId: string;
@@ -15,6 +17,7 @@ export interface RadioStation {
   currentTrack: RadioTrack | null;
   currentTime: number;
   isPlaying: boolean;
+  displayMode: DisplayMode;
   createdAt: number;
   lastActivity: number;
   syncVersion: number; // 同步版本號，用於解決競態條件
@@ -35,6 +38,7 @@ export interface RadioStationInfo {
   listenerCount: number;
   currentTrack: RadioTrack | null;
   isPlaying: boolean;
+  displayMode: DisplayMode;
 }
 
 class RadioService {
@@ -80,6 +84,7 @@ class RadioService {
       currentTrack: null,
       currentTime: 0,
       isPlaying: false,
+      displayMode: 'visualizer',
       createdAt: Date.now(),
       lastActivity: Date.now(),
       syncVersion: 0,
@@ -285,6 +290,7 @@ class RadioService {
       currentTrack?: RadioTrack | null;
       currentTime?: number;
       isPlaying?: boolean;
+      displayMode?: DisplayMode;
     }
   ): RadioStation | null {
     const stationId = this.socketToStation.get(socketId);
@@ -309,6 +315,10 @@ class RadioService {
     }
     if (update.isPlaying !== undefined) {
       station.isPlaying = update.isPlaying;
+      hasStateChange = true;
+    }
+    if (update.displayMode !== undefined) {
+      station.displayMode = update.displayMode;
       hasStateChange = true;
     }
 
@@ -361,6 +371,7 @@ class RadioService {
         listenerCount: station.listeners.size,
         currentTrack: station.currentTrack,
         isPlaying: station.isPlaying,
+        displayMode: station.displayMode,
       });
     });
 

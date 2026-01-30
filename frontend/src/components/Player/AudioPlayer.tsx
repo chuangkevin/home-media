@@ -27,6 +27,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
   const currentBlobUrlRef = useRef<string | null>(null);
   const pendingBlobUrlRef = useRef<string | null>(null);
   const isPlayingRef = useRef(isPlaying);
+  const displayModeRef = useRef(displayMode);
 
   // 快取狀態和下載進度
   const [isCached, setIsCached] = useState(false);
@@ -77,6 +78,11 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
+
+  // 保持 displayModeRef 同步
+  useEffect(() => {
+    displayModeRef.current = displayMode;
+  }, [displayMode]);
 
   // 當有 pendingTrack 時，預載音訊（不切換 UI）
   useEffect(() => {
@@ -195,8 +201,8 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
             }, 1000);
           }
 
-          // 自動播放
-          if (shouldPlay) {
+          // 自動播放（影片模式下由 VideoPlayer 控制，不播放音訊）
+          if (shouldPlay && displayModeRef.current !== 'video') {
             console.log(`▶️ Auto-playing: ${pendingTrack.title}`);
             audio.play().catch((error) => {
               console.error('Failed to auto-play:', error);
@@ -345,6 +351,8 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
   // 當播放狀態改變時（影片模式下不播放音訊）
   useEffect(() => {
+    let playWhenReadyHandler: (() => void) | null = null;
+
     if (audioRef.current && displayMode !== 'video') {
       const audio = audioRef.current;
       if (isPlaying && !isLoadingTrack) {
@@ -360,7 +368,9 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
           });
         } else {
           // 如果音訊還沒準備好，等待 canplay 事件
-          const playWhenReady = () => {
+          playWhenReadyHandler = () => {
+            // 再次確認不是影片模式（防止 displayMode 在等待期間變化）
+            if (displayModeRef.current === 'video') return;
             audio.play().catch((error) => {
               console.error('Failed to play:', error);
               if (error.name === 'NotAllowedError') {
@@ -370,7 +380,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
               }
             });
           };
-          audio.addEventListener('canplay', playWhenReady, { once: true });
+          audio.addEventListener('canplay', playWhenReadyHandler, { once: true });
         }
       } else if (!isPlaying) {
         audio.pause();
@@ -388,6 +398,13 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         audio.play().catch(console.error);
       }
     }
+
+    // 清理：移除可能殘留的 canplay 監聽器
+    return () => {
+      if (playWhenReadyHandler && audioRef.current) {
+        audioRef.current.removeEventListener('canplay', playWhenReadyHandler);
+      }
+    };
   }, [isPlaying, isLoadingTrack, displayMode, dispatch]);
 
   // 當音量改變時

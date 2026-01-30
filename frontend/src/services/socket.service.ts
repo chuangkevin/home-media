@@ -34,6 +34,8 @@ export interface RadioTrack {
   duration: number;
 }
 
+export type DisplayMode = 'video' | 'visualizer';
+
 export interface RadioStation {
   id: string;
   hostName: string;
@@ -41,6 +43,7 @@ export interface RadioStation {
   listenerCount: number;
   currentTrack: RadioTrack | null;
   isPlaying: boolean;
+  displayMode: DisplayMode;
 }
 
 interface RadioCreatedData {
@@ -69,13 +72,15 @@ interface RadioJoinedData {
   currentTrack: RadioTrack | null;
   currentTime: number;
   isPlaying: boolean;
+  displayMode?: DisplayMode;
 }
 
 interface RadioSyncData {
-  type: 'track-change' | 'play-state' | 'time-sync' | 'seek';
+  type: 'track-change' | 'play-state' | 'time-sync' | 'seek' | 'display-mode';
   track?: RadioTrack | null;
   currentTime?: number;
   isPlaying?: boolean;
+  displayMode?: DisplayMode;
 }
 
 interface RadioClosedData {
@@ -352,6 +357,11 @@ class SocketService {
   // 主播：seek
   radioSeek(currentTime: number): void {
     this.socket?.emit('radio:seek', { currentTime });
+  }
+
+  // 主播：顯示模式變更
+  radioDisplayMode(displayMode: DisplayMode): void {
+    this.socket?.emit('radio:display-mode', { displayMode });
   }
 
   // 斷開連接

@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import { socketService } from '../services/socket.service';
 import type { RadioTrack } from '../services/socket.service';
-import { setPendingTrack, setIsPlaying, seekTo, cancelPendingTrack } from '../store/playerSlice';
+import { setPendingTrack, setIsPlaying, seekTo, cancelPendingTrack, setDisplayMode } from '../store/playerSlice';
 import {
   setStations,
   setHostStation,
@@ -27,16 +27,17 @@ const LOAD_TIMEOUT_MS = 15000; // 聽眾載入超時（15 秒）
  */
 export function useRadioSync() {
   const dispatch = useDispatch();
-  const { currentTrack, isPlaying, currentTime, isLoadingTrack } = useSelector(
+  const { currentTrack, isPlaying, currentTime, isLoadingTrack, displayMode } = useSelector(
     (state: RootState) => state.player
   );
-  const { isHost, isListener, syncTrack, syncTime, syncIsPlaying } = useSelector(
+  const { isHost, isListener, syncTrack, syncTime, syncIsPlaying, syncDisplayMode } = useSelector(
     (state: RootState) => state.radio
   );
 
   // 追蹤上一次的值
   const prevTrackRef = useRef<string | null>(null);
   const prevIsPlayingRef = useRef<boolean>(false);
+  const prevDisplayModeRef = useRef<string>(displayMode);
   const timeSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 聽眾同步防抖：避免連續 seek 導致跳針
@@ -44,6 +45,8 @@ export function useRadioSync() {
 
   // 聽眾載入超時計時器
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 追蹤上一次 isLoadingTrack 值（避免初始 false 誤觸清除邏輯）
+  const prevIsLoadingTrackRef = useRef<boolean>(false);
 
   // 設定電台回調（在連線後執行）
   useEffect(() => {
@@ -138,6 +141,17 @@ export function useRadioSync() {
     };
   }, [isHost, isPlaying, currentTime]);
 
+  // 同步顯示模式變更
+  useEffect(() => {
+    if (!isHost) return;
+
+    if (displayMode !== prevDisplayModeRef.current) {
+      prevDisplayModeRef.current = displayMode;
+      socketService.radioDisplayMode(displayMode);
+      console.log('📻 [Host] Display mode:', displayMode);
+    }
+  }, [isHost, displayMode]);
+
   // 主播 seek 同步
   const hostSeek = useCallback((time: number) => {
     if (isHost) {
@@ -182,13 +196,14 @@ export function useRadioSync() {
     }
   }, [isListener, syncTrack, currentTrack, dispatch]);
 
-  // 載入完成時清除超時
+  // 載入完成時清除超時（僅在 isLoadingTrack 從 true 變為 false 時觸發）
   useEffect(() => {
-    if (isListener && !isLoadingTrack && loadTimeoutRef.current) {
+    if (isListener && !isLoadingTrack && prevIsLoadingTrackRef.current && loadTimeoutRef.current) {
       clearTimeout(loadTimeoutRef.current);
       loadTimeoutRef.current = null;
       console.log('📻 [Listener] Track loaded successfully');
     }
+    prevIsLoadingTrackRef.current = isLoadingTrack;
   }, [isListener, isLoadingTrack]);
 
   // 清理載入超時
@@ -206,6 +221,14 @@ export function useRadioSync() {
 
     dispatch(setIsPlaying(syncIsPlaying));
   }, [isListener, syncIsPlaying, dispatch]);
+
+  // 當收到顯示模式變更時
+  useEffect(() => {
+    if (!isListener) return;
+
+    dispatch(setDisplayMode(syncDisplayMode));
+    console.log('📻 [Listener] Display mode synced:', syncDisplayMode);
+  }, [isListener, syncDisplayMode, dispatch]);
 
   // 當收到 seek/time-sync 時
   useEffect(() => {

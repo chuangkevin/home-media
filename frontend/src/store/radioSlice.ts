@@ -1,5 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
+export type DisplayMode = 'video' | 'visualizer';
+
 export interface RadioTrack {
   videoId: string;
   title: string;
@@ -15,6 +17,7 @@ export interface RadioStation {
   listenerCount: number;
   currentTrack: RadioTrack | null;
   isPlaying: boolean;
+  displayMode: DisplayMode;
 }
 
 interface RadioState {
@@ -36,6 +39,7 @@ interface RadioState {
   syncTrack: RadioTrack | null;
   syncTime: number;
   syncIsPlaying: boolean;
+  syncDisplayMode: DisplayMode;
   syncVersion: number; // 同步版本號，用於解決競態條件
 }
 
@@ -54,6 +58,7 @@ const initialState: RadioState = {
   syncTrack: null,
   syncTime: 0,
   syncIsPlaying: false,
+  syncDisplayMode: 'visualizer',
   syncVersion: 0,
 };
 
@@ -92,6 +97,7 @@ const radioSlice = createSlice({
         currentTrack: RadioTrack | null;
         currentTime: number;
         isPlaying: boolean;
+        displayMode?: DisplayMode;
         syncVersion?: number;
       }>
     ) {
@@ -103,6 +109,7 @@ const radioSlice = createSlice({
       state.syncTrack = action.payload.currentTrack;
       state.syncTime = action.payload.currentTime;
       state.syncIsPlaying = action.payload.isPlaying;
+      state.syncDisplayMode = action.payload.displayMode ?? 'visualizer';
       state.syncVersion = action.payload.syncVersion ?? 0;
     },
     // 聽眾：離開電台
@@ -116,6 +123,7 @@ const radioSlice = createSlice({
       state.syncTrack = null;
       state.syncTime = 0;
       state.syncIsPlaying = false;
+      state.syncDisplayMode = 'visualizer';
       state.syncVersion = 0;
     },
     // 聽眾：電台關閉
@@ -129,16 +137,18 @@ const radioSlice = createSlice({
       state.syncTrack = null;
       state.syncTime = 0;
       state.syncIsPlaying = false;
+      state.syncDisplayMode = 'visualizer';
       state.syncVersion = 0;
     },
     // 聽眾：同步狀態
     syncState(
       state,
       action: PayloadAction<{
-        type: 'track-change' | 'play-state' | 'time-sync' | 'seek';
+        type: 'track-change' | 'play-state' | 'time-sync' | 'seek' | 'display-mode';
         track?: RadioTrack | null;
         currentTime?: number;
         isPlaying?: boolean;
+        displayMode?: DisplayMode;
         syncVersion?: number;
       }>
     ) {
@@ -171,6 +181,9 @@ const radioSlice = createSlice({
         case 'time-sync':
         case 'seek':
           state.syncTime = currentTime ?? state.syncTime;
+          break;
+        case 'display-mode':
+          state.syncDisplayMode = action.payload.displayMode ?? state.syncDisplayMode;
           break;
       }
     },

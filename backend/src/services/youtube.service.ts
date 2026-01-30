@@ -312,6 +312,39 @@ class YouTubeService {
   }
 
   /**
+   * 獲取 yt-dlp 二進位路徑
+   */
+  getYtDlpPath(): string {
+    const constants = require('youtube-dl-exec').constants;
+    return constants.YOUTUBE_DL_PATH;
+  }
+
+  /**
+   * 獲取 cookies 路徑（供外部使用）
+   */
+  getCookiesFilePath(): string | null {
+    return this.cookiesPath;
+  }
+
+  /**
+   * 組裝 yt-dlp 基本命令行參數（用於 child_process.spawn）
+   */
+  getYtDlpBaseArgs(): string[] {
+    const args: string[] = [
+      '--no-check-certificates',
+      '--no-warnings',
+      '--add-header', 'Accept-Language:zh-TW,zh;q=0.9',
+      '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    ];
+
+    if (this.cookiesPath) {
+      args.push('--cookies', this.cookiesPath);
+    }
+
+    return args;
+  }
+
+  /**
    * 清空所有緩存
    */
   clearCache(): void {

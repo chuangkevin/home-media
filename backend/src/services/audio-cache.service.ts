@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
+import { spawn } from 'child_process';
 import { URL } from 'url';
 import logger from '../utils/logger';
 import youtubeService from './youtube.service';
@@ -564,15 +565,158 @@ class AudioCacheService {
   }
 
   /**
-   * 預快取單一影片：取得 URL → 排入下載佇列
+   * 使用 yt-dlp 直接下載音訊到快取（避免 403）
+   */
+  async downloadWithYtDlp(videoId: string): Promise<string | null> {
+    // 如果已經有快取，直接返回
+    if (this.has(videoId)) {
+      return this.getCachePath(videoId);
+    }
+
+    // 如果已經在下載中，等待
+    if (this.downloadingMap.has(videoId)) {
+      console.log(`⏳ [AudioCache] Already downloading: ${videoId}`);
+      return this.downloadingMap.get(videoId)!;
+    }
+
+    const downloadPromise = this.doDownloadWithYtDlp(videoId);
+    this.downloadingMap.set(videoId, downloadPromise);
+
+    try {
+      return await downloadPromise;
+    } finally {
+      this.downloadingMap.delete(videoId);
+    }
+  }
+
+  /**
+   * 執行 yt-dlp 直接下載（內部方法）
+   */
+  private doDownloadWithYtDlp(videoId: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const cachePath = this.getCachePath(videoId);
+      const tempPath = `${cachePath}.tmp`;
+
+      const ytdlpPath = youtubeService.getYtDlpPath();
+      const baseArgs = youtubeService.getYtDlpBaseArgs();
+
+      const args = [
+        ...baseArgs,
+        '-f', 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio',
+        '-o', '-', // 輸出到 stdout
+        `https://www.youtube.com/watch?v=${videoId}`,
+      ];
+
+      console.log(`📥 [AudioCache] yt-dlp download: ${videoId}`);
+      logger.info(`Starting yt-dlp download for ${videoId}`);
+
+      // 初始化下載進度
+      this.downloadProgressMap.set(videoId, {
+        videoId,
+        downloadedBytes: 0,
+        totalBytes: null,
+        percentage: 0,
+        status: 'downloading',
+        startedAt: Date.now(),
+      });
+
+      const proc = spawn(ytdlpPath, args);
+      const writeStream = fs.createWriteStream(tempPath);
+      let downloadedBytes = 0;
+      let stderrOutput = '';
+
+      proc.stdout.on('data', (chunk: Buffer) => {
+        downloadedBytes += chunk.length;
+        writeStream.write(chunk);
+
+        // 更新進度
+        this.downloadProgressMap.set(videoId, {
+          ...this.downloadProgressMap.get(videoId)!,
+          downloadedBytes,
+        });
+      });
+
+      proc.stderr.on('data', (chunk: Buffer) => {
+        stderrOutput += chunk.toString();
+      });
+
+      proc.stdout.on('end', () => {
+        writeStream.end();
+      });
+
+      writeStream.on('finish', () => {
+        if (downloadedBytes > 0 && fs.existsSync(tempPath)) {
+          try {
+            fs.renameSync(tempPath, cachePath);
+            const stats = fs.statSync(cachePath);
+            console.log(`✅ [AudioCache] yt-dlp downloaded: ${videoId} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+            logger.info(`Audio cached via yt-dlp: ${videoId} (${stats.size} bytes)`);
+
+            this.downloadProgressMap.set(videoId, {
+              ...this.downloadProgressMap.get(videoId)!,
+              downloadedBytes: stats.size,
+              totalBytes: stats.size,
+              percentage: 100,
+              status: 'completed',
+            });
+            setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
+
+            this.cleanupIfNeeded();
+            resolve(cachePath);
+          } catch (err) {
+            console.error(`❌ [AudioCache] Save error: ${videoId}`, err);
+            this.downloadProgressMap.set(videoId, { ...this.downloadProgressMap.get(videoId)!, status: 'failed' });
+            setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
+            resolve(null);
+          }
+        } else {
+          // 沒有數據
+          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+          resolve(null);
+        }
+      });
+
+      writeStream.on('error', (err) => {
+        console.error(`❌ [AudioCache] Write error: ${videoId}`, err);
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+        this.downloadProgressMap.set(videoId, { ...this.downloadProgressMap.get(videoId)!, status: 'failed' });
+        setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
+        resolve(null);
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          console.error(`❌ [AudioCache] yt-dlp failed (code ${code}): ${videoId} - ${stderrOutput.slice(-300)}`);
+          logger.error(`yt-dlp download failed for ${videoId} (code ${code}): ${stderrOutput.slice(-300)}`);
+          // writeStream finish/error 會處理 resolve
+          writeStream.destroy();
+          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+          this.downloadProgressMap.set(videoId, { ...this.downloadProgressMap.get(videoId)!, status: 'failed' });
+          setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
+          resolve(null);
+        }
+      });
+
+      proc.on('error', (err) => {
+        console.error(`❌ [AudioCache] yt-dlp spawn error: ${videoId}`, err);
+        writeStream.destroy();
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+        this.downloadProgressMap.set(videoId, { ...this.downloadProgressMap.get(videoId)!, status: 'failed' });
+        setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
+        resolve(null);
+      });
+    });
+  }
+
+  /**
+   * 預快取單一影片：使用 yt-dlp 直接下載
    */
   private async precacheSingle(videoId: string): Promise<void> {
     try {
       // 再次檢查，避免重複
       if (this.has(videoId) || this.downloadingMap.has(videoId)) return;
 
-      const audioUrl = await youtubeService.getAudioStreamUrl(videoId);
-      await this.downloadAndCache(videoId, audioUrl);
+      await this.downloadWithYtDlp(videoId);
     } catch (error) {
       // 靜默失敗，不影響其他預快取
       logger.warn(`Pre-cache failed for ${videoId}:`, error);

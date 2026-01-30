@@ -251,6 +251,7 @@ export default function CacheManagementSection() {
                           {item.title}
                         </Typography>
                       }
+                      secondaryTypographyProps={{ component: 'div' }}
                       secondary={
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                           <Typography variant="body2" color="text.secondary" noWrap>

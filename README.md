@@ -1,33 +1,32 @@
 # 🎵 家用多媒體中心
 
-一個功能完整的 YouTube 音樂播放中心，支援線上串流、歌詞同步、音訊視覺化、曲風主題切換。
+一個功能完整的 YouTube 音樂與影片播放中心，支援線上串流、歌詞同步、音訊視覺化、電台廣播、跨裝置控制。
 
 ## ✨ 核心特色
 
-- ✅ **純爬蟲技術** - 使用 ytdl-core 和 youtube-sr，無需 YouTube API Key
+- ✅ **無需 API Key** - 使用 yt-dlp 爬蟲技術，無需 YouTube API Key
 - ✅ **無廣告音訊** - 直接提取純音訊串流，過濾所有廣告
-- ✅ **線上串流優先** - 即時播放，背景自動快取
-- ✅ **智慧快取** - Session cache，最多保留 400 首 (~2GB)，自動 LRU 淘汰
-- ✅ **歌詞同步滾動** - 支援 YouTube CC、Genius、Musixmatch
-- ✅ **音訊視覺化** - 即時頻譜分析與動態視覺效果
-- ✅ **曲風主題** - 根據音樂類型自動切換 UI 主題
+- ✅ **線上串流優先** - yt-dlp 直接串流播放，搜尋結果背景預快取
+- ✅ **雙層快取** - 伺服器端磁碟快取 (LRU, 10GB) + 前端 IndexedDB 快取
+- ✅ **影片/視覺化切換** - 支援 YouTube 影片嵌入播放與音訊視覺化模式
+- ✅ **歌詞同步滾動** - 支援 YouTube CC、LRCLIB、手動搜尋與時間微調
 - ✅ **播放清單管理** - 建立、編輯、匯入/匯出播放清單
-- ✅ **跨平台遠端控制** - 手機、平板控制播放
+- ✅ **電台廣播模式** - DJ 開台即時同步播放、曲目、顯示模式給聽眾
+- ✅ **跨裝置投射** - 手機、平板投射歌曲到其他裝置播放
 
 ## 🏗️ 技術架構
 
 ### 後端
 - **Node.js** + **Express** + **TypeScript**
-- **ytdl-core** - YouTube 音訊爬蟲
-- **youtube-sr** - YouTube 搜尋爬蟲
-- **SQLite** - 播放清單與快取管理
-- **Socket.io** - WebSocket 即時通訊
+- **yt-dlp** (`youtube-dl-exec`) - YouTube 搜尋與音訊串流 (直接 stdout pipe，避免 403)
+- **SQLite** (`better-sqlite3`) - 搜尋快取、播放記錄、播放清單
+- **Socket.io** - WebSocket 即時通訊 (投射、電台)
 
 ### 前端
 - **React 18** + **Vite** + **TypeScript**
 - **Redux Toolkit** - 狀態管理
 - **Web Audio API** - 音訊分析與視覺化
-- **Framer Motion** - 動畫效果
+- **YouTube IFrame API** - 影片嵌入播放
 - **Material-UI** - UI 元件庫
 
 ### 部署
@@ -77,11 +76,12 @@ local-dev-start.bat
 
 # 停止所有服務
 local-dev-stop.bat
-
+```
 
 服務啟動後：
-- **前端**: http://localhost:5173
-- **後端 API**: http://localhost:3001
+
+- **前端**: `http://localhost:5173`
+- **後端 API**: `http://localhost:3001`
 
 #### 手動啟動
 
@@ -101,70 +101,65 @@ npm run dev
 
 ### YouTube 403 錯誤（無法播放）
 
-本專案使用 **yt-dlp** 獲取 YouTube 音訊。如果遇到播放錯誤，嘗試重新部署更新 yt-dlp：
+本專案使用 **yt-dlp 直接串流**（stdout pipe）播放音訊，避免提取 URL 後被 YouTube 封鎖。
+
+如果仍遇到 403 錯誤，通常是 yt-dlp 版本過舊：
 
 ```bash
+# Docker 部署：重新拉取映像（內含最新 yt-dlp）
 docker compose down && docker compose pull && docker compose up -d
+
+# 本地開發：手動更新 yt-dlp
+cd backend
+npx --yes youtube-dl-exec --update
+# 或直接執行 yt-dlp 更新
+node_modules/youtube-dl-exec/bin/yt-dlp --update
 ```
 
-如果問題持續，可能是 YouTube 更新了封鎖機制，請檢查 GitHub Issues。
+如果問題持續，可能是 YouTube 更新了封鎖機制，請檢查 [GitHub Issues](https://github.com/chuangkevin/home-media/issues)。
 
 ## 📁 專案結構
 
-```
+```text
 home-media/
 ├── backend/              # Node.js 後端
 │   ├── src/
-│   │   ├── services/     # YouTube、歌詞、快取服務
+│   │   ├── services/     # YouTube、歌詞、音訊快取、電台服務
 │   │   ├── controllers/  # API 控制器
-│   │   ├── models/       # 資料模型
-│   │   └── routes/       # 路由
+│   │   ├── handlers/     # WebSocket 事件處理 (投射、電台)
+│   │   ├── config/       # 環境設定、資料庫初始化
+│   │   ├── routes/       # Express 路由
+│   │   └── utils/        # Logger 等工具
 │   └── Dockerfile
 │
 ├── frontend/             # React 前端
 │   ├── src/
-│   │   ├── components/   # UI 元件
-│   │   ├── hooks/        # React Hooks
-│   │   ├── store/        # Redux Store
-│   │   └── styles/       # 主題與樣式
+│   │   ├── components/   # UI 元件 (Player, Radio, Playlist, Lyrics...)
+│   │   ├── hooks/        # React Hooks (useRadio, useRadioSync...)
+│   │   ├── store/        # Redux Store (player, radio slices)
+│   │   └── services/     # Socket.io 服務
 │   └── Dockerfile
 │
 ├── docker-compose.yml    # Docker 編排
-└── data/                 # 持久化資料 (快取、資料庫)
+└── data/                 # 持久化資料
+    ├── audio-cache/      # 伺服器端音訊快取 (LRU, 10GB)
+    └── db/               # SQLite 資料庫
 ```
 
 ## 🎯 開發路線圖
 
 - [x] 階段 1: 基礎設施
-- [x] 階段 2: YouTube 整合 (搜尋、播放、中文標題支援)
-- [ ] 階段 3: 音訊視覺化
-- [x] 階段 4: 歌詞顯示 (YouTube CC + LRCLIB 備援)
+- [x] 階段 2: YouTube 整合 (yt-dlp 搜尋、串流、中文標題支援)
+- [x] 階段 3: 音訊視覺化
+- [x] 階段 4: 歌詞顯示 (YouTube CC + LRCLIB 備援 + 手動搜尋)
 - [ ] 階段 5: 曲風主題
-- [ ] 階段 6: 播放清單管理
-- [x] 階段 7: Session 快取系統 (前端 IndexedDB 200首/2GB)
+- [x] 階段 6: 播放清單管理
+- [x] 階段 7: 快取系統 (伺服器端磁碟 10GB + 前端 IndexedDB)
 - [x] 階段 8: 遠端控制 (Socket.io 投射功能)
-- [ ] 階段 9: 優化與測試
+- [x] 階段 9: 電台廣播 (DJ/聽眾即時同步)
 - [x] 階段 10: Docker 部署 + GitHub Actions CI/CD
-
-## 📋 待辦事項 (TODO)
-
-### 歌詞功能增強
-- [x] 手動歌詞搜尋：允許使用者輸入關鍵字搜尋 LRCLIB，並選擇正確的歌詞版本
-- [x] 歌詞選擇記錄：儲存使用者為每首歌選擇的歌詞 ID，下次自動載入
-- [x] 歌詞時間偏移記錄：儲存每首歌的時間微調值，下次播放自動套用
-
-### 播放體驗優化
-- [x] 串流優先播放：未快取時直接串流播放，不等待下載完成
-- [x] 快取狀態顯示：每首歌顯示來源標籤（快取/網路）
-- [x] 背景自動快取：播放時背景下載並快取音訊
-
-### 遠端控制與投射
-
-- [x] 裝置發現：自動偵測同網路內的其他客戶端裝置
-- [x] 投射播放：將 A 裝置搜尋的歌曲投射到 B 或 C 裝置播放
-- [x] 投射 UI：播放器新增投射 icon，點擊顯示可用裝置清單
-- [x] 同步控制：投射後可在來源裝置控制目標裝置的播放/暫停/切歌
-- [x] 多房間播放：支援同時投射到多個裝置（群組播放）
+- [x] 階段 11: 影片模式 (YouTube IFrame 嵌入 + 音訊/影片切換)
+- [x] 階段 12: 伺服器端預快取 (搜尋結果背景下載)
 
 ## 📝 免責聲明
 

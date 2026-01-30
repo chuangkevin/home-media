@@ -122,6 +122,7 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
       currentTrack: station.currentTrack,
       currentTime: station.currentTime,
       isPlaying: station.isPlaying,
+      displayMode: station.displayMode,
       syncVersion: station.syncVersion,
     });
 
@@ -248,6 +249,29 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
         currentTime: data.currentTime,
         syncVersion: station.syncVersion,
       });
+    }
+  });
+
+  /**
+   * 主播切換顯示模式（音訊/影片）
+   */
+  socket.on('radio:display-mode', (data: { displayMode: 'video' | 'visualizer' }) => {
+    const station = radioService.updateStationState(socket.id, {
+      displayMode: data.displayMode,
+    });
+
+    if (station) {
+      // 廣播給所有聽眾
+      socket.to(`radio:${station.id}`).emit('radio:sync', {
+        type: 'display-mode',
+        displayMode: data.displayMode,
+        syncVersion: station.syncVersion,
+      });
+
+      // 更新電台列表
+      io.emit('radio:list', radioService.getStationList());
+
+      logger.debug(`📻 [Radio] Display mode changed: ${data.displayMode}`);
     }
   });
 
