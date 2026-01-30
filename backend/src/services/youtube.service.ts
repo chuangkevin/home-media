@@ -22,7 +22,7 @@ class YouTubeService {
   private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 小時（搜尋結果快取）
 
   /**
-   * 獲取 yt-dlp 基本選項
+   * 獲取 yt-dlp 基本選項（用於 youtube-dl-exec）
    */
   private getYtDlpBaseOptions(): Record<string, any> {
     return {
@@ -37,12 +37,14 @@ class YouTubeService {
 
   /**
    * 獲取用於音訊串流的 yt-dlp 選項
-   * 不指定特定客戶端，讓 yt-dlp 自動選擇最佳方式
+   * 包含 JS 運行時和 player_client 設定以解決 403 問題
    */
   private getYtDlpStreamOptions(): Record<string, any> {
     return {
       noCheckCertificates: true,
       noWarnings: true,
+      jsRuntimes: 'deno,nodejs',
+      extractorArgs: 'youtube:player_client=default,mweb',
       addHeader: [
         'Accept-Language:zh-TW,zh;q=0.9',
         'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -296,26 +298,45 @@ class YouTubeService {
   }
 
   /**
+   * 獲取 yt-dlp 執行檔路徑
+   */
+  private getYtDlpPath(): string {
+    return process.env.NODE_ENV === 'production' ? '/usr/bin/yt-dlp' : 'yt-dlp';
+  }
+
+  /**
+   * 獲取 yt-dlp spawn 基本參數
+   * 包含 JS 運行時設定、player_client 和認證相關參數
+   */
+  private getYtDlpSpawnBaseArgs(): string[] {
+    return [
+      '--no-warnings',
+      '--no-check-certificates',
+      // JS 運行時：優先 Deno（沙盒安全），退回 Node.js
+      '--js-runtimes', 'deno,nodejs',
+      // YouTube player client 設定
+      '--extractor-args', 'youtube:player_client=default,mweb',
+      '--add-header', 'Accept-Language:zh-TW,zh;q=0.9',
+      '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    ];
+  }
+
+  /**
    * 使用 yt-dlp 直接串流音訊到 stdout
    * 這是解決 403 問題的關鍵：讓 yt-dlp 處理所有的認證和 headers
    */
   streamAudioToStdout(videoId: string): ChildProcess {
-    const ytdlpPath = process.env.NODE_ENV === 'production' ? '/usr/bin/yt-dlp' : 'yt-dlp';
-
     const args = [
-      '--no-warnings',
-      '--no-check-certificates',
+      ...this.getYtDlpSpawnBaseArgs(),
       '-f', 'bestaudio/best',
       '-o', '-', // 輸出到 stdout
-      '--add-header', 'Accept-Language:zh-TW,zh;q=0.9',
-      '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       `https://www.youtube.com/watch?v=${videoId}`,
     ];
 
     console.log(`🎵 [yt-dlp] 開始直接串流: ${videoId}`);
     logger.info(`Starting yt-dlp direct stream for: ${videoId}`);
 
-    const ytdlpProcess = spawn(ytdlpPath, args, {
+    const ytdlpProcess = spawn(this.getYtDlpPath(), args, {
       stdio: ['ignore', 'pipe', 'pipe'], // stdin忽略, stdout管道, stderr管道
     });
 
@@ -348,23 +369,18 @@ class YouTubeService {
    * 用於背景快取
    */
   async downloadAudioToFile(videoId: string, outputPath: string): Promise<void> {
-    const ytdlpPath = process.env.NODE_ENV === 'production' ? '/usr/bin/yt-dlp' : 'yt-dlp';
-
     return new Promise((resolve, reject) => {
       const args = [
-        '--no-warnings',
-        '--no-check-certificates',
+        ...this.getYtDlpSpawnBaseArgs(),
         '-f', 'bestaudio/best',
         '-o', outputPath,
-        '--add-header', 'Accept-Language:zh-TW,zh;q=0.9',
-        '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         `https://www.youtube.com/watch?v=${videoId}`,
       ];
 
       console.log(`💾 [yt-dlp] 開始下載到快取: ${videoId}`);
       logger.info(`Starting yt-dlp download for cache: ${videoId}`);
 
-      const ytdlpProcess = spawn(ytdlpPath, args, {
+      const ytdlpProcess = spawn(this.getYtDlpPath(), args, {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
