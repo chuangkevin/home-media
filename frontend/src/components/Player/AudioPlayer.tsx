@@ -515,7 +515,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
       // 嘗試重新載入
       if (stalledTimeout) clearTimeout(stalledTimeout);
       stalledTimeout = setTimeout(() => {
-        if (audio.paused === false && audio.currentTime === lastCurrentTime) {
+        if (audio.paused === false && audio.currentTime === lastCurrentTime && displayModeRef.current !== 'video') {
           console.log('🔄 嘗試重新載入音訊...');
           const currentSrc = audio.src;
           const currentPosition = audio.currentTime;
@@ -589,12 +589,21 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
       }
     }, 3000); // 改為 3 秒檢查一次
 
+    // 影片模式防護：無論什麼原因觸發了 audio.play()，在影片模式下一律暫停
+    const handlePlaying = () => {
+      if (displayModeRef.current === 'video') {
+        console.log('🎬 影片模式下攔截音訊播放，自動暫停');
+        audio.pause();
+      }
+    };
+
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('durationchange', handleDurationChange);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', handleError);
     audio.addEventListener('stalled', handleStalled);
     audio.addEventListener('waiting', handleWaiting);
+    audio.addEventListener('playing', handlePlaying);
 
     return () => {
       if (stalledTimeout) clearTimeout(stalledTimeout);
@@ -605,6 +614,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
       audio.removeEventListener('error', handleError);
       audio.removeEventListener('stalled', handleStalled);
       audio.removeEventListener('waiting', handleWaiting);
+      audio.removeEventListener('playing', handlePlaying);
     };
   }, [currentTrack, displayMode, isPlaying, dispatch]);
 
@@ -631,7 +641,9 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
     // 設定播放控制按鈕回調
     navigator.mediaSession.setActionHandler('play', () => {
       dispatch(setIsPlaying(true));
-      audioRef.current?.play();
+      if (displayModeRef.current !== 'video') {
+        audioRef.current?.play();
+      }
     });
 
     navigator.mediaSession.setActionHandler('pause', () => {
