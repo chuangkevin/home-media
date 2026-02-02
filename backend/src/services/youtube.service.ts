@@ -1,9 +1,27 @@
 import ytdl from '@distube/ytdl-core';
 import youtubedl from 'youtube-dl-exec';
 import fs from 'fs';
+import path from 'path';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
 import config from '../config/environment';
+
+// ffmpeg 路徑：yt-dlp 的 --ffmpeg-location 參數
+// 系統有 ffmpeg 時 yt-dlp 可自動偵測；否則用 ffmpeg-static
+import { execFileSync } from 'child_process';
+let ffmpegDir: string | null = null;
+try {
+  execFileSync('ffmpeg', ['-version'], { stdio: 'pipe', timeout: 5000 });
+  // 系統 ffmpeg 可用，yt-dlp 自動偵測
+} catch {
+  try {
+    const staticPath: string = require('ffmpeg-static');
+    ffmpegDir = path.dirname(staticPath);
+    logger.info(`📍 ffmpeg-static: ${staticPath}`);
+  } catch {
+    logger.warn('⚠️ ffmpeg 未安裝，DASH m4a 容器將不會自動修正');
+  }
+}
 
 interface CachedUrl {
   url: string;
@@ -44,6 +62,11 @@ class YouTubeService {
     if (this.cookiesPath) {
       baseOptions.cookies = this.cookiesPath;
       logger.debug('Using cookies for yt-dlp request');
+    }
+
+    // 設定 ffmpeg 路徑，讓 yt-dlp 自動修正 DASH m4a 容器
+    if (ffmpegDir) {
+      baseOptions.ffmpegLocation = ffmpegDir;
     }
 
     return baseOptions;
@@ -339,6 +362,11 @@ class YouTubeService {
 
     if (this.cookiesPath) {
       args.push('--cookies', this.cookiesPath);
+    }
+
+    // 設定 ffmpeg 路徑，讓 yt-dlp 修正 DASH m4a 容器
+    if (ffmpegDir) {
+      args.push('--ffmpeg-location', ffmpegDir);
     }
 
     return args;

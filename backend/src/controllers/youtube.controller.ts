@@ -205,6 +205,8 @@ export class YouTubeController {
               if (stats.size > 0) {
                 fs.renameSync(tempPath, cachePath);
                 console.log(`💾 [Stream] Cached: ${videoId} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+                // 非同步修正 DASH m4a 容器（不阻塞回應）
+                setImmediate(() => audioCacheService.remuxIfNeeded(cachePath));
               } else {
                 fs.unlinkSync(tempPath);
               }

@@ -2,10 +2,23 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 import { URL } from 'url';
 import logger from '../utils/logger';
 import youtubeService from './youtube.service';
+
+// ffmpeg 路徑：優先系統安裝的 ffmpeg，fallback 到 ffmpeg-static
+let ffmpegPath: string | null = null;
+try {
+  execFileSync('ffmpeg', ['-version'], { stdio: 'pipe', timeout: 5000 });
+  ffmpegPath = 'ffmpeg';
+} catch {
+  try {
+    ffmpegPath = require('ffmpeg-static');
+  } catch {
+    // ffmpeg 不可用，跳過 remux
+  }
+}
 
 const AUDIO_CACHE_DIR = process.env.AUDIO_CACHE_DIR || path.join(process.cwd(), 'data', 'audio-cache');
 const MAX_CACHE_SIZE_MB = parseInt(process.env.AUDIO_CACHE_MAX_SIZE_MB || '10000', 10); // 預設 10GB
@@ -44,6 +57,43 @@ class AudioCacheService {
   private downloadProgressMap = new Map<string, DownloadProgress>(); // 下載進度追蹤
   private downloadQueue: Array<{ videoId: string; audioUrl: string; resolve: (value: string | null) => void }> = []; // 等待下載的佇列
   private activeDownloads = 0; // 當前正在下載的數量
+
+  /**
+   * 修正 DASH m4a 容器為標準 m4a（Safari/iOS 相容）
+   * yt-dlp 用 -o - 管道輸出時不會執行 FixupM4a，需手動 remux
+   */
+  remuxIfNeeded(filePath: string): void {
+    if (!ffmpegPath || !fs.existsSync(filePath)) return;
+
+    try {
+      // 讀取前 12 bytes 檢查是否為 DASH 容器
+      const fd = fs.openSync(filePath, 'r');
+      const buf = Buffer.alloc(12);
+      fs.readSync(fd, buf, 0, 12, 0);
+      fs.closeSync(fd);
+      const brand = buf.toString('ascii', 8, 12);
+      if (brand !== 'dash') return; // 已經是標準 m4a，不需要 remux
+
+      const tmpOut = `${filePath}.remux.tmp`;
+      logger.info(`🔧 [Remux] Fixing DASH container: ${path.basename(filePath)}`);
+      execFileSync(ffmpegPath, [
+        '-i', filePath,
+        '-c', 'copy',
+        '-movflags', '+faststart',
+        '-y',
+        tmpOut,
+      ], { timeout: 30000, stdio: 'pipe' });
+
+      // 替換原檔
+      fs.unlinkSync(filePath);
+      fs.renameSync(tmpOut, filePath);
+      logger.info(`✅ [Remux] Fixed: ${path.basename(filePath)}`);
+    } catch (err) {
+      logger.error(`[Remux] Failed for ${path.basename(filePath)}:`, err);
+      // 清理暫存檔
+      try { fs.unlinkSync(`${filePath}.remux.tmp`); } catch {}
+    }
+  }
 
   /**
    * 獲取快取檔案路徑（優先新格式 .m4a，向下相容舊 .webm）
@@ -658,6 +708,8 @@ class AudioCacheService {
         if (downloadedBytes > 0 && fs.existsSync(tempPath)) {
           try {
             fs.renameSync(tempPath, cachePath);
+            // 修正 DASH m4a 容器為標準 m4a（Safari/iOS 相容）
+            this.remuxIfNeeded(cachePath);
             const stats = fs.statSync(cachePath);
             console.log(`✅ [AudioCache] yt-dlp downloaded: ${videoId} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
             logger.info(`Audio cached via yt-dlp: ${videoId} (${stats.size} bytes)`);
