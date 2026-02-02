@@ -452,7 +452,7 @@ export class YouTubeController {
     const range = req.headers.range;
 
     // 設定共用 headers
-    res.setHeader('Content-Type', 'audio/webm');
+    res.setHeader('Content-Type', 'audio/mp4');
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');

@@ -9,7 +9,9 @@ import youtubeService from './youtube.service';
 
 const AUDIO_CACHE_DIR = process.env.AUDIO_CACHE_DIR || path.join(process.cwd(), 'data', 'audio-cache');
 const MAX_CACHE_SIZE_MB = parseInt(process.env.AUDIO_CACHE_MAX_SIZE_MB || '10000', 10); // 預設 10GB
-const CACHE_FILE_EXTENSION = '.webm'; // YouTube 音訊通常是 webm 格式
+const CACHE_FILE_EXTENSION = '.m4a'; // yt-dlp 優先下載 m4a 格式（Safari/iOS 相容）
+const LEGACY_CACHE_EXTENSION = '.webm'; // 舊版快取副檔名，保持向下相容
+const AUDIO_EXTENSIONS = [CACHE_FILE_EXTENSION, LEGACY_CACHE_EXTENSION];
 
 // 確保快取目錄存在
 if (!fs.existsSync(AUDIO_CACHE_DIR)) {
@@ -44,18 +46,26 @@ class AudioCacheService {
   private activeDownloads = 0; // 當前正在下載的數量
 
   /**
-   * 獲取快取檔案路徑
+   * 獲取快取檔案路徑（優先新格式 .m4a，向下相容舊 .webm）
    */
   getCachePath(videoId: string): string {
-    return path.join(AUDIO_CACHE_DIR, `${videoId}${CACHE_FILE_EXTENSION}`);
+    const newPath = path.join(AUDIO_CACHE_DIR, `${videoId}${CACHE_FILE_EXTENSION}`);
+    if (fs.existsSync(newPath)) return newPath;
+    // 向下相容舊的 .webm 快取
+    const legacyPath = path.join(AUDIO_CACHE_DIR, `${videoId}.webm`);
+    if (fs.existsSync(legacyPath)) return legacyPath;
+    return newPath; // 新檔案用新副檔名
   }
 
   /**
    * 檢查是否有快取
    */
   has(videoId: string): boolean {
-    const cachePath = this.getCachePath(videoId);
-    return fs.existsSync(cachePath);
+    const newPath = path.join(AUDIO_CACHE_DIR, `${videoId}${CACHE_FILE_EXTENSION}`);
+    if (fs.existsSync(newPath)) return true;
+    // 向下相容舊的 .webm 快取
+    const legacyPath = path.join(AUDIO_CACHE_DIR, `${videoId}.webm`);
+    return fs.existsSync(legacyPath);
   }
 
   /**
@@ -436,7 +446,7 @@ class AudioCacheService {
       const entries: Array<{ path: string; size: number; atime: number }> = [];
 
       for (const file of files) {
-        if (!file.endsWith(CACHE_FILE_EXTENSION)) continue;
+        if (!AUDIO_EXTENSIONS.some(ext => file.endsWith(ext))) continue;
 
         const filePath = path.join(AUDIO_CACHE_DIR, file);
         try {
@@ -507,7 +517,7 @@ class AudioCacheService {
       let totalFiles = 0;
 
       for (const file of files) {
-        if (!file.endsWith(CACHE_FILE_EXTENSION)) continue;
+        if (!AUDIO_EXTENSIONS.some(ext => file.endsWith(ext))) continue;
 
         const filePath = path.join(AUDIO_CACHE_DIR, file);
         try {
