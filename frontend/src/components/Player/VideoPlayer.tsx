@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Box, Typography, Button, Link } from '@mui/material';
 import MusicVideoIcon from '@mui/icons-material/MusicVideo';
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import type { Track } from '../../types/track.types';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
@@ -71,8 +72,8 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           playerVars: {
             autoplay: 1,
             enablejsapi: 1,
+            playsinline: 1, // 行動裝置內嵌播放（不全螢幕）
             origin: window.location.origin,
-            // 嘗試放寬限制
             rel: 0,
             modestbranding: 1,
           },
@@ -85,7 +86,23 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
                 console.log(`🎬 影片同步到 ${initialTimeRef.current.toFixed(1)}s`);
                 event.target.seekTo(initialTimeRef.current, true);
               }
-              event.target.playVideo();
+              try {
+                event.target.playVideo();
+              } catch (e) {
+                console.warn('🎬 autoplay 被瀏覽器阻擋:', e);
+              }
+              // 行動裝置 autoplay 可能被靜默阻擋，3 秒後檢查
+              setTimeout(() => {
+                if (!isMounted || !playerRef.current) return;
+                try {
+                  const state = playerRef.current.getPlayerState?.();
+                  // -1 = unstarted, 5 = video cued
+                  if (state === -1 || state === 5) {
+                    console.warn('🎬 影片未自動播放，可能被行動裝置阻擋');
+                    setError('行動裝置需要手動點擊播放');
+                  }
+                } catch {}
+              }, 3000);
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
@@ -175,6 +192,14 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
     dispatch(setDisplayMode('visualizer'));
   };
 
+  // 手動點擊播放（行動裝置 autoplay 被阻擋時使用）
+  const handleTapToPlay = () => {
+    setError(null);
+    if (playerRef.current?.playVideo) {
+      playerRef.current.playVideo();
+    }
+  };
+
   // 重試
   const handleRetry = () => {
     setError(null);
@@ -195,6 +220,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           playerVars: {
             autoplay: 1,
             enablejsapi: 1,
+            playsinline: 1,
             origin: window.location.origin,
             rel: 0,
             modestbranding: 1,
@@ -247,23 +273,44 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           p: 3,
         }}
       >
-        <MusicVideoIcon sx={{ fontSize: 64, opacity: 0.5 }} />
+        {error === '行動裝置需要手動點擊播放' ? (
+          <PlayCircleOutlineIcon sx={{ fontSize: 80, opacity: 0.7, cursor: 'pointer' }} onClick={handleTapToPlay} />
+        ) : (
+          <MusicVideoIcon sx={{ fontSize: 64, opacity: 0.5 }} />
+        )}
         <Typography variant="h6" textAlign="center">
           {error}
         </Typography>
-        <Typography variant="body2" color="grey.400" textAlign="center">
-          此影片無法在嵌入式播放器中播放
-          <br />
-          可能原因：影片版權限制、地區限制或網路問題
-        </Typography>
+        {error === '行動裝置需要手動點擊播放' ? (
+          <Typography variant="body2" color="grey.400" textAlign="center">
+            行動瀏覽器限制自動播放，請點擊上方圖示開始播放
+          </Typography>
+        ) : (
+          <Typography variant="body2" color="grey.400" textAlign="center">
+            此影片無法在嵌入式播放器中播放
+            <br />
+            可能原因：影片版權限制、地區限制或網路問題
+          </Typography>
+        )}
         <Box sx={{ display: 'flex', gap: 2, mt: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <Button
-            variant="outlined"
-            onClick={handleRetry}
-            color="inherit"
-          >
-            重試
-          </Button>
+          {error === '行動裝置需要手動點擊播放' ? (
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={<PlayCircleOutlineIcon />}
+              onClick={handleTapToPlay}
+            >
+              點擊播放
+            </Button>
+          ) : (
+            <Button
+              variant="outlined"
+              onClick={handleRetry}
+              color="inherit"
+            >
+              重試
+            </Button>
+          )}
           <Button
             variant="contained"
             onClick={handleSwitchToAudio}
