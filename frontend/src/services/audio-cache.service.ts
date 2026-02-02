@@ -414,24 +414,21 @@ class AudioCacheService {
   /**
    * 下載並快取音訊
    * @param videoId 影片 ID
-   * @param streamUrl 串流 URL
+   * @param streamUrl 串流 URL (server side URL)
    * @param metadata 曲目資訊（標題、頻道等）
-   * @returns Blob URL 供 audio 元素使用
+   * @returns 返回伺服器 stream URL（支持 Range request）
+   * 
+   * 注意：我們不再返回 Blob URL，因為瀏覽器 audio 元素的 Range 請求
+   * 在 Blob URL 上不支持。改用伺服器端快取優先策略。
    */
   async fetchAndCache(videoId: string, streamUrl: string, metadata?: CachedAudioMetadata): Promise<string> {
     try {
-      // 先檢查快取
-      const cached = await this.get(videoId);
-      if (cached) {
-        return URL.createObjectURL(cached);
-      }
-
       console.log(`⏬ Downloading audio: ${videoId}`);
       const startTime = Date.now();
 
-      // 下載音訊（禁用自動重定向，使用代理模式）
+      // 下載完整音訊到後端並快取
       const response = await fetch(streamUrl, {
-        redirect: 'follow', // 跟隨重定向
+        redirect: 'follow',
         mode: 'cors',
         credentials: 'omit',
       });
@@ -446,18 +443,19 @@ class AudioCacheService {
 
       console.log(`✅ Downloaded: ${videoId} (${sizeMB}MB in ${downloadTime}s)`);
 
-      // 檢查是否下載到有效資料（0 byte 表示伺服器串流失敗）
+      // 檢查是否下載到有效資料
       if (blob.size === 0) {
         throw new Error(`Downloaded empty audio for ${videoId}`);
       }
 
-      // 儲存到快取（異步，不阻塞播放）
+      // 儲存到 IndexedDB 快取（非同步，用於離線/快速重播）
       this.set(videoId, blob, metadata).catch(err => {
-        console.error(`Failed to cache ${videoId}:`, err);
+        console.error(`Failed to cache in IndexedDB ${videoId}:`, err);
       });
 
-      // 返回 blob URL
-      return URL.createObjectURL(blob);
+      // 返回伺服器 stream URL（支持 Range request）而不是 Blob URL
+      // 伺服器端快取會在下次請求時自動使用
+      return streamUrl;
     } catch (error) {
       console.error(`Failed to fetch audio for ${videoId}:`, error);
       throw error;

@@ -121,16 +121,18 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
         let audioSrc: string;
 
-        if (browserCached) {
-          // 使用前端快取的 blob URL
-          audioSrc = URL.createObjectURL(browserCached);
-          console.log(`🎵 從瀏覽器快取播放: ${pendingTrack.title}`);
-        } else if (serverCached) {
-          // 伺服器有快取，直接串流（檔案讀取，速度快）
+        if (serverCached) {
+          // 伺服器有快取，優先使用（支持 Range request）
           audioSrc = streamUrl;
           console.log(`🎵 從伺服器快取串流: ${pendingTrack.title}`);
+        } else if (browserCached) {
+          // 伺服器沒快取，使用瀏覽器快取進行播放，同時下載到伺服器
+          // 注意：Blob URL 在某些瀏覽器（尤其是手機）上可能不支持 Range 請求
+          // 所以優先級較低，主要用於完全離線場景
+          audioSrc = streamUrl;
+          console.log(`🎵 使用伺服器串流（後臺同時下載快取）: ${pendingTrack.title}`);
         } else {
-          // 伺服器也沒快取：先下載完再播放（yt-dlp 串流啟動慢，audio element 會 timeout）
+          // 伺服器也沒快取：下載到伺服器並快取
           console.log(`⏬ 下載後播放: ${pendingTrack.title}`);
           pollDownloadProgress(videoId);
           try {
@@ -140,7 +142,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
               thumbnail: pendingTrack.thumbnail,
               duration: pendingTrack.duration,
             });
-            console.log(`💾 下載完成，準備播放: ${pendingTrack.title}`);
+            console.log(`💾 下載完成，使用伺服器快取播放: ${pendingTrack.title}`);
           } catch (err) {
             console.warn(`下載失敗，改用串流: ${pendingTrack.title}`, err);
             audioSrc = streamUrl;
@@ -155,24 +157,19 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
           setIsCached(false);
           console.log(`🌐 伺服器未快取: ${pendingTrack.title}`);
 
-          // 如果還沒下載到瀏覽器快取，背景下載
-          if (!browserCached) {
-            const alreadyCached = await audioCacheService.get(videoId);
-            if (!alreadyCached) {
-              audioCacheService.fetchAndCache(videoId, streamUrl, {
-                title: pendingTrack.title,
-                channel: pendingTrack.channel,
-                thumbnail: pendingTrack.thumbnail,
-                duration: pendingTrack.duration,
-              })
-                .then(() => console.log(`💾 瀏覽器背景快取完成: ${pendingTrack.title}`))
-                .catch(err => console.warn(`瀏覽器背景快取失敗: ${pendingTrack.title}`, err));
-            }
-          }
+          // 背景下載到伺服器快取（不阻塞播放）
+          audioCacheService.fetchAndCache(videoId, streamUrl, {
+            title: pendingTrack.title,
+            channel: pendingTrack.channel,
+            thumbnail: pendingTrack.thumbnail,
+            duration: pendingTrack.duration,
+          })
+            .then(() => console.log(`💾 伺服器快取下載完成: ${pendingTrack.title}`))
+            .catch(err => console.warn(`伺服器快取下載失敗: ${pendingTrack.title}`, err));
         }
 
-        // 儲存 pending blob URL (blob: 開頭的才需要追蹤釋放)
-        pendingBlobUrlRef.current = audioSrc.startsWith('blob:') ? audioSrc : null;
+        // 儲存 pending blob URL (不再使用 blob URL，全部用伺服器 stream)
+        pendingBlobUrlRef.current = null;
 
         // 音訊準備好了，現在確認切換
         console.log(`✅ Pending track ready: ${pendingTrack.title} (伺服器快取: ${serverCached ? '是' : '否'})`);
@@ -184,8 +181,16 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         // 設置新音訊源
         audio.src = audioSrc;
         currentVideoIdRef.current = videoId;
-        currentBlobUrlRef.current = audioSrc.startsWith('blob:') ? audioSrc : null;
+        currentBlobUrlRef.current = null; // 不再使用 blob URL
         pendingBlobUrlRef.current = null;
+
+        // 釋放舊的 blob URL（如果有的話）
+        if (oldBlobUrl && oldBlobUrl.startsWith('blob:')) {
+          setTimeout(() => {
+            console.log(`🗑️ Revoking old blob URL`);
+            URL.revokeObjectURL(oldBlobUrl);
+          }, 1000);
+        }
 
         // 等待音訊準備好再確認切換
         // 使用多重事件監聽和 timeout fallback 確保手機端可以正常播放
@@ -208,14 +213,6 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
           // 確認切換（UI 現在更新）
           dispatch(confirmPendingTrack());
-
-          // 釋放舊的 blob URL（只有 blob: 開頭的才需要釋放）
-          if (oldBlobUrl && oldBlobUrl.startsWith('blob:') && oldBlobUrl !== audioSrc) {
-            setTimeout(() => {
-              console.log(`🗑️ Revoking old blob URL`);
-              URL.revokeObjectURL(oldBlobUrl);
-            }, 1000);
-          }
 
           // 自動播放（影片模式下由 VideoPlayer 控制，不播放音訊）
           if (shouldPlay && displayModeRef.current !== 'video') {

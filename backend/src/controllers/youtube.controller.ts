@@ -174,7 +174,7 @@ export class YouTubeController {
         res.setHeader('Transfer-Encoding', 'chunked');
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
         res.setHeader('Cache-Control', 'no-cache');
       }
 

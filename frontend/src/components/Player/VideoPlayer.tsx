@@ -51,6 +51,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
     if (!window.YT) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
+      tag.async = true;
       const firstScriptTag = document.getElementsByTagName('script')[0];
       firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
     }
@@ -70,39 +71,45 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId: track.videoId,
           playerVars: {
-            autoplay: 1,
+            autoplay: 0, // 改為 0，由 onReady 手動控制播放
             enablejsapi: 1,
             playsinline: 1, // 行動裝置內嵌播放（不全螢幕）
             origin: window.location.origin,
             rel: 0,
             modestbranding: 1,
+            controls: 1,
+            fs: 1,
+            iv_load_policy: 3,
           },
           events: {
             onReady: (event: any) => {
               if (!isMounted) return;
+              console.log(`🎬 YouTube 播放器就緒: ${track.videoId}`);
               dispatch(setDuration(event.target.getDuration()));
+              
               // 同步到切換前的音訊播放位置
               if (initialTimeRef.current > 0) {
-                console.log(`🎬 影片同步到 ${initialTimeRef.current.toFixed(1)}s`);
-                event.target.seekTo(initialTimeRef.current, true);
-              }
-              try {
-                event.target.playVideo();
-              } catch (e) {
-                console.warn('🎬 autoplay 被瀏覽器阻擋:', e);
-              }
-              // 行動裝置 autoplay 可能被靜默阻擋，3 秒後檢查
-              setTimeout(() => {
-                if (!isMounted || !playerRef.current) return;
                 try {
-                  const state = playerRef.current.getPlayerState?.();
-                  // -1 = unstarted, 5 = video cued
-                  if (state === -1 || state === 5) {
-                    console.warn('🎬 影片未自動播放，可能被行動裝置阻擋');
-                    setError('行動裝置需要手動點擊播放');
-                  }
-                } catch {}
-              }, 3000);
+                  event.target.seekTo(initialTimeRef.current, true);
+                  console.log(`🎬 影片同步到 ${initialTimeRef.current.toFixed(1)}s`);
+                } catch (e) {
+                  console.warn('🎬 尋找位置失敗:', e);
+                }
+              }
+              
+              // 嘗試播放
+              try {
+                const playPromise = event.target.playVideo();
+                if (playPromise && typeof playPromise.catch === 'function') {
+                  playPromise.catch((err: any) => {
+                    console.warn('🎬 播放被阻擋或失敗:', err);
+                    setError('播放被瀏覽器阻擋，請點擊手動播放');
+                  });
+                }
+              } catch (e) {
+                console.warn('🎬 調用 playVideo() 失敗:', e);
+                setError('播放器初始化失敗');
+              }
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
