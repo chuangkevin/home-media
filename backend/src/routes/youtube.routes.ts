@@ -21,6 +21,9 @@ router.post('/preload-wait/:videoId', (req, res) => youtubeController.preloadAud
 // 獲取音訊快取統計
 router.get('/cache/stats', (req, res) => youtubeController.getCacheStats(req, res));
 
+// 清空所有音訊快取
+router.delete('/cache/clear', (req, res) => youtubeController.clearCache(req, res));
+
 // 檢查單一曲目快取狀態
 router.get('/cache/status/:videoId', (req, res) => youtubeController.getCacheStatus(req, res));
 

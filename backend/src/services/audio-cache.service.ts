@@ -558,6 +558,39 @@ class AudioCacheService {
   }
 
   /**
+   * 清空所有快取
+   */
+  clearAll(): { deletedCount: number; deletedSizeMB: number } {
+    try {
+      const files = fs.readdirSync(AUDIO_CACHE_DIR);
+      let deletedCount = 0;
+      let deletedSize = 0;
+
+      for (const file of files) {
+        if (!AUDIO_EXTENSIONS.some(ext => file.endsWith(ext))) continue;
+        
+        const filePath = path.join(AUDIO_CACHE_DIR, file);
+        try {
+          const stats = fs.statSync(filePath);
+          fs.unlinkSync(filePath);
+          deletedCount++;
+          deletedSize += stats.size;
+          console.log(`🗑️ [AudioCache] Deleted: ${file}`);
+        } catch (error) {
+          logger.error(`Failed to delete cache file: ${filePath}`, error);
+        }
+      }
+
+      const deletedSizeMB = parseFloat((deletedSize / 1024 / 1024).toFixed(2));
+      console.log(`✅ [AudioCache] Clear all done, deleted ${deletedCount} files (${deletedSizeMB} MB)`);
+      return { deletedCount, deletedSizeMB };
+    } catch (error) {
+      logger.error('Failed to clear all cache:', error);
+      return { deletedCount: 0, deletedSizeMB: 0 };
+    }
+  }
+
+  /**
    * 獲取快取統計
    */
   getStats(): { totalFiles: number; totalSizeMB: number; maxSizeMB: number } {

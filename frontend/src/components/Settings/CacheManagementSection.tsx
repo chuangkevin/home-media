@@ -24,10 +24,12 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import StorageIcon from '@mui/icons-material/Storage';
+import CloudIcon from '@mui/icons-material/Cloud';
 import MusicNoteIcon from '@mui/icons-material/MusicNote';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import audioCacheService, { type CacheListItem } from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
+import apiService from '../../services/api.service';
 import { formatFileSize, formatDate, formatDuration } from '../../utils/formatTime';
 
 interface AudioCacheStats {
@@ -49,10 +51,12 @@ export default function CacheManagementSection() {
   const [isLoading, setIsLoading] = useState(true);
   const [isClearing, setIsClearing] = useState(false);
   const [alertMessage, setAlertMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [serverCacheStats, setServerCacheStats] = useState<{ count: number; size: number } | null>(null);
 
   // 對話框狀態
   const [clearAudioDialogOpen, setClearAudioDialogOpen] = useState(false);
   const [clearLyricsDialogOpen, setClearLyricsDialogOpen] = useState(false);
+  const [clearServerCacheDialogOpen, setClearServerCacheDialogOpen] = useState(false);
   const [deleteItemDialog, setDeleteItemDialog] = useState<CacheListItem | null>(null);
 
   // 載入快取資料
@@ -67,6 +71,17 @@ export default function CacheManagementSection() {
       setAudioStats(audioStatsResult);
       setLyricsStats(lyricsStatsResult);
       setCacheList(cacheListResult);
+      
+      // 載入伺服器快取統計
+      try {
+        const serverStats = await apiService.getServerCacheStats();
+        if (serverStats) {
+          setServerCacheStats(serverStats);
+        }
+      } catch (error) {
+        console.warn('Failed to load server cache stats:', error);
+        // 不中斷主流程，繼續運作
+      }
     } catch (error) {
       console.error('Failed to load cache data:', error);
       setAlertMessage({ type: 'error', text: '載入快取資料失敗' });
@@ -137,6 +152,25 @@ export default function CacheManagementSection() {
     }
   };
 
+  // 清除伺服器音訊快取
+  const handleClearServerCache = async () => {
+    setClearServerCacheDialogOpen(false);
+    setIsClearing(true);
+    try {
+      const result = await apiService.clearServerCache();
+      setAlertMessage({ 
+        type: 'success', 
+        text: `已清除伺服器快取（${result.deletedCount} 個檔案，${result.deletedSizeMB.toFixed(2)} MB）` 
+      });
+      await loadCacheData();
+    } catch (error) {
+      console.error('Failed to clear server cache:', error);
+      setAlertMessage({ type: 'error', text: '清除伺服器快取失敗' });
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   // 自動隱藏提示訊息
   useEffect(() => {
     if (alertMessage) {
@@ -183,6 +217,14 @@ export default function CacheManagementSection() {
               color="secondary"
               variant="outlined"
             />
+            {serverCacheStats && (
+              <Chip
+                icon={<CloudIcon />}
+                label={`伺服器快取: ${serverCacheStats.count} 個 / ${formatFileSize(serverCacheStats.size)}`}
+                color="info"
+                variant="outlined"
+              />
+            )}
           </Box>
 
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
@@ -204,6 +246,17 @@ export default function CacheManagementSection() {
             >
               清除所有歌詞快取
             </Button>
+            {serverCacheStats && (
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={isClearing ? <CircularProgress size={20} /> : <DeleteSweepIcon />}
+                onClick={() => setClearServerCacheDialogOpen(true)}
+                disabled={isClearing || (serverCacheStats?.count || 0) === 0}
+              >
+                清除伺服器快取
+              </Button>
+            )}
           </Box>
         </CardContent>
       </Card>
@@ -334,6 +387,25 @@ export default function CacheManagementSection() {
           <Button onClick={() => setDeleteItemDialog(null)}>取消</Button>
           <Button onClick={() => deleteItemDialog && handleDeleteItem(deleteItemDialog)} color="error" autoFocus>
             確定刪除
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 清除伺服器快取確認對話框 */}
+      <Dialog open={clearServerCacheDialogOpen} onClose={() => setClearServerCacheDialogOpen(false)}>
+        <DialogTitle>確定要清除伺服器音訊快取嗎？</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            這將會刪除伺服器上的 {serverCacheStats?.count || 0} 個快取檔案（共 {formatFileSize(serverCacheStats?.size || 0)}）。
+            {'\n\n'}
+            <strong>注意：</strong>如果懷疑快取檔案損壞導致手機端音訊時長顯示錯誤，清除快取後重新下載可能可以解決問題。
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setClearServerCacheDialogOpen(false)}>取消</Button>
+          <Button onClick={handleClearServerCache} color="error" autoFocus disabled={isClearing}>
+            {isClearing ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
+            確定清除
           </Button>
         </DialogActions>
       </Dialog>

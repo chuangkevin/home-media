@@ -365,13 +365,37 @@ export class YouTubeController {
   }
 
   /**
+   * DELETE /api/cache/clear
+   * 清空所有音訊快取
+   */
+  async clearCache(_req: Request, res: Response): Promise<void> {
+    try {
+      const result = audioCacheService.clearAll();
+      res.json({
+        success: true,
+        message: `Cleared ${result.deletedCount} cache files (${result.deletedSizeMB} MB)`,
+        deletedCount: result.deletedCount,
+        deletedSizeMB: result.deletedSizeMB,
+      });
+    } catch (error) {
+      logger.error('Clear cache error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to clear cache',
+      });
+    }
+  }
+
+  /**
    * GET /api/cache/stats
    * 獲取音訊快取統計
    */
   async getCacheStats(_req: Request, res: Response): Promise<void> {
     try {
       const stats = audioCacheService.getStats();
-      res.json(stats);
+      res.json({
+        count: stats.totalFiles,
+        size: Math.round(stats.totalSizeMB * 1024 * 1024),
+      });
     } catch (error) {
       logger.error('Get cache stats error:', error);
       res.status(500).json({

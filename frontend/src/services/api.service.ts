@@ -84,6 +84,27 @@ class ApiService {
     return response.data;
   }
 
+  /**
+   * 獲取伺服器端音訊快取統計資訊
+   */
+  async getServerCacheStats(): Promise<{ count: number; size: number } | null> {
+    try {
+      const response = await this.api.get<{ count: number; size: number }>('/cache/stats');
+      return response.data;
+    } catch (error) {
+      console.warn('Failed to fetch server cache stats:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 清空所有伺服器端音訊快取
+   */
+  async clearServerCache(): Promise<{ success: boolean; message: string; deletedCount: number; deletedSizeMB: number }> {
+    const response = await this.api.delete<{ success: boolean; message: string; deletedCount: number; deletedSizeMB: number }>('/cache/clear');
+    return response.data;
+  }
+
   // ==================== 歌詞 ====================
 
   /**
