@@ -277,13 +277,18 @@ class YouTubeService {
       logger.info(`Fetching fresh audio URL via yt-dlp for: ${videoId}`);
 
       const startTime = Date.now();
-      // 優先選擇 m4a/aac 格式，這在手機瀏覽器上相容性更好
-      // bestaudio[ext=m4a] 優先，fallback 到 bestaudio
+      // 优化格式选择以加速首次播放：
+      // 1. 优先 m4a (HLS 流式，更快开始播放)
+      // 2. 其次 webm/opus (小文件，快速下载)
+      // 3. 最后 best audio (音质保证)
       const result: any = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
         ...this.getYtDlpBaseOptions(),
         dumpSingleJson: true,
-        preferFreeFormats: false, // 不優先免費格式，優先相容性
-        format: 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio',
+        preferFreeFormats: false,
+        format: 'bestaudio[ext=m4a][protocol^=http]/bestaudio[ext=webm]/bestaudio',
+        // 额外优化参数
+        extractor_args: 'youtube:player_client=android,web', // 使用 Android 客户端，提取更快
+        no_warnings: true,
       });
       const fetchTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
