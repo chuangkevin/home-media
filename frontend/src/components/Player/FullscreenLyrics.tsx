@@ -177,13 +177,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               }
             },
             onError: (event: any) => {
+              if (!isMounted) return;
               // YouTube 嵌入錯誤
               const errorCode = event.data;
+              let errorMsg = '影片載入失敗';
               if (errorCode === 101 || errorCode === 150) {
-                setVideoError('此影片不允許嵌入播放，請切換到其他模式');
-              } else {
-                setVideoError('影片載入失敗');
+                errorMsg = '此影片不允許嵌入播放';
+              } else if (errorCode === 2) {
+                errorMsg = '影片 ID 無效';
               }
+              
+              console.error(`🎬 YouTube 播放錯誤 (${errorCode}): ${errorMsg}`);
+              setVideoError(errorMsg);
             },
           },
         });
@@ -632,13 +637,32 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const renderVideo = () => {
     if (videoError) {
       return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', p: 2 }}>
-          <Alert severity="warning" sx={{ mb: 2 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', p: 3, gap: 2 }}>
+          <Alert severity="error" sx={{ width: '100%', maxWidth: 500 }}>
             {videoError}
           </Alert>
-          <Typography variant="body2" color="text.secondary">
-            建議切換到「歌詞」或「封面」模式
+          <Typography variant="body1" color="text.primary" sx={{ textAlign: 'center' }}>
+            此影片無法在應用程式中播放
           </Typography>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => {
+                window.open(`https://www.youtube.com/watch?v=${track.videoId}`, '_blank');
+              }}
+              startIcon={<OndemandVideoIcon />}
+            >
+              在 YouTube 上觀看
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => setViewMode('lyrics')}
+              startIcon={<LyricsIcon />}
+            >
+              切換到歌詞
+            </Button>
+          </Box>
         </Box>
       );
     }
@@ -651,6 +675,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          backgroundColor: '#000',
         }}
       >
         <Box
