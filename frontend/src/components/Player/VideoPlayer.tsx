@@ -97,29 +97,40 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
                 }
               }
               
-              // 嘗試播放
-              try {
-                const playPromise = event.target.playVideo();
-                if (playPromise && typeof playPromise.catch === 'function') {
-                  playPromise.catch((err: any) => {
-                    console.warn('🎬 播放被阻擋或失敗:', err);
-                    setError('播放被瀏覽器阻擋，請點擊手動播放');
-                  });
-                }
-              } catch (e) {
-                console.warn('🎬 調用 playVideo() 失敗:', e);
-                setError('播放器初始化失敗');
+              // 根據當前播放狀態決定是否播放
+              // 注意：此時 isPlaying 會在下一個 effect 同步，所以檢查 Redux 狀態
+              if (event.target && event.target.playVideo) {
+                // 延遲檢查，讓 AudioPlayer 的 effect 先執行完畢
+                const checkPlayState = setTimeout(() => {
+                  if (isMounted && playerRef.current) {
+                    const playerState = playerRef.current.getPlayerState();
+                    // 只有在播放狀態為 unstarted (-1) 或 paused (2) 時才播放
+                    // 這樣避免重複播放
+                    if (isPlaying && playerState !== 1) {
+                      console.log('🎬 影片自動開始播放');
+                      event.target.playVideo();
+                    } else if (!isPlaying) {
+                      console.log('🎬 影片保持暫停狀態');
+                    }
+                  }
+                }, 100);
+                
+                return () => clearTimeout(checkPlayState);
               }
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
               // 0 = ended, 1 = playing, 2 = paused
+              // 只有在影片模式下才更新播放狀態，避免干擾音訊模式
               if (event.data === 0) {
                 // 播放結束，自動播放下一首
+                console.log('🎬 影片播放結束，自動下一首');
                 dispatch(playNext());
               } else if (event.data === 1) {
+                console.log('🎬 影片播放中');
                 dispatch(setIsPlaying(true));
               } else if (event.data === 2) {
+                console.log('🎬 影片已暫停');
                 dispatch(setIsPlaying(false));
               }
             },
