@@ -399,17 +399,26 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         audio.pause();
       }
     } else if (audioRef.current && displayMode === 'video') {
-      // 在影片模式下暫停音訊播放器（但不更新 isPlaying 狀態，由 VideoPlayer 控制）
-      audioRef.current.pause();
+      // 在影片模式下完全停止音訊播放器（暫停 + 重置時間）
+      // 確保不會有重複播放的音訊
+      const audio = audioRef.current;
+      audio.pause();
+      audio.currentTime = 0;
     }
 
     // 從影片模式切回音訊模式時，根據 isPlaying 狀態決定是否播放
     if (displayMode !== 'video' && audioRef.current && isPlaying && !isLoadingTrack) {
       const audio = audioRef.current;
+      // 確保時間沒有重置在 0，如果被影片播放器改動了則恢復
       if (audio.paused && audio.readyState >= 2) {
         console.log('🔄 從影片模式切回，恢復音訊播放');
         audio.play().catch(console.error);
       }
+    }
+    
+    // 進入影片模式時，記住當前音訊位置（以便切回時恢復）
+    if (displayMode === 'video' && audioRef.current && audioRef.current.currentTime > 0) {
+      console.log(`📍 切換到影片模式，記住音訊位置: ${audioRef.current.currentTime.toFixed(2)}s`);
     }
 
     // 清理：移除可能殘留的 canplay 監聽器
