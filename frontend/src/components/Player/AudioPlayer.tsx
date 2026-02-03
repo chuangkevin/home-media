@@ -266,11 +266,22 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
                 }
               }, 5000);
             } else {
-              // readyState 0 表示沒有任何數據，可能載入失敗
-              console.error(`❌ Audio failed to load (readyState: ${audio.readyState}): ${pendingTrack.title}`);
-              setIsLoading(false);
-              dispatch(cancelPendingTrack());
-              dispatch(setIsPlaying(false));
+              // readyState 0 表示還沒開始加載，再等 15 秒
+              // （設定 src 後瀏覽器需要時間開始載入）
+              console.warn(`⚠️ Audio not started loading (readyState: 0), waiting 15 more seconds...`);
+              setTimeout(() => {
+                if (!hasConfirmed) {
+                  if (audio.readyState >= 1) {
+                    console.warn(`⚠️ Audio started loading after delay, confirming...`);
+                    confirmAndPlay('delayed-start-confirm');
+                  } else {
+                    console.error(`❌ Audio failed to start loading (readyState: ${audio.readyState}): ${pendingTrack.title}`);
+                    setIsLoading(false);
+                    dispatch(cancelPendingTrack());
+                    dispatch(setIsPlaying(false));
+                  }
+                }
+              }, 15000);
             }
           }
         }, 10000);
