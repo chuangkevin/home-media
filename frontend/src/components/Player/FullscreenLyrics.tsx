@@ -84,6 +84,31 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 獲取播放狀態
   const { isPlaying: audioIsPlaying } = useSelector((state: RootState) => state.player);
 
+  // 當切換到影片模式時，暫停並靜音 AudioPlayer
+  useEffect(() => {
+    const audioElement = document.querySelector('audio') as HTMLAudioElement | null;
+    if (!audioElement) return;
+
+    if (viewMode === 'video' && open) {
+      // 儲存當前播放狀態
+      const wasPlaying = !audioElement.paused;
+      // 暫停音訊
+      audioElement.pause();
+      // 靜音音訊（雙重保險）
+      audioElement.muted = true;
+      console.log('🎬 FullscreenLyrics: 切換到影片模式，音訊已暫停並靜音');
+      
+      return () => {
+        // 離開影片模式時，恢復音訊
+        audioElement.muted = false;
+        if (wasPlaying && viewMode !== 'video') {
+          console.log('🎵 FullscreenLyrics: 離開影片模式，恢復音訊播放');
+          audioElement.play().catch(err => console.warn('恢復音訊播放失敗:', err));
+        }
+      };
+    }
+  }, [viewMode, open]);
+
   // 載入 YouTube IFrame API
   useEffect(() => {
     if (!window.YT) {
@@ -141,9 +166,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
+              // 只有在影片模式才處理狀態變化
+              if (viewMode !== 'video') return;
               // YT.PlayerState: PLAYING=1, PAUSED=2, BUFFERING=3
               if (event.data === 1) {
-                // 影片開始播放，同步播放狀態
+                // 影片開始播放，更新播放狀態（但不觸發音訊播放）
                 dispatch(setIsPlaying(true));
               } else if (event.data === 2) {
                 // 影片暫停
@@ -180,9 +207,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     };
   }, [open, viewMode, track.videoId]);
 
-  // 同步影片播放時間到 Redux
+  // 同步影片播放時間到 Redux（只在影片模式且實際可見時）
   useEffect(() => {
-    if (!videoReady || viewMode !== 'video' || !playerRef.current) {
+    if (!videoReady || viewMode !== 'video' || !playerRef.current || !open) {
       if (videoTimeSyncRef.current) {
         clearInterval(videoTimeSyncRef.current);
         videoTimeSyncRef.current = null;
@@ -190,10 +217,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       return;
     }
 
+    let lastUpdateTime = -1;
     videoTimeSyncRef.current = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime) {
         const videoTime = playerRef.current.getCurrentTime();
-        if (typeof videoTime === 'number' && !isNaN(videoTime)) {
+        // 只在時間有實際變化時才更新（避免無意義的 dispatch）
+        if (typeof videoTime === 'number' && !isNaN(videoTime) && Math.abs(videoTime - lastUpdateTime) > 0.2) {
+          lastUpdateTime = videoTime;
           dispatch(setCurrentTime(videoTime));
         }
       }
@@ -205,7 +235,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         videoTimeSyncRef.current = null;
       }
     };
-  }, [videoReady, viewMode, dispatch]);
+  }, [videoReady, viewMode, open, dispatch]);
 
   // 同步播放/暫停狀態到影片
   useEffect(() => {
