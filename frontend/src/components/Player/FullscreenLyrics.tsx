@@ -25,7 +25,7 @@ import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying, setCurrentTime } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, setCurrentTime, clearSeekTarget } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -51,7 +51,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
-  const { currentTime, playlist, currentIndex } = useSelector((state: RootState) => state.player);
+  const { currentTime, playlist, currentIndex, seekTarget } = useSelector((state: RootState) => state.player);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -101,13 +101,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       return () => {
         // 離開影片模式時，恢復音訊
         audioElement.muted = false;
-        if (wasPlaying && viewMode !== 'video') {
+        // 檢查現在的 isPlaying 狀態（不是之前的 wasPlaying）
+        if (audioIsPlaying) {
           console.log('🎵 FullscreenLyrics: 離開影片模式，恢復音訊播放');
           audioElement.play().catch(err => console.warn('恢復音訊播放失敗:', err));
         }
       };
     }
-  }, [viewMode, open]);
+  }, [viewMode, open, audioIsPlaying]);
 
   // 載入 YouTube IFrame API
   useEffect(() => {
@@ -251,6 +252,19 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       // 忽略播放器尚未準備好的錯誤
     }
   }, [audioIsPlaying, videoReady, viewMode]);
+
+  // 處理影片 seek 操作（拖動進度條）
+  useEffect(() => {
+    if (!videoReady || viewMode !== 'video' || !playerRef.current || seekTarget === null) return;
+
+    try {
+      console.log(`🎬 FullscreenLyrics: 影片跳轉到 ${seekTarget.toFixed(1)}s`);
+      playerRef.current.seekTo(seekTarget, true);
+      dispatch(clearSeekTarget());
+    } catch (e) {
+      console.error('🎬 影片跳轉失敗:', e);
+    }
+  }, [seekTarget, videoReady, viewMode, dispatch]);
 
   // 載入儲存的偏好設定
   useEffect(() => {
