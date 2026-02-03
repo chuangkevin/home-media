@@ -78,6 +78,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // YouTube 播放器狀態
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [videoErrorCode, setVideoErrorCode] = useState<number | null>(null);
   const [videoReady, setVideoReady] = useState(false);
   const videoTimeSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -180,11 +181,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               if (!isMounted) return;
               // YouTube 嵌入錯誤
               const errorCode = event.data;
+              setVideoErrorCode(errorCode);
+              
               let errorMsg = '影片載入失敗';
               if (errorCode === 101 || errorCode === 150) {
                 errorMsg = '此影片不允許嵌入播放';
               } else if (errorCode === 2) {
                 errorMsg = '影片 ID 無效';
+              } else if (errorCode === 5) {
+                errorMsg = 'HTML5 播放器錯誤';
+              } else if (errorCode === 100) {
+                errorMsg = '找不到影片';
               }
               
               console.error(`🎬 YouTube 播放錯誤 (${errorCode}): ${errorMsg}`);
@@ -640,7 +647,37 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', p: 3, gap: 2 }}>
           <Alert severity="error" sx={{ width: '100%', maxWidth: 500 }}>
             {videoError}
+            {videoErrorCode && (
+              <Typography variant="caption" display="block" sx={{ mt: 1, opacity: 0.8 }}>
+                錯誤代碼: {videoErrorCode}
+              </Typography>
+            )}
           </Alert>
+          
+          <Box sx={{ 
+            p: 2, 
+            backgroundColor: 'rgba(255,255,255,0.05)', 
+            borderRadius: 1, 
+            width: '100%', 
+            maxWidth: 500 
+          }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              診斷資訊：
+            </Typography>
+            <Typography variant="caption" component="pre" sx={{ 
+              color: 'text.primary', 
+              fontFamily: 'monospace',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all'
+            }}>
+              Video ID: {track.videoId}{'\n'}
+              User Agent: {navigator.userAgent.substring(0, 100)}...{'\n'}
+              Platform: {navigator.platform}{'\n'}
+              Touch: {('ontouchstart' in window) ? 'Yes' : 'No'}{'\n'}
+              iOS: {/iPad|iPhone|iPod/.test(navigator.userAgent) ? 'Yes' : 'No'}
+            </Typography>
+          </Box>
+          
           <Typography variant="body1" color="text.primary" sx={{ textAlign: 'center' }}>
             此影片無法在應用程式中播放
           </Typography>
