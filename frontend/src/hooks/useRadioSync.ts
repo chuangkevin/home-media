@@ -45,6 +45,7 @@ export function useRadioSync() {
   // 聽眾同步防抖：避免連續 seek 導致跳針
   const lastSyncTimeRef = useRef<number>(0);
   const lastSeekTimeRef = useRef<number>(0); // 記錄上次 seek 時間
+  const hasPlayedRef = useRef<boolean>(false); // 追蹤是否已經開始播放過
 
   // 聽眾載入超時計時器
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -210,6 +211,8 @@ export function useRadioSync() {
       }
       // 記錄載入完成時間，給予靜默期避免立刻 seek 跳針
       loadCompletedAtRef.current = Date.now();
+      // 重置播放狀態標記（新曲目需要重新開始播放）
+      hasPlayedRef.current = false;
       console.log('📻 [Listener] Track loaded successfully');
     }
     prevIsLoadingTrackRef.current = isLoadingTrack;
@@ -254,6 +257,16 @@ export function useRadioSync() {
 
     // 載入完成後的靜默期（避免剛載入完就被 seek 跳針）
     if (now - loadCompletedAtRef.current < POST_LOAD_GRACE_MS) {
+      return;
+    }
+
+    // 首次播放時，不進行同步，讓音訊自然開始播放
+    // 只有在已經播放一段時間後才開始時間同步
+    if (!hasPlayedRef.current && currentTime < 3) {
+      // 如果已經播放超過 3 秒，標記為已播放
+      if (currentTime > 0) {
+        hasPlayedRef.current = true;
+      }
       return;
     }
 
