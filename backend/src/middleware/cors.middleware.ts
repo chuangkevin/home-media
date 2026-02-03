@@ -9,7 +9,10 @@ export const corsMiddleware = cors({
     // 檢查是否使用萬用字元 '*' 允許所有來源
     const allowAll = config.cors.allowedOrigins.includes('*');
 
-    if (allowAll || config.cors.allowedOrigins.includes(origin) || config.env === 'development') {
+    // 開發環境允許所有 localhost 來源（5173, 5174, 3001 等）
+    const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('[::1]');
+    
+    if (allowAll || config.cors.allowedOrigins.includes(origin) || config.env === 'development' || isLocalhost) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
