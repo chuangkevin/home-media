@@ -171,6 +171,9 @@ class SocketService {
       console.log('Socket connected:', this.socket?.id);
       this.callbacks.onConnected?.(true);
       this.registerDevice();
+      
+      // 自動重連電台（刷新後恢復）
+      this.autoReconnectRadio();
     });
 
     this.socket.on('disconnect', () => {
@@ -307,25 +310,40 @@ class SocketService {
 
   // 建立電台
   createRadioStation(stationName?: string, djName?: string): void {
-    this.socket?.emit('radio:create', {
+    const hostData = {
       deviceId: this.deviceId,
       hostName: djName || this.deviceName,
       stationName,
-    });
+    };
+    
+    // 保存到 localStorage 用於刷新後恢復
+    localStorage.setItem('radio_host_data', JSON.stringify(hostData));
+    
+    this.socket?.emit('radio:create', hostData);
   }
 
   // 關閉電台
   closeRadioStation(): void {
+    // 清除 localStorage
+    localStorage.removeItem('radio_host_data');
+    localStorage.removeItem('radio_listener_data');
+    
     this.socket?.emit('radio:close');
   }
 
   // 加入電台
   joinRadioStation(stationId: string): void {
+    // 保存到 localStorage 用於刷新後恢復
+    localStorage.setItem('radio_listener_data', JSON.stringify({ stationId }));
+    
     this.socket?.emit('radio:join', { stationId });
   }
 
   // 離開電台
   leaveRadioStation(): void {
+    // 清除 localStorage
+    localStorage.removeItem('radio_listener_data');
+    
     this.socket?.emit('radio:leave');
   }
 
@@ -337,6 +355,45 @@ class SocketService {
   // 檢查是否有待接管的電台
   checkPendingStation(): void {
     this.socket?.emit('radio:check-pending', { deviceId: this.deviceId });
+  }
+
+  // 自動重連電台（刷新後恢復）
+  private autoReconnectRadio(): void {
+    // 延遲 500ms 讓 socket 事件監聽器設置完成
+    setTimeout(() => {
+      // 檢查是否是 DJ（有保存的主播資料）
+      const hostDataStr = localStorage.getItem('radio_host_data');
+      if (hostDataStr) {
+        try {
+          const hostData = JSON.parse(hostDataStr);
+          console.log('📻 檢測到未關閉的電台，嘗試重新創建:', hostData.stationName);
+          // 檢查是否有待接管的電台
+          this.checkPendingStation();
+        } catch (e) {
+          console.error('Failed to parse host data:', e);
+          localStorage.removeItem('radio_host_data');
+        }
+        return;
+      }
+
+      // 檢查是否是聽眾（有保存的聽眾資料）
+      const listenerDataStr = localStorage.getItem('radio_listener_data');
+      if (listenerDataStr) {
+        try {
+          const listenerData = JSON.parse(listenerDataStr);
+          console.log('📻 檢測到刷新前正在收聽電台，嘗試重新加入:', listenerData.stationId);
+          // 先發現電台列表，確認電台還存在
+          this.discoverRadioStations();
+          // 延遲一下讓 discover 完成，然後嘗試加入
+          setTimeout(() => {
+            this.joinRadioStation(listenerData.stationId);
+          }, 500);
+        } catch (e) {
+          console.error('Failed to parse listener data:', e);
+          localStorage.removeItem('radio_listener_data');
+        }
+      }
+    }, 500);
   }
 
   // 主播：曲目變更
