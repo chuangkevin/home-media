@@ -17,9 +17,9 @@ import {
 // ===== 常數配置 =====
 const TIME_SYNC_INTERVAL_MS = 3000; // 主播時間同步間隔（3 秒）
 const SYNC_COOLDOWN_MS = 5000; // 聽眾同步冷卻時間（5 秒，給足緩衝時間）
-const TIME_DIFF_THRESHOLD = 3; // 時間差閾值（3 秒才同步，避免頻繁 seek）
+const TIME_DIFF_THRESHOLD = 10; // 時間差閾值（10 秒才同步，避免打斷緩衝）
 const LOAD_TIMEOUT_MS = 15000; // 聽眾載入超時（15 秒）
-const POST_LOAD_GRACE_MS = 3000; // 載入完成後的靜默期（避免立刻跳針）
+const POST_LOAD_GRACE_MS = 5000; // 載入完成後的靜默期（5 秒，讓音訊完整緩衝）
 const SEEK_COOLDOWN_MS = 8000; // seek 後的冷卻時間（8 秒，等待緩衝完成）
 
 /**
