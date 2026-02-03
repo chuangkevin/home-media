@@ -53,6 +53,11 @@ export function useRadioSync() {
   const prevIsLoadingTrackRef = useRef<boolean>(false);
   // 載入完成後的靜默期時間戳
   const loadCompletedAtRef = useRef<number>(0);
+  
+  // 電台無活動檢測計時器
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+  const INACTIVITY_TIMEOUT = 30000; // 30 秒無活動自動離開
 
   // 設定電台回調（在連線後執行）
   useEffect(() => {
@@ -70,7 +75,17 @@ export function useRadioSync() {
         dispatch(syncState(data));
       },
       onRadioClosed: () => {
+        console.log('📻 [Listener] Station closed by DJ');
         dispatch(stationClosed());
+        
+        // DJ 關閉電台，聽眾自動恢復本地播放
+        if (isListener) {
+          console.log('📻 [Listener] Auto-resuming local playback after station closed');
+          // 如果有曲目但沒在播放，自動播放
+          if (currentTrack && !isPlaying) {
+            dispatch(setIsPlaying(true));
+          }
+        }
       },
       onRadioListenerJoined: (data) => {
         dispatch(setListenerCount(data.listenerCount));
@@ -79,7 +94,14 @@ export function useRadioSync() {
         dispatch(setListenerCount(data.listenerCount));
       },
       onRadioLeft: () => {
+        console.log('📻 [Listener] Left station');
         dispatch(leaveStation());
+        
+        // 離開電台後，恢復本地播放
+        if (currentTrack && !isPlaying) {
+          console.log('📻 [Listener] Auto-resuming local playback after leaving');
+          dispatch(setIsPlaying(true));
+        }
       },
       onRadioError: (data) => {
         console.error('Radio error:', data.message);
@@ -248,6 +270,32 @@ export function useRadioSync() {
 
     dispatch(setIsPlaying(syncIsPlaying));
   }, [isListener, syncIsPlaying, isLoadingTrack, dispatch]);
+
+  // DJ 無活動監測 - 30秒無同步訊息則自動離開並恢復本地播放
+  useEffect(() => {
+    if (!isListener || !syncTrack) return;
+
+    // 更新活動時間
+    lastActivityRef.current = Date.now();
+
+    // 清除舊的計時器
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+    }
+
+    // 啟動新的計時器
+    inactivityTimerRef.current = setTimeout(() => {
+      console.warn('📻 [Listener] DJ inactive for 30s, auto-leaving station and resuming local playback...');
+      socketService.leaveRadioStation();
+      // 離開時會觸發 onRadioLeft 回調，自動恢復播放
+    }, INACTIVITY_TIMEOUT);
+
+    return () => {
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+      }
+    };
+  }, [isListener, syncTrack, syncTime, syncIsPlaying]);
 
   // 當收到顯示模式變更時
   useEffect(() => {
