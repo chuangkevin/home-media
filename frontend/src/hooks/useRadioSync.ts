@@ -210,10 +210,11 @@ export function useRadioSync() {
         loadTimeoutRef.current = null;
       }
       // 記錄載入完成時間，給予靜默期避免立刻 seek 跳針
-      loadCompletedAtRef.current = Date.now();
+      const now = Date.now();
+      loadCompletedAtRef.current = now;
       // 重置播放狀態標記（新曲目需要重新開始播放）
       hasPlayedRef.current = false;
-      console.log('📻 [Listener] Track loaded successfully');
+      console.log('📻 [Listener] Track loaded successfully, grace period until', new Date(now + POST_LOAD_GRACE_MS).toLocaleTimeString());
     }
     prevIsLoadingTrackRef.current = isLoadingTrack;
   }, [isListener, isLoadingTrack]);
@@ -254,9 +255,11 @@ export function useRadioSync() {
     if (isLoadingTrack) return;
 
     const now = Date.now();
+    const timeSinceLoad = now - loadCompletedAtRef.current;
 
     // 載入完成後的靜默期（避免剛載入完就被 seek 跳針）
-    if (now - loadCompletedAtRef.current < POST_LOAD_GRACE_MS) {
+    if (timeSinceLoad < POST_LOAD_GRACE_MS) {
+      console.log(`📻 [Listener] Grace period active (${(timeSinceLoad / 1000).toFixed(1)}s / ${POST_LOAD_GRACE_MS / 1000}s), skipping sync`);
       return;
     }
 
