@@ -135,8 +135,16 @@ export function useRadioSync() {
       return;
     }
 
+    // 立即發送一次時間同步
+    socketService.radioTimeSync(currentTime);
+    console.log('📻 [Host] Starting time sync, initial time:', currentTime.toFixed(1));
+
     timeSyncIntervalRef.current = setInterval(() => {
-      socketService.radioTimeSync(currentTime);
+      // 使用 audioElement 獲取實時時間，避免 stale closure
+      const audioElement = document.querySelector('audio');
+      const realTime = audioElement?.currentTime || 0;
+      socketService.radioTimeSync(realTime);
+      console.log('📻 [Host] Time sync:', realTime.toFixed(1));
     }, TIME_SYNC_INTERVAL_MS);
 
     return () => {
@@ -145,7 +153,7 @@ export function useRadioSync() {
         timeSyncIntervalRef.current = null;
       }
     };
-  }, [isHost, isPlaying, currentTime]);
+  }, [isHost, isPlaying]); // 移除 currentTime 依賴，避免頻繁重建 interval
 
   // 同步顯示模式變更
   useEffect(() => {
