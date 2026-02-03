@@ -74,12 +74,13 @@ class AudioCacheService {
       const brand = buf.toString('ascii', 8, 12);
       if (brand !== 'dash') return; // 已經是標準 m4a，不需要 remux
 
-      const tmpOut = `${filePath}.remux.tmp`;
+      const tmpOut = `${filePath}.remux.m4a`;
       logger.info(`🔧 [Remux] Fixing DASH container: ${path.basename(filePath)}`);
       execFileSync(ffmpegPath, [
         '-i', filePath,
         '-c', 'copy',
         '-movflags', '+faststart',
+        '-f', 'mp4',  // 明確指定輸出格式
         '-y',
         tmpOut,
       ], { timeout: 30000, stdio: 'pipe' });
