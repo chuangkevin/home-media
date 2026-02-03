@@ -26,6 +26,9 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
   const currentVideoIdRef = useRef<string | null>(null);
   const currentBlobUrlRef = useRef<string | null>(null);
   const pendingBlobUrlRef = useRef<string | null>(null);
+  const lastAudioSrcRef = useRef<string | null>(null);
+  const lastAudioTimeRef = useRef<number>(0);
+  const lastAudioMutedRef = useRef<boolean>(false);
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
 
@@ -375,22 +378,48 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
   // 當播放狀態改變時（影片模式下不播放音訊）
   useEffect(() => {
-    if (!audioRef.current || !currentTrack) return;
-    
+    if (!audioRef.current) return;
+
     let playWhenReadyHandler: (() => void) | null = null;
     const audio = audioRef.current;
 
     if (displayMode === 'video') {
-      // 🎬 進入影片模式：停止音訊
+      // 🎬 進入影片模式：完全停止音訊
+      if (audio.src) {
+        lastAudioSrcRef.current = audio.currentSrc || audio.src;
+      }
+      lastAudioTimeRef.current = audio.currentTime || 0;
+      lastAudioMutedRef.current = audio.muted;
+
       if (!audio.paused) {
         audio.pause();
         console.log('⏸️ 暫停音訊，切換到影片模式');
       }
-      // 不重置時間，這樣返回時可以從正確位置恢復
+
+      audio.muted = true;
+
+      if (audio.src) {
+        audio.src = '';
+        audio.load();
+      }
     } else {
-      // 🎵 返回音訊模式：根據 isPlaying 決定是否恢復播放
+      // 🎵 返回音訊模式：恢復音訊狀態
+      if (!audio.src && lastAudioSrcRef.current) {
+        audio.src = lastAudioSrcRef.current;
+        audio.load();
+      }
+
+      audio.muted = lastAudioMutedRef.current;
+
+      if (lastAudioTimeRef.current > 0 && audio.readyState >= 1) {
+        try {
+          audio.currentTime = lastAudioTimeRef.current;
+        } catch {
+          // 忽略設置時間失敗
+        }
+      }
+
       if (isPlaying && !isLoadingTrack) {
-        // 只有在音訊暫停時才嘗試播放
         if (audio.paused && audio.readyState >= 2) {
           console.log('🔄 從影片模式切回，恢復音訊播放');
           audio.play().catch((error) => {
@@ -398,7 +427,6 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
             dispatch(setIsPlaying(false));
           });
         } else if (audio.paused && audio.readyState < 2) {
-          // 音訊還沒準備好，等待 canplay 事件再播放
           playWhenReadyHandler = () => {
             if (displayModeRef.current !== 'video') {
               audio.play().catch((error) => {
@@ -410,18 +438,16 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
           audio.addEventListener('canplay', playWhenReadyHandler, { once: true });
         }
       } else if (!isPlaying && !audio.paused) {
-        // 如果 isPlaying 為 false 但音訊還在播放，暫停它
         audio.pause();
       }
     }
 
-    // 清理：移除可能殘留的 canplay 監聽器
     return () => {
       if (playWhenReadyHandler && audioRef.current) {
         audioRef.current.removeEventListener('canplay', playWhenReadyHandler);
       }
     };
-  }, [displayMode, isPlaying, isLoadingTrack, currentTrack, dispatch]);
+  }, [displayMode, isPlaying, isLoadingTrack, dispatch]);
 
   // 當音量改變時
   useEffect(() => {
