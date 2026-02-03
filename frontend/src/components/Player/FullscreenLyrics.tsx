@@ -90,8 +90,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     if (!audioElement) return;
 
     if (viewMode === 'video' && open) {
-      // 儲存當前播放狀態
-      const wasPlaying = !audioElement.paused;
       // 暫停音訊
       audioElement.pause();
       // 靜音音訊（雙重保險）
@@ -101,7 +99,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       return () => {
         // 離開影片模式時，恢復音訊
         audioElement.muted = false;
-        // 檢查現在的 isPlaying 狀態（不是之前的 wasPlaying）
+        // 檢查現在的 isPlaying 狀態
         if (audioIsPlaying) {
           console.log('🎵 FullscreenLyrics: 離開影片模式，恢復音訊播放');
           audioElement.play().catch(err => console.warn('恢復音訊播放失敗:', err));
