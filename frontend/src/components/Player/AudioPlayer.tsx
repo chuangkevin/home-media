@@ -20,7 +20,7 @@ interface AudioPlayerProps {
 export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
+  const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex, currentTime } = useSelector((state: RootState) => state.player);
   const [isLoading, setIsLoading] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const currentVideoIdRef = useRef<string | null>(null);
@@ -109,9 +109,9 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         setIsCached(false);
         setDownloadProgress(null);
 
-        // 先觸發後端預加載（準備 yt-dlp URL），確保後端準備好再播放
+        // 先觸發後端預加載（準備 yt-dlp URL），等待完成確保後端準備好
         console.log(`🔄 預加載後端 URL: ${pendingTrack.title}`);
-        await apiService.preloadAudio(videoId);
+        await apiService.preloadAudioWait(videoId);
         console.log(`✅ 後端 URL 準備完成: ${pendingTrack.title}`);
 
         // 檢查伺服器端快取狀態（這是唯一的快取來源指標）
@@ -175,13 +175,12 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         const oldBlobUrl = currentBlobUrlRef.current;
         const audio = audioRef.current!;
 
-        // 停止並清空舊音訊（避免舊音訊繼續播放）
+        // 停止舊音訊（避免舊音訊繼續播放）
         audio.pause();
         audio.currentTime = 0;
-        audio.src = ''; // 清空舊的 src
-        audio.load(); // 重置 audio 元素狀態
 
         // 設置新音訊源
+        console.log(`🎵 Setting audio.src = ${audioSrc}`);
         audio.src = audioSrc;
         currentVideoIdRef.current = videoId;
         currentBlobUrlRef.current = null; // 不再使用 blob URL
@@ -289,7 +288,9 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
           }
         }, 10000);
 
+        console.log(`🔄 Calling audio.load() for: ${pendingTrack.title}`);
         audio.load();
+        console.log(`✅ audio.load() completed, readyState: ${audio.readyState}`);
 
         // 並行獲取歌詞（先查本地快取，再檢查使用者偏好，最後查後端）
         dispatch(setLyricsLoading(true));
@@ -411,9 +412,11 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
       audio.muted = lastAudioMutedRef.current;
 
-      if (lastAudioTimeRef.current > 0 && audio.readyState >= 1) {
+      // 恢復音訊時間（從 Redux 獲取最新時間，已由 VideoPlayer 同步）
+      if (currentTime > 0 && audio.readyState >= 1) {
         try {
-          audio.currentTime = lastAudioTimeRef.current;
+          audio.currentTime = currentTime;
+          console.log(`🔄 從影片模式切回，同步時間: ${currentTime.toFixed(1)}s`);
         } catch {
           // 忽略設置時間失敗
         }
