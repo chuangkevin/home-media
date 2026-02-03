@@ -117,11 +117,29 @@ async function networkFirst(request) {
     const response = await fetch(request);
     return response;
   } catch (error) {
+    console.warn('[SW] Network first fetch failed for:', request.url, error);
+    
+    // 嘗試從緩存獲取
     const cached = await caches.match(request);
     if (cached) {
+      console.log('[SW] Returning cached response for:', request.url);
       return cached;
     }
-    throw error;
+    
+    // 如果既沒有網絡也沒有緩存，返回 503 Service Unavailable
+    // 而不是拋出錯誤，讓應用有機會優雅地處理
+    console.error('[SW] No network and no cache for:', request.url);
+    return new Response(
+      JSON.stringify({ 
+        error: 'Service Unavailable',
+        message: 'Network request failed and no cached response available'
+      }),
+      { 
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
   }
 }
 
@@ -135,8 +153,11 @@ async function networkFirstWithFallback(request) {
     }
     return response;
   } catch (error) {
+    console.warn('[SW] Network first with fallback failed for:', request.url, error);
+    
     const cached = await caches.match(request);
     if (cached) {
+      console.log('[SW] Returning cached response for:', request.url);
       return cached;
     }
 
@@ -144,11 +165,20 @@ async function networkFirstWithFallback(request) {
     if (request.mode === 'navigate') {
       const indexCache = await caches.match('/index.html');
       if (indexCache) {
+        console.log('[SW] Returning cached index.html for navigate request');
         return indexCache;
       }
     }
 
-    throw error;
+    // 返回 503 而不是拋出錯誤
+    console.error('[SW] No fallback available for:', request.url);
+    return new Response(
+      'Service Unavailable',
+      { 
+        status: 503,
+        statusText: 'Service Unavailable'
+      }
+    );
   }
 }
 
