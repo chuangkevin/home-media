@@ -215,9 +215,13 @@ export function useRadioSync() {
       // 重置播放狀態標記（新曲目需要重新開始播放）
       hasPlayedRef.current = false;
       console.log('📻 [Listener] Track loaded successfully, grace period until', new Date(now + POST_LOAD_GRACE_MS).toLocaleTimeString());
+      
+      // 載入完成後，立即同步播放狀態（如果 DJ 正在播放，Listener 也要播放）
+      dispatch(setIsPlaying(syncIsPlaying));
+      console.log('📻 [Listener] Synced play state after load:', syncIsPlaying);
     }
     prevIsLoadingTrackRef.current = isLoadingTrack;
-  }, [isListener, isLoadingTrack]);
+  }, [isListener, isLoadingTrack, syncIsPlaying, dispatch]);
 
   // 清理載入超時
   useEffect(() => {
