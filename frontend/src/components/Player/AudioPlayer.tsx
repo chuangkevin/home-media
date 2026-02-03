@@ -410,20 +410,39 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         audio.pause();
       }
     } else if (audioRef.current && displayMode === 'video') {
-      // 在影片模式下完全停止音訊播放器（暫停 + 重置時間）
-      // 確保不會有重複播放的音訊
+      // 在影片模式下停止音訊播放
       const audio = audioRef.current;
-      audio.pause();
-      audio.currentTime = 0;
+      
+      // 如果正在播放，立即暫停
+      if (!audio.paused) {
+        audio.pause();
+        console.log('⏸️ 暫停音訊，切換到影片模式');
+      }
+      
+      // 重置時間位置，防止返回時從錯誤位置播放
+      if (audio.currentTime > 0) {
+        audio.currentTime = 0;
+      }
     }
 
     // 從影片模式切回音訊模式時，根據 isPlaying 狀態決定是否播放
-    if (displayMode !== 'video' && audioRef.current && isPlaying && !isLoadingTrack) {
+    if (displayMode !== 'video' && audioRef.current && currentTrack) {
       const audio = audioRef.current;
-      // 確保時間沒有重置在 0，如果被影片播放器改動了則恢復
-      if (audio.paused && audio.readyState >= 2) {
-        console.log('🔄 從影片模式切回，恢復音訊播放');
-        audio.play().catch(console.error);
+      
+      // 確保時間重置到 0（影片播放器可能改動過）
+      if (audio.currentTime !== 0) {
+        audio.currentTime = 0;
+      }
+      
+      // 根據播放狀態決定是否播放
+      if (isPlaying && !isLoadingTrack) {
+        if (audio.paused && audio.readyState >= 2) {
+          console.log('🔄 從影片模式切回，恢復音訊播放');
+          audio.play().catch((error) => {
+            console.error('Failed to resume playback:', error);
+            dispatch(setIsPlaying(false));
+          });
+        }
       }
     }
     
