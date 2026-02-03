@@ -375,80 +375,44 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
   // 當播放狀態改變時（影片模式下不播放音訊）
   useEffect(() => {
+    if (!audioRef.current || !currentTrack) return;
+    
     let playWhenReadyHandler: (() => void) | null = null;
+    const audio = audioRef.current;
 
-    if (audioRef.current && displayMode !== 'video') {
-      const audio = audioRef.current;
-      if (isPlaying && !isLoadingTrack) {
-        // 如果音訊已經準備好，直接播放
-        if (audio.readyState >= 2) {
-          audio.play().catch((error) => {
-            console.error('Failed to play:', error);
-            if (error.name === 'NotAllowedError') {
-              setAutoplayBlocked(true);
-            } else {
-              dispatch(setIsPlaying(false));
-            }
-          });
-        } else {
-          // 如果音訊還沒準備好，等待 canplay 事件
-          playWhenReadyHandler = () => {
-            // 再次確認不是影片模式（防止 displayMode 在等待期間變化）
-            if (displayModeRef.current === 'video') return;
-            audio.play().catch((error) => {
-              console.error('Failed to play:', error);
-              if (error.name === 'NotAllowedError') {
-                setAutoplayBlocked(true);
-              } else {
-                dispatch(setIsPlaying(false));
-              }
-            });
-          };
-          audio.addEventListener('canplay', playWhenReadyHandler, { once: true });
-        }
-      } else if (!isPlaying) {
-        audio.pause();
-      }
-    } else if (audioRef.current && displayMode === 'video') {
-      // 在影片模式下停止音訊播放
-      const audio = audioRef.current;
-      
-      // 如果正在播放，立即暫停
+    if (displayMode === 'video') {
+      // 🎬 進入影片模式：停止音訊
       if (!audio.paused) {
         audio.pause();
         console.log('⏸️ 暫停音訊，切換到影片模式');
       }
-      
-      // 重置時間位置，防止返回時從錯誤位置播放
-      if (audio.currentTime > 0) {
-        audio.currentTime = 0;
-      }
-    }
-
-    // 從影片模式切回音訊模式時，根據 isPlaying 狀態決定是否播放
-    if (displayMode !== 'video' && audioRef.current && currentTrack) {
-      const audio = audioRef.current;
-      
-      // 確保時間重置到 0（影片播放器可能改動過）
-      if (audio.currentTime !== 0) {
-        audio.currentTime = 0;
-      }
-      
-      // 根據播放狀態決定是否播放
+      // 不重置時間，這樣返回時可以從正確位置恢復
+    } else {
+      // 🎵 返回音訊模式：根據 isPlaying 決定是否恢復播放
       if (isPlaying && !isLoadingTrack) {
+        // 只有在音訊暫停時才嘗試播放
         if (audio.paused && audio.readyState >= 2) {
           console.log('🔄 從影片模式切回，恢復音訊播放');
           audio.play().catch((error) => {
             console.error('Failed to resume playback:', error);
             dispatch(setIsPlaying(false));
           });
+        } else if (audio.paused && audio.readyState < 2) {
+          // 音訊還沒準備好，等待 canplay 事件再播放
+          playWhenReadyHandler = () => {
+            if (displayModeRef.current !== 'video') {
+              audio.play().catch((error) => {
+                console.error('Failed to resume after ready:', error);
+                dispatch(setIsPlaying(false));
+              });
+            }
+          };
+          audio.addEventListener('canplay', playWhenReadyHandler, { once: true });
         }
+      } else if (!isPlaying && !audio.paused) {
+        // 如果 isPlaying 為 false 但音訊還在播放，暫停它
+        audio.pause();
       }
-    }
-    
-    // 進入影片模式時，記住當前音訊位置（以便切回時恢復）
-    if (displayMode === 'video' && audioRef.current && audioRef.current.currentTime > 0) {
-      console.log(`📍 切換到影片模式，記住音訊位置: ${audioRef.current.currentTime.toFixed(2)}s`);
     }
 
     // 清理：移除可能殘留的 canplay 監聽器
@@ -457,7 +421,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         audioRef.current.removeEventListener('canplay', playWhenReadyHandler);
       }
     };
-  }, [isPlaying, isLoadingTrack, displayMode, dispatch]);
+  }, [displayMode, isPlaying, isLoadingTrack, currentTrack, dispatch]);
 
   // 當音量改變時
   useEffect(() => {
