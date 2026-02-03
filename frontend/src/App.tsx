@@ -82,9 +82,9 @@ function App() {
       // 設置播放列表
       dispatch(setPlaylist(results));
 
-      // 預加載前 3 首歌曲（同時觸發後端和前端快取）
+      // 預加載第 1 首歌曲（最可能被播放，減少並發壓力）
       if (results.length > 0) {
-        const preloadCount = Math.min(3, results.length);
+        const preloadCount = Math.min(1, results.length);
         console.log(`🔄 預加載前 ${preloadCount} 首歌曲...`);
 
         results.slice(0, preloadCount).forEach(async (track, index) => {

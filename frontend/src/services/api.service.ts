@@ -45,10 +45,9 @@ class ApiService {
    */
   async preloadAudio(videoId: string): Promise<void> {
     try {
-      await this.api.post(`/preload/${videoId}`, {}, { timeout: 30000 });
+      await this.api.post(`/preload/${videoId}`, {}, { timeout: 60000 });
     } catch (error) {
-      // 忽略預加載錯誤，不影響主流程
-      console.warn(`Preload failed for ${videoId}:`, error);
+      // 忽略預加載錯誤，不影響主流程（靜默失敗）
     }
   }
 
@@ -264,7 +263,7 @@ class ApiService {
    */
   recordSearch(query: string, resultCount: number): void {
     this.api.post('/history/search', { query, resultCount }, { timeout: 5000 })
-      .catch(err => console.warn('recordSearch failed:', err.message));
+      .catch(() => {/* 靜默失敗，不影響用戶體驗 */});
   }
 
   /**
@@ -290,7 +289,7 @@ class ApiService {
   recordChannelWatch(channelName: string, channelThumbnail: string = ''): void {
     // 使用較短的 timeout 並忽略錯誤，避免影響播放體驗
     this.api.post('/history/channel', { channelName, channelThumbnail }, { timeout: 5000 })
-      .catch(err => console.warn('recordChannelWatch failed:', err.message));
+      .catch(() => {/* 靜默失敗，不影響用戶體驗 */});
   }
 
   /**
