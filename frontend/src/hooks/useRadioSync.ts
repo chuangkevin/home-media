@@ -16,10 +16,11 @@ import {
 
 // ===== 常數配置 =====
 const TIME_SYNC_INTERVAL_MS = 3000; // 主播時間同步間隔（3 秒）
-const SYNC_COOLDOWN_MS = 3000; // 聽眾同步冷卻時間（3 秒）
-const TIME_DIFF_THRESHOLD = 2; // 時間差閾值（2 秒才同步）
+const SYNC_COOLDOWN_MS = 5000; // 聽眾同步冷卻時間（5 秒，給足緩衝時間）
+const TIME_DIFF_THRESHOLD = 3; // 時間差閾值（3 秒才同步，避免頻繁 seek）
 const LOAD_TIMEOUT_MS = 15000; // 聽眾載入超時（15 秒）
-const POST_LOAD_GRACE_MS = 2000; // 載入完成後的靜默期（避免立刻跳針）
+const POST_LOAD_GRACE_MS = 3000; // 載入完成後的靜默期（避免立刻跳針）
+const SEEK_COOLDOWN_MS = 8000; // seek 後的冷卻時間（8 秒，等待緩衝完成）
 
 /**
  * 電台同步 Hook
@@ -43,6 +44,7 @@ export function useRadioSync() {
 
   // 聽眾同步防抖：避免連續 seek 導致跳針
   const lastSyncTimeRef = useRef<number>(0);
+  const lastSeekTimeRef = useRef<number>(0); // 記錄上次 seek 時間
 
   // 聽眾載入超時計時器
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -255,6 +257,12 @@ export function useRadioSync() {
       return;
     }
 
+    // seek 後的冷卻時間（等待緩衝完成）
+    if (now - lastSeekTimeRef.current < SEEK_COOLDOWN_MS) {
+      console.log(`📻 [Listener] Seek cooldown active, skipping sync`);
+      return;
+    }
+
     // 同步冷卻時間
     if (now - lastSyncTimeRef.current < SYNC_COOLDOWN_MS) {
       return;
@@ -265,6 +273,7 @@ export function useRadioSync() {
     if (timeDiff > TIME_DIFF_THRESHOLD) {
       console.log(`📻 [Listener] Syncing time: ${syncTime.toFixed(1)}s (diff: ${timeDiff.toFixed(1)}s)`);
       lastSyncTimeRef.current = now;
+      lastSeekTimeRef.current = now; // 記錄 seek 時間
       dispatch(seekTo(syncTime));
     }
   }, [isListener, syncTime, currentTime, isLoadingTrack, dispatch]);
