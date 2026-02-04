@@ -690,28 +690,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       dispatch(playNext());
     });
 
-    // 支援快進快退（如果瀏覽器支援）
-    try {
-      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-        const skipTime = details.seekOffset || 10;
-        if (audioRef.current) {
-          audioRef.current.currentTime = Math.max(audioRef.current.currentTime - skipTime, 0);
-        }
-      });
-
-      navigator.mediaSession.setActionHandler('seekforward', (details) => {
-        const skipTime = details.seekOffset || 10;
-        if (audioRef.current) {
-          audioRef.current.currentTime = Math.min(
-            audioRef.current.currentTime + skipTime,
-            audioRef.current.duration || 0
-          );
-        }
-      });
-    } catch {
-      // 某些瀏覽器不支援 seekbackward/seekforward
-    }
-
     console.log('🎵 Media Session API 已設定:', currentTrack.title);
 
     return () => {
@@ -721,8 +699,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         navigator.mediaSession.setActionHandler('pause', null);
         navigator.mediaSession.setActionHandler('previoustrack', null);
         navigator.mediaSession.setActionHandler('nexttrack', null);
-        navigator.mediaSession.setActionHandler('seekbackward', null);
-        navigator.mediaSession.setActionHandler('seekforward', null);
       } catch {
         // 忽略清理錯誤
       }
