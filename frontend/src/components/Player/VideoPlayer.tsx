@@ -103,7 +103,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId: track.videoId,
           playerVars: {
-            autoplay: 0, // 改為 0，由 onReady 手動控制播放
+            autoplay: 1, // 移動設備需要 autoplay: 1 才能正常加載
             enablejsapi: 1,
             playsinline: 1, // 行動裝置內嵌播放（不全螢幕）
             origin: window.location.origin,
