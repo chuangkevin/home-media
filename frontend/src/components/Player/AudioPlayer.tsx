@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, LinearProgress, Chip, IconButton, Tooltip } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton, Tooltip } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
@@ -9,7 +9,7 @@ import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack } from '../../store/playerSlice';
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
-import apiService, { type CacheStatus } from '../../services/api.service';
+import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 
@@ -65,7 +65,6 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
       try {
         // 重置快取狀態
         setIsCached(false);
-        setDownloadProgress(null);
 
         // 先觸發後端預加載（準備 yt-dlp URL），等待完成確保後端準備好
         console.log(`🔄 預加載後端 URL: ${pendingTrack.title}`);
@@ -745,20 +744,6 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
             <Typography variant="body2" color="text.secondary" noWrap>
               {displayTrack.channel}
             </Typography>
-
-            {/* 下載進度條 - 非快取曲目顯示（縮小版） */}
-            {!isCached && downloadProgress && downloadProgress.status === 'downloading' && (
-              <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <LinearProgress
-                  variant="determinate"
-                  value={downloadProgress.percentage}
-                  sx={{ width: 60, height: 3, borderRadius: 1.5, opacity: 0.7 }}
-                />
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', opacity: 0.7 }}>
-                  {downloadProgress.percentage}%
-                </Typography>
-              </Box>
-            )}
 
             <PlayerControls />
           </Box>
