@@ -26,16 +26,25 @@ class RecommendationService {
     try {
       logger.info(`[Recommend] Starting recommendation generation (page: ${page}, size: ${pageSize})`);
       
-      // 1. 獲取觀看過的頻道（按權重排序）
-      const channels = historyService.getWatchedChannels(100, 'popular');
-      logger.info(`[Recommend] Found ${channels.length} watched channels.`);
+      // 1. 獲取被隱藏的頻道列表
+      const hiddenChannels = new Set(
+        db.prepare('SELECT channel_name FROM hidden_channels')
+          .all()
+          .map((row: any) => row.channel_name)
+      );
+      logger.info(`[Recommend] Found ${hiddenChannels.size} hidden channels.`);
+      
+      // 2. 獲取觀看過的頻道（按權重排序）
+      const channels = historyService.getWatchedChannels(100, 'popular')
+        .filter(ch => !hiddenChannels.has(ch.channelName)); // 過濾隱藏的頻道
+      logger.info(`[Recommend] Found ${channels.length} watched channels (after filtering hidden).`);
 
       if (channels.length === 0) {
         logger.warn('[Recommend] No watch history found. Cannot generate recommendations.');
         return [];
       }
 
-      // 2. 計算權重並排序
+      // 3. 計算權重並排序
       const scoredChannels = channels.map(ch => ({
         ...ch,
         score: this.calculateChannelScore(ch)
@@ -46,14 +55,14 @@ class RecommendationService {
       logger.info('[Recommend] Sorted channels by score.');
 
 
-      // 3. 分頁
+      // 4. 分頁
       const pageChannels = scoredChannels.slice(
         page * pageSize,
         (page + 1) * pageSize
       );
       logger.info(`[Recommend] Sliced channels for current page. Found ${pageChannels.length} channels for this page.`);
 
-      // 4. 為每個頻道獲取影片（並發請求）
+      // 5. 為每個頻道獲取影片（並發請求）
       const recommendations = await Promise.all(
         pageChannels.map(async (channel) => {
           logger.info(`[Recommend] Processing channel: ${channel.channelName}`);

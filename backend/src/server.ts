@@ -62,6 +62,7 @@ import lyricsRoutes from './routes/lyrics.routes';
 import playlistRoutes from './routes/playlist.routes';
 import spotifyRoutes from './routes/spotify.routes';
 import genreRecommendationRoutes from './routes/genre-recommendations.routes';
+import hiddenChannelsRoutes from './routes/hidden-channels.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -123,6 +124,9 @@ app.use('/api', spotifyRoutes);
 
 // Genre-based recommendations
 app.use('/api/recommendations', genreRecommendationRoutes);
+
+// Hidden channels
+app.use('/api/hidden-channels', hiddenChannelsRoutes);
 
 // Error handlers
 app.use(notFoundHandler);

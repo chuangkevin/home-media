@@ -223,6 +223,14 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_search_results_cache ON search_results_cache(query, expires_at);
   `);
 
+  // Hidden channels 表（用戶隱藏的頻道）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hidden_channels (
+      channel_name TEXT PRIMARY KEY,
+      hidden_at INTEGER NOT NULL
+    )
+  `);
+
   console.log('✅ Database initialized successfully');
 }
 
