@@ -541,6 +541,22 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
     const handleWaiting = () => {
       console.log('⏳ Audio waiting - 等待緩衝...');
+      // 设置超时自动恢复播放，防止卡住
+      setTimeout(() => {
+        if (audio && !audio.paused && audio.readyState >= 2 && isPlaying) {
+          console.log('🔄 Waiting 超时，尝试恢复播放...');
+          audio.play().catch(err => console.error('恢复播放失败:', err));
+        }
+      }, 3000); // 3秒后尝试恢复
+    };
+
+    const handleSeeked = () => {
+      console.log('✅ Seeked 完成');
+      // Seek 完成后，如果应该在播放状态，确保继续播放
+      if (isPlaying && audio.paused && audio.readyState >= 2) {
+        console.log('🔄 Seek 后恢复播放...');
+        audio.play().catch(err => console.error('Seek后播放失败:', err));
+      }
     };
 
     // 偵測假播放：播放中但時間沒有更新
@@ -616,6 +632,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
     audio.addEventListener('stalled', handleStalled);
     audio.addEventListener('waiting', handleWaiting);
     audio.addEventListener('playing', handlePlaying);
+    audio.addEventListener('seeked', handleSeeked);
 
     return () => {
       if (stalledTimeout) clearTimeout(stalledTimeout);
@@ -627,6 +644,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
       audio.removeEventListener('stalled', handleStalled);
       audio.removeEventListener('waiting', handleWaiting);
       audio.removeEventListener('playing', handlePlaying);
+      audio.removeEventListener('seeked', handleSeeked);
     };
   }, [currentTrack, displayMode, isPlaying, dispatch]);
 
