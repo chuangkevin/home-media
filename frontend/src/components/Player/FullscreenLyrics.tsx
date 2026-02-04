@@ -3,7 +3,7 @@ import {
   Box, Typography, Drawer, CircularProgress, Alert, IconButton, Tooltip, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, List,
   ListItem, ListItemText, ListItemButton, InputAdornment, ToggleButtonGroup, ToggleButton,
-  ListItemAvatar, Avatar, useMediaQuery, useTheme
+  ListItemAvatar, Avatar, useMediaQuery
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -51,7 +51,6 @@ interface FullscreenLyricsProps {
 
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
   const dispatch = useDispatch();
-  const theme = useTheme();
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 768px)');
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
