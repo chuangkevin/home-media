@@ -43,13 +43,27 @@ export function useAutoQueue() {
     // 載入推薦歌曲
     const loadRecommendations = async () => {
       try {
-        const recommendations = await apiService.getSimilarTracks(currentTrack.videoId, 10);
+        // 先嘗試載入 20 首推薦
+        let recommendations = await apiService.getSimilarTracks(currentTrack.videoId, 20);
+        
+        console.log(`📥 收到推薦:`, recommendations);
+        console.log(`推薦數量: ${recommendations?.length || 0}`);
         
         if (recommendations && recommendations.length > 0) {
-          // 過濾掉已經在播放清單中的歌曲
+          // 過濾掉已經在播放清單中的歌曲和 24/7 直播流
           const existingVideoIds = new Set(playlist.map(t => t.videoId));
           const newTracks: Track[] = recommendations
-            .filter((rec: any) => !existingVideoIds.has(rec.videoId))
+            .filter((rec: any) => {
+              // 過濾掉已存在的
+              if (existingVideoIds.has(rec.videoId)) return false;
+              // 過濾掉直播流（duration 為 0 或超過 2 小時 = 7200 秒）
+              const duration = rec.duration || 0;
+              if (duration === 0 || duration > 7200) {
+                console.log(`⏭️ 跳過直播流: ${rec.title} (${duration}s)`);
+                return false;
+              }
+              return true;
+            })
             .map((rec: any) => ({
               id: rec.videoId,
               videoId: rec.videoId,
@@ -60,12 +74,17 @@ export function useAutoQueue() {
             }));
 
           if (newTracks.length > 0) {
-            console.log(`✅ 自動佇列：加入 ${newTracks.length} 首推薦歌曲`);
+            // 只取前 10 首加入播放清單
+            const tracksToAdd = newTracks.slice(0, 10);
+            console.log(`✅ 自動佇列：加入 ${tracksToAdd.length} 首推薦歌曲`);
             // 將推薦歌曲加入播放清單末尾
-            dispatch(setPlaylist([...playlist, ...newTracks]));
+            dispatch(setPlaylist([...playlist, ...tracksToAdd]));
           } else {
-            console.log(`⚠️ 自動佇列：所有推薦歌曲已在播放清單中`);
+            console.warn(`⚠️ 自動佇列：所有 ${recommendations.length} 首推薦都被過濾（直播流或重複）`);
+            console.log(`💡 建議：嘗試播放不同類型的歌曲以獲得更多元的推薦`);
           }
+        } else {
+          console.warn('⚠️ 自動佇列：沒有獲取到推薦歌曲');
         }
       } catch (error) {
         console.error('❌ 自動佇列載入失敗:', error);

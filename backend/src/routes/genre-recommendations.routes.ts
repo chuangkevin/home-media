@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDatabase } from '../config/database';
 import logger from '../utils/logger';
 import { SpotifyAudioFeatures } from '../types/spotify.types';
+import youtubeService from '../services/youtube.service';
 
 const router = Router();
 
@@ -34,7 +35,7 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
 
     const db = getDatabase();
 
-    // Get seed track
+    // Get seed track from cached_tracks
     const seedTrack = db
       .prepare(
         `SELECT video_id, title, channel_name, genres, audio_features, tags
@@ -43,8 +44,92 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
       )
       .get(videoId) as any;
 
+    // 檢查資料庫中有多少 cached tracks
+    const cachedCount = (db.prepare(`SELECT COUNT(*) as count FROM cached_tracks`).get() as any).count;
+    
+    // 如果資料庫資料不足（少於 20 首），使用 YouTube 搜尋作為後備
+    if (cachedCount < 20) {
+      logger.info(`Insufficient cached tracks (${cachedCount}), using YouTube search fallback`);
+      
+      try {
+        // 使用 seed track 的頻道和標題關鍵字搜尋
+        let searchQuery = '';
+        if (seedTrack) {
+          // 如果有 seed track，基於它搜尋相似內容
+          const genres = seedTrack.genres ? JSON.parse(seedTrack.genres) : [];
+          const tags = seedTrack.tags ? JSON.parse(seedTrack.tags) : [];
+          searchQuery = genres.length > 0 
+            ? `${genres[0]} music` 
+            : tags.length > 0 
+            ? `${tags[0]} music`
+            : `${seedTrack.channel_name} music`;
+        } else {
+          // 如果沒有 seed track，搜尋通用音樂
+          searchQuery = 'music';
+        }
+
+        // 增加搜索數量以確保過濾後有足夠結果（請求 limit * 3）
+        const searchLimit = Math.max(limit * 3, 30);
+        const searchResults = await youtubeService.search(searchQuery, searchLimit);
+        
+        logger.info(`YouTube search returned ${searchResults.length} results, filtering livestreams...`);
+        
+        // 過濾掉 24/7 直播流（duration 為 0 或超過 2 小時）
+        const filteredResults = searchResults.filter(track => {
+          const duration = track.duration || 0;
+          if (duration === 0 || duration > 7200) {
+            logger.info(`Skipping livestream: ${track.title} (${duration}s)`);
+            return false;
+          }
+          return true;
+        });
+
+        logger.info(`After filtering: ${filteredResults.length} valid tracks (needed: ${limit})`);
+
+        // 只返回需要的數量
+        const recommendations = filteredResults.slice(0, limit).map(track => ({
+          videoId: track.videoId,
+          title: track.title,
+          channelName: track.channel,
+          thumbnail: track.thumbnail,
+          duration: track.duration,
+          score: 0.5,
+          reasons: [`基於搜尋: ${searchQuery}`],
+        }));
+
+        logger.info(`Returned ${recommendations.length} YouTube search recommendations (filtered out livestreams)`);
+        return res.json({ recommendations });
+      } catch (searchError) {
+        logger.error('YouTube search fallback failed:', searchError);
+        // 如果搜尋也失敗，返回空陣列
+        return res.json({ recommendations: [] });
+      }
+    }
+
+    // 如果找不到 seed track，使用隨機推薦
     if (!seedTrack) {
-      return res.status(404).json({ error: 'Track not found' });
+      logger.warn(`Seed track not found: ${videoId}, returning random recommendations`);
+      const randomTracks = db
+        .prepare(
+          `SELECT video_id, title, channel_name, thumbnail
+           FROM cached_tracks
+           WHERE video_id != ?
+           ORDER BY RANDOM()
+           LIMIT ?`
+        )
+        .all(videoId, limit) as any[];
+
+      const recommendations = randomTracks.map(track => ({
+        videoId: track.video_id,
+        title: track.title,
+        channelName: track.channel_name,
+        thumbnail: track.thumbnail,
+        score: 0.3,
+        reasons: ['隨機推薦'],
+      }));
+
+      logger.info(`Returned ${recommendations.length} random recommendations for ${videoId}`);
+      return res.json({ recommendations });
     }
 
     const seed: TrackMetadata = {
@@ -56,7 +141,7 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
       tags: seedTrack.tags ? JSON.parse(seedTrack.tags) : [],
     };
 
-    // Get candidates (tracks with metadata, excluding seed)
+    // Get candidates from cached_tracks only
     const candidates = db
       .prepare(
         `SELECT video_id, title, channel_name, thumbnail, genres, audio_features, tags
