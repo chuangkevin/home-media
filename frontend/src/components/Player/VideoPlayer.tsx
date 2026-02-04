@@ -47,6 +47,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   // 錯誤狀態
   const [error, setError] = useState<string | null>(null);
   const [showIOSHint, setShowIOSHint] = useState(false);
+  const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 當曲目變化時重置錯誤
   useEffect(() => {
@@ -73,8 +74,32 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
 
       // 重置錯誤狀態
       setError(null);
+      setShowIOSHint(false);
+      
+      // 清除舊的超時計時器
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
 
       if (window.YT && window.YT.Player) {
+        // 設置 10 秒超時：如果 YouTube 沒有響應，認為加載失敗
+        loadTimeoutRef.current = setTimeout(() => {
+          if (isMounted && !playerRef.current?.getPlayerState) {
+            console.warn('🎬 YouTube 播放器加載超時');
+            const timeoutError = '影片載入超時';
+            setError(timeoutError);
+            
+            if (isIOS()) {
+              setShowIOSHint(true);
+              setTimeout(() => {
+                console.log('🎬 iOS 加載超時，自動切換到視覺化器模式');
+                dispatch(setDisplayMode('visualizer'));
+              }, 3000);
+            }
+          }
+        }, 10000);
+
         playerRef.current = new window.YT.Player(containerRef.current, {
           videoId: track.videoId,
           playerVars: {
@@ -87,10 +112,19 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             controls: 1,
             fs: 1,
             iv_load_policy: 3,
+            // iOS 兼容性參數
+            widget_referrer: window.location.origin,
           },
           events: {
             onReady: (event: any) => {
               if (!isMounted) return;
+              
+              // 清除超時計時器 - 播放器已就緒
+              if (loadTimeoutRef.current) {
+                clearTimeout(loadTimeoutRef.current);
+                loadTimeoutRef.current = null;
+              }
+              
               console.log(`🎬 YouTube 播放器就緒: ${track.videoId}`);
               dispatch(setDuration(event.target.getDuration()));
               
@@ -143,6 +177,13 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             },
             onError: (event: any) => {
               if (!isMounted) return;
+              
+              // 清除超時計時器 - 已收到錯誤回調
+              if (loadTimeoutRef.current) {
+                clearTimeout(loadTimeoutRef.current);
+                loadTimeoutRef.current = null;
+              }
+              
               const errorCode = event.data;
               const errorMessage = YT_ERROR_CODES[errorCode] || `YouTube 錯誤碼: ${errorCode}`;
               console.error(`🎬 YouTube 播放器錯誤: ${errorCode} - ${errorMessage}`);
@@ -190,6 +231,10 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
+      }
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
       }
       if (playerRef.current && playerRef.current.destroy) {
         playerRef.current.destroy();
