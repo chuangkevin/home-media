@@ -29,6 +29,12 @@ const YT_ERROR_CODES: Record<number, string> = {
   150: '此影片不允許嵌入播放', // Same as 101
 };
 
+// 檢測是否為 iOS 設備
+const isIOS = () => {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
 export default function VideoPlayer({ track }: VideoPlayerProps) {
   const dispatch = useDispatch();
   const playerRef = useRef<any>(null);
@@ -40,6 +46,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   const initialTimeRef = useRef<number>(currentTime);
   // 錯誤狀態
   const [error, setError] = useState<string | null>(null);
+  const [showIOSHint, setShowIOSHint] = useState(false);
 
   // 當曲目變化時重置錯誤
   useEffect(() => {
@@ -140,6 +147,16 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
               const errorMessage = YT_ERROR_CODES[errorCode] || `YouTube 錯誤碼: ${errorCode}`;
               console.error(`🎬 YouTube 播放器錯誤: ${errorCode} - ${errorMessage}`);
               setError(errorMessage);
+              
+              // iOS 上的嵌入播放限制（錯誤碼 101 或 150）
+              if (isIOS() && (errorCode === 101 || errorCode === 150)) {
+                setShowIOSHint(true);
+                // 3秒後自動切換到視覺化器模式（音頻播放）
+                setTimeout(() => {
+                  console.log('🎬 iOS 嵌入播放受限，自動切換到視覺化器模式');
+                  dispatch(setDisplayMode('visualizer'));
+                }, 3000);
+              }
             },
           },
         });
@@ -299,6 +316,12 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
         <Typography variant="h6" textAlign="center">
           {error}
         </Typography>
+        {showIOSHint && (
+          <Typography variant="body2" color="warning.main" sx={{ fontWeight: 'bold', textAlign: 'center', mb: 1 }}>
+            📱 iOS 設備不支援此影片的嵌入播放<br />
+            將在 3 秒後自動切換到音頻播放模式...
+          </Typography>
+        )}
         {error === '行動裝置需要手動點擊播放' ? (
           <Typography variant="body2" color="grey.400" textAlign="center">
             行動瀏覽器限制自動播放，請點擊上方圖示開始播放
