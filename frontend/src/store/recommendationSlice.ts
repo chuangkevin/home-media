@@ -7,6 +7,7 @@ export interface ChannelRecommendation {
   channelThumbnail: string;
   videos: Track[];
   watchCount: number;
+  type?: 'channel' | 'similar'; // 新增：區分推薦類型
 }
 
 interface RecommendationState {
@@ -16,6 +17,7 @@ interface RecommendationState {
   loading: boolean;
   error: string | null;
   lastUpdated: number | null;
+  useMixedMode: boolean; // 新增：是否使用混合推薦模式
 }
 
 const initialState: RecommendationState = {
@@ -25,11 +27,15 @@ const initialState: RecommendationState = {
   loading: false,
   error: null,
   lastUpdated: null,
+  useMixedMode: true, // 預設使用混合推薦
 };
 
 export const fetchChannelRecommendations = createAsyncThunk(
   'recommendation/fetchChannelRecommendations',
-  async ({ page, pageSize = 5 }: { page: number; pageSize?: number }) => {
+  async ({ page, pageSize = 5, mixed = true }: { page: number; pageSize?: number; mixed?: boolean }) => {
+    if (mixed) {
+      return await apiService.getMixedRecommendations(page, pageSize, 3);
+    }
     return await apiService.getChannelRecommendations(page, pageSize);
   }
 );
@@ -39,14 +45,26 @@ export const loadMoreRecommendations = createAsyncThunk(
   async (_, { getState }) => {
     const state = getState() as { recommendation: RecommendationState };
     const nextPage = state.recommendation.currentPage + 1;
+    const mixed = state.recommendation.useMixedMode;
+    
+    if (mixed) {
+      return await apiService.getMixedRecommendations(nextPage, 5, 3);
+    }
     return await apiService.getChannelRecommendations(nextPage, 5);
   }
 );
 
 export const refreshRecommendations = createAsyncThunk(
   'recommendation/refresh',
-  async () => {
+  async (_, { getState }) => {
+    const state = getState() as { recommendation: RecommendationState };
+    const mixed = state.recommendation.useMixedMode;
+    
     await apiService.refreshRecommendations();
+    
+    if (mixed) {
+      return await apiService.getMixedRecommendations(0, 5, 3);
+    }
     return await apiService.getChannelRecommendations(0, 5);
   }
 );
@@ -60,6 +78,12 @@ const recommendationSlice = createSlice({
       state.currentPage = 0;
       state.hasMore = true;
       state.lastUpdated = null;
+    },
+    toggleMixedMode: (state) => {
+      state.useMixedMode = !state.useMixedMode;
+      state.channelRecommendations = [];
+      state.currentPage = 0;
+      state.hasMore = true;
     },
   },
   extraReducers: (builder) => {
@@ -101,5 +125,5 @@ const recommendationSlice = createSlice({
   },
 });
 
-export const { resetRecommendations } = recommendationSlice.actions;
+export const { resetRecommendations, toggleMixedMode } = recommendationSlice.actions;
 export default recommendationSlice.reducer;

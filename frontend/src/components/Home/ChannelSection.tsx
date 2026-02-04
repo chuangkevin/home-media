@@ -2,6 +2,7 @@ import { Box, Typography, Avatar, Chip, Card, CardMedia, CardContent, IconButton
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
 import StorageIcon from '@mui/icons-material/Storage';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { ChannelRecommendation } from '../../store/recommendationSlice';
 import type { Track } from '../../types/track.types';
 
@@ -23,22 +24,65 @@ export default function ChannelSection({ channel, onPlay, cacheStatus }: Channel
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const isSimilarRecommendation = channel.type === 'similar';
+
   return (
     <Box sx={{ mb: 4 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        {channel.channelThumbnail && (
-          <Avatar src={channel.channelThumbnail} sx={{ mr: 2, width: 40, height: 40 }} />
+        {isSimilarRecommendation ? (
+          <Box
+            sx={{
+              mr: 2,
+              width: 40,
+              height: 40,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              borderRadius: '50%',
+            }}
+          >
+            <AutoAwesomeIcon sx={{ color: 'white', fontSize: 24 }} />
+          </Box>
+        ) : (
+          channel.channelThumbnail && (
+            <Avatar src={channel.channelThumbnail} sx={{ mr: 2, width: 40, height: 40 }} />
+          )
         )}
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+        <Typography
+          variant="h6"
+          sx={{
+            fontWeight: 600,
+            background: isSimilarRecommendation
+              ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              : 'inherit',
+            WebkitBackgroundClip: isSimilarRecommendation ? 'text' : 'inherit',
+            WebkitTextFillColor: isSimilarRecommendation ? 'transparent' : 'inherit',
+          }}
+        >
           {channel.channelName}
         </Typography>
-        <Chip
-          label={`${channel.watchCount} 次觀看`}
-          size="small"
-          sx={{ ml: 2 }}
-          color="primary"
-          variant="outlined"
-        />
+        {!isSimilarRecommendation && (
+          <Chip
+            label={`${channel.watchCount} 次觀看`}
+            size="small"
+            sx={{ ml: 2 }}
+            color="primary"
+            variant="outlined"
+          />
+        )}
+        {isSimilarRecommendation && (
+          <Chip
+            label="智慧推薦"
+            size="small"
+            sx={{
+              ml: 2,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              fontWeight: 600,
+            }}
+          />
+        )}
       </Box>
 
       <Box

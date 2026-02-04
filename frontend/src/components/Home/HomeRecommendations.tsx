@@ -22,7 +22,7 @@ export default function HomeRecommendations() {
 
   useEffect(() => {
     if (channelRecommendations.length === 0) {
-      dispatch(fetchChannelRecommendations({ page: 0, pageSize: 5 }));
+      dispatch(fetchChannelRecommendations({ page: 0, pageSize: 5, mixed: true }));
     }
   }, [dispatch, channelRecommendations.length]);
 

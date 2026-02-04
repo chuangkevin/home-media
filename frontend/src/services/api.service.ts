@@ -312,6 +312,36 @@ class ApiService {
   }
 
   /**
+   * 獲取混合推薦（頻道 + 相似歌曲）
+   */
+  async getMixedRecommendations(page: number = 0, pageSize: number = 5, includeCount: number = 3) {
+    const response = await this.api.get('/recommendations/mixed', {
+      params: { page, pageSize, includeCount },
+    });
+    return response.data.recommendations;
+  }
+
+  /**
+   * 獲取最近播放的歌曲
+   */
+  async getRecentlyPlayed(limit: number = 10): Promise<Track[]> {
+    const response = await this.api.get('/recommendations/recently-played', {
+      params: { limit },
+    });
+    return response.data.tracks;
+  }
+
+  /**
+   * 獲取相似歌曲推薦
+   */
+  async getSimilarTracks(videoId: string, limit: number = 10) {
+    const response = await this.api.get(`/recommendations/similar/${videoId}`, {
+      params: { limit },
+    });
+    return response.data.recommendations;
+  }
+
+  /**
    * 獲取單一頻道影片
    */
   async getChannelVideos(channelName: string, limit: number = 20): Promise<Track[]> {
