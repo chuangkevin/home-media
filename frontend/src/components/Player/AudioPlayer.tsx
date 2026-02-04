@@ -141,16 +141,23 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
         audio.pause();
         audio.currentTime = 0;
 
-        // 設置新音訊源（如果是 Blob URL，需要更新 ref）
-        console.log(`🎵 Setting audio.src = ${audioSrc.substring(0, 50)}...`);
-        audio.src = audioSrc;
-        currentVideoIdRef.current = videoId;
-        
-        // 如果是 Blob URL，儲存 ref 以便後續釋放
-        if (audioSrc.startsWith('blob:')) {
-          currentBlobUrlRef.current = audioSrc;
-        } else {
+        // 在影片模式下，不設置音訊源（避免音訊和影片同時播放）
+        if (displayModeRef.current === 'video') {
+          console.log(`🎬 影片模式：不設置音訊源，等待 VideoPlayer 初始化`);
+          currentVideoIdRef.current = videoId;
           currentBlobUrlRef.current = null;
+        } else {
+          // 設置新音訊源（如果是 Blob URL，需要更新 ref）
+          console.log(`🎵 Setting audio.src = ${audioSrc.substring(0, 50)}...`);
+          audio.src = audioSrc;
+          currentVideoIdRef.current = videoId;
+          
+          // 如果是 Blob URL，儲存 ref 以便後續釋放
+          if (audioSrc.startsWith('blob:')) {
+            currentBlobUrlRef.current = audioSrc;
+          } else {
+            currentBlobUrlRef.current = null;
+          }
         }
         pendingBlobUrlRef.current = null;
 
@@ -186,7 +193,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
           // 自動播放（影片模式下由 VideoPlayer 控制，不播放音訊）
           if (shouldPlay && displayModeRef.current !== 'video') {
-            console.log(`▶️ Auto-playing: ${pendingTrack.title}`);
+            console.log(`▶️ Auto-playing audio: ${pendingTrack.title}`);
             audio.play().catch((error) => {
               console.error('Failed to auto-play:', error);
               if (error.name === 'NotAllowedError') {
@@ -196,6 +203,8 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
                 dispatch(setIsPlaying(false));
               }
             });
+          } else if (displayModeRef.current === 'video') {
+            console.log(`🎬 影片模式下不播放音訊，由 VideoPlayer 控制`);
           }
         };
 
@@ -367,9 +376,11 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
 
       audio.muted = true;
 
+      // 完全清空音訊源，確保不會播放
       if (audio.src) {
         audio.src = '';
         audio.load();
+        console.log('🎬 已清空音訊源，確保影片模式下不播放音訊');
       }
     } else {
       // 🎵 返回音訊模式：恢復音訊狀態
