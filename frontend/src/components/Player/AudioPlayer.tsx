@@ -32,50 +32,8 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
 
-  // 快取狀態和下載進度
+  // 快取狀態
   const [isCached, setIsCached] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<CacheStatus['progress']>(null);
-  const progressPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // 輪詢下載進度
-  const pollDownloadProgress = useCallback((videoId: string) => {
-    // 清除之前的輪詢
-    if (progressPollRef.current) {
-      clearInterval(progressPollRef.current);
-      progressPollRef.current = null;
-    }
-
-    // 每 500ms 檢查一次下載進度
-    progressPollRef.current = setInterval(async () => {
-      try {
-        const status = await apiService.getCacheStatus(videoId);
-        setDownloadProgress(status.progress);
-
-        // 如果下載完成或失敗，停止輪詢
-        if (status.cached || !status.downloading || status.progress?.status === 'completed' || status.progress?.status === 'failed') {
-          if (progressPollRef.current) {
-            clearInterval(progressPollRef.current);
-            progressPollRef.current = null;
-          }
-          if (status.cached) {
-            setIsCached(true);
-            setDownloadProgress(null);
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to poll download progress:', err);
-      }
-    }, 500);
-  }, []);
-
-  // 清理輪詢
-  useEffect(() => {
-    return () => {
-      if (progressPollRef.current) {
-        clearInterval(progressPollRef.current);
-      }
-    };
-  }, []);
 
   // 保持 isPlayingRef 同步
   useEffect(() => {
