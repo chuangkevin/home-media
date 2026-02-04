@@ -286,10 +286,8 @@ class YouTubeService {
         dumpSingleJson: true,
         preferFreeFormats: false,
         format: 'bestaudio[ext=m4a][protocol^=http]/bestaudio[ext=webm]/bestaudio',
-        // 额外优化参数
-        extractor_args: 'youtube:player_client=android,web', // 使用 Android 客户端，提取更快
-        no_warnings: true,
-      });
+        noWarnings: true,
+      } as any); // Type assertion for additional yt-dlp options
       const fetchTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
       // 從結果中獲取音訊 URL
