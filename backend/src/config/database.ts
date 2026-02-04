@@ -176,9 +176,37 @@ export function initDatabase() {
   // 使用 ALTER TABLE 的安全方式
   const tableInfo = db.pragma('table_info(cached_tracks)') as Array<{ name: string }>;
   const hasChannelName = tableInfo.some((col) => col.name === 'channel_name');
+  const hasTags = tableInfo.some((col) => col.name === 'tags');
+  const hasCategory = tableInfo.some((col) => col.name === 'category');
+  const hasLanguage = tableInfo.some((col) => col.name === 'language');
+  const hasSpotifyId = tableInfo.some((col) => col.name === 'spotify_id');
+  const hasGenres = tableInfo.some((col) => col.name === 'genres');
+  const hasAudioFeatures = tableInfo.some((col) => col.name === 'audio_features');
+  const hasCountry = tableInfo.some((col) => col.name === 'country');
 
   if (!hasChannelName) {
     db.exec(`ALTER TABLE cached_tracks ADD COLUMN channel_name TEXT`);
+  }
+  if (!hasTags) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN tags TEXT`); // JSON array
+  }
+  if (!hasCategory) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN category TEXT`);
+  }
+  if (!hasLanguage) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN language TEXT`);
+  }
+  if (!hasSpotifyId) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN spotify_id TEXT`);
+  }
+  if (!hasGenres) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN genres TEXT`); // JSON array from Spotify
+  }
+  if (!hasAudioFeatures) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN audio_features TEXT`); // JSON object from Spotify
+  }
+  if (!hasCountry) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN country TEXT`);
   }
 
   // 建立索引
@@ -196,6 +224,11 @@ export function initDatabase() {
   `);
 
   console.log('✅ Database initialized successfully');
+}
+
+// Export both default and named export for compatibility
+export function getDatabase(): BetterSqlite3.Database {
+  return db;
 }
 
 export default db;

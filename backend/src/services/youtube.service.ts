@@ -121,6 +121,11 @@ class YouTubeService {
         thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
         views: video.view_count,
         uploadedAt: video.upload_date,
+        // 新增 metadata for recommendations
+        tags: video.tags || [],
+        categories: video.categories || [],
+        description: video.description || '',
+        language: video.language || null,
       }));
 
       // 快取搜尋結果

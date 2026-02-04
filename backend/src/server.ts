@@ -60,6 +60,8 @@ import historyRoutes from './routes/history.routes';
 import recommendationRoutes from './routes/recommendation.routes';
 import lyricsRoutes from './routes/lyrics.routes';
 import playlistRoutes from './routes/playlist.routes';
+import spotifyRoutes from './routes/spotify.routes';
+import genreRecommendationRoutes from './routes/genre-recommendations.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -81,12 +83,21 @@ app.get('/api', (_req, res) => {
         channels: '/api/recommendations/channels',
         channelVideos: '/api/recommendations/channel/:channelName',
         stats: '/api/recommendations/stats',
+        similar: '/api/recommendations/similar/:videoId',
+        genre: '/api/recommendations/genre/:genre',
+        genres: '/api/recommendations/genres',
       },
       playlists: {
         list: '/api/playlists',
         detail: '/api/playlists/:id',
         addTrack: '/api/playlists/:id/tracks',
         removeTrack: '/api/playlists/:id/tracks/:trackId',
+      },
+      spotify: {
+        status: '/api/spotify/status',
+        enrich: '/api/spotify/enrich/:videoId',
+        enrichBatch: '/api/spotify/enrich-batch',
+        track: '/api/spotify/track/:videoId',
       },
     },
   });
@@ -106,6 +117,12 @@ app.use('/api', lyricsRoutes);
 
 // Playlist routes
 app.use('/api', playlistRoutes);
+
+// Spotify routes
+app.use('/api', spotifyRoutes);
+
+// Genre-based recommendations
+app.use('/api/recommendations', genreRecommendationRoutes);
 
 // Error handlers
 app.use(notFoundHandler);

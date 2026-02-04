@@ -7,6 +7,11 @@ export interface YouTubeSearchResult {
   thumbnail: string;
   views?: number;
   uploadedAt?: string;
+  // Recommendation metadata
+  tags?: string[];
+  categories?: string[];
+  description?: string;
+  language?: string | null;
 }
 
 export interface YouTubeStreamInfo {

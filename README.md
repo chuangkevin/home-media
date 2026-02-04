@@ -5,7 +5,9 @@
 ## ✨ 核心特色
 
 - ✅ **無需 API Key** - 使用 yt-dlp 爬蟲技術，無需 YouTube API Key
+- ✅ **零設定部署** - Docker 一鍵啟動，無需額外設定（推薦功能開箱即用）
 - ✅ **無廣告音訊** - 直接提取純音訊串流，過濾所有廣告
+- ✅ **智慧推薦** - 基於 YouTube tags 的相似度推薦（可選 Spotify 增強）
 - ✅ **線上串流優先** - yt-dlp 直接串流播放，搜尋結果背景預快取
 - ✅ **雙層快取** - 伺服器端磁碟快取 (LRU, 10GB) + 前端 IndexedDB 快取
 - ✅ **影片/視覺化切換** - 支援 YouTube 影片嵌入播放與音訊視覺化模式
@@ -50,6 +52,8 @@ docker compose up -d
 # 存取應用
 # http://<your-rpi-ip>:3123
 ```
+
+**🎵 選用功能：** 想要 Spotify 增強推薦？查看 [SPOTIFY_SETUP.md](SPOTIFY_SETUP.md) 快速設定指南。
 
 ### 本機 Docker 開發
 
@@ -152,13 +156,26 @@ home-media/
 - [x] 階段 2: YouTube 整合 (yt-dlp 搜尋、串流、中文標題支援)
 - [x] 階段 3: 音訊視覺化
 - [x] 階段 4: 歌詞顯示 (YouTube CC + LRCLIB 備援 + 手動搜尋)
-- [ ] 階段 5: 曲風主題與自動推薦
-  - [ ] YouTube Tags 提取 (標籤、分類、語言)
-  - [ ] Spotify API 整合 (曲風、國家、音樂特徵)
-  - [ ] 推薦引擎 (基於曲風、國家、類型相似度)
-  - [ ] 自動播放佇列 (播放完自動推薦類似內容)
-  - [ ] 支援音樂、說故事、案件頻道等多種內容類型
+- [ ] 階段 5: 曲風主題與自動推薦 🔄 **進行中**
+  - [x] 資料庫架構擴充 (tags, genres, audio_features, spotify_id 等欄位)
+  - [x] YouTube metadata 提取增強 (tags, categories, description, language)
+  - [x] 智慧推薦系統 (自動適配 YouTube-only 或 Spotify 增強模式)
+  - [x] API endpoints: `/api/recommendations/similar/:videoId`, `/api/recommendations/genres`
+  - [ ] 前端 UI: 曲風標籤顯示與篩選
+  - [ ] 自動播放佇列 (播放完自動加入推薦曲目)
   - [ ] 電台模式整合推薦系統
+  
+  **推薦引擎** (零設定即可用):
+  - **YouTube-only 模式** (預設，無需設定):
+    - 50% YouTube tags 相似度
+    - 30% 同頻道加權
+    - 20% 標題文字相似度
+  - **Spotify 增強模式** (選用，需設定 API):
+    - 40% 曲風匹配 (pop, rock, jazz, etc.)
+    - 30% 音訊特徵 (danceability, energy, valence...)
+    - 20% YouTube tags
+    - 10% 同頻道
+    - 設定說明: [backend/SPOTIFY_INTEGRATION.md](backend/SPOTIFY_INTEGRATION.md)
 - [x] 階段 6: 播放清單管理
 - [x] 階段 7: 快取系統 (伺服器端磁碟 10GB + 前端 IndexedDB)
 - [x] 階段 8: 遠端控制 (Socket.io 投射功能)

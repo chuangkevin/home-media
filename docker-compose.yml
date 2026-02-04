@@ -20,6 +20,10 @@ services:
       - AUDIO_CACHE_MAX_SIZE_MB=10000
       - MAX_CACHE_TRACKS=400
       - ALLOWED_ORIGINS=*
+      # Spotify API (Optional - for enhanced recommendations)
+      # Get credentials from https://developer.spotify.com/dashboard
+      # - SPOTIFY_CLIENT_ID=your_client_id_here
+      # - SPOTIFY_CLIENT_SECRET=your_client_secret_here
     volumes:
       - ./data/cache:/app/data/cache
       - ./data/db:/app/data/db
