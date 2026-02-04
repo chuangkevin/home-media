@@ -441,6 +441,28 @@ class ApiService {
     const response = await this.api.delete<{ success: boolean; removed: number }>(`/playlists/${playlistId}/tracks`);
     return response.data.removed;
   }
+
+  /**
+   * 隱藏頻道
+   */
+  async hideChannel(channelName: string): Promise<void> {
+    await this.api.post('/hidden-channels', { channelName });
+  }
+
+  /**
+   * 取得被隱藏的頻道列表
+   */
+  async getHiddenChannels(): Promise<string[]> {
+    const response = await this.api.get<string[]>('/hidden-channels');
+    return response.data;
+  }
+
+  /**
+   * 取消隱藏頻道
+   */
+  async unhideChannel(channelName: string): Promise<void> {
+    await this.api.delete(`/hidden-channels/${encodeURIComponent(channelName)}`);
+  }
 }
 
 // 播放清單型別

@@ -3,16 +3,18 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
 import StorageIcon from '@mui/icons-material/Storage';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { ChannelRecommendation } from '../../store/recommendationSlice';
 import type { Track } from '../../types/track.types';
 
 interface ChannelSectionProps {
   channel: ChannelRecommendation;
   onPlay: (track: Track) => void;
+  onHideChannel?: (channelName: string) => void;
   cacheStatus?: Map<string, boolean>; // videoId -> isCached
 }
 
-export default function ChannelSection({ channel, onPlay, cacheStatus }: ChannelSectionProps) {
+export default function ChannelSection({ channel, onPlay, onHideChannel, cacheStatus }: ChannelSectionProps) {
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -58,6 +60,7 @@ export default function ChannelSection({ channel, onPlay, cacheStatus }: Channel
               : 'inherit',
             WebkitBackgroundClip: isSimilarRecommendation ? 'text' : 'inherit',
             WebkitTextFillColor: isSimilarRecommendation ? 'transparent' : 'inherit',
+            flex: 1,
           }}
         >
           {channel.channelName}
@@ -82,6 +85,23 @@ export default function ChannelSection({ channel, onPlay, cacheStatus }: Channel
               fontWeight: 600,
             }}
           />
+        )}
+        {onHideChannel && (
+          <IconButton
+            onClick={() => onHideChannel(channel.channelName)}
+            size="small"
+            sx={{
+              ml: 1,
+              color: 'error.main',
+              '&:hover': {
+                backgroundColor: 'error.light',
+                color: 'white',
+              },
+            }}
+            title="隱藏此頻道"
+          >
+            <DeleteIcon fontSize="small" />
+          </IconButton>
         )}
       </Box>
 

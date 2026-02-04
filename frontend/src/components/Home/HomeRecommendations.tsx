@@ -16,6 +16,7 @@ export default function HomeRecommendations() {
   const { channelRecommendations, loading, hasMore } = useSelector(
     (state: RootState) => state.recommendation
   );
+  const { playlist } = useSelector((state: RootState) => state.player);
 
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [cacheStatus, setCacheStatus] = useState<Map<string, boolean>>(new Map());
@@ -155,30 +156,47 @@ export default function HomeRecommendations() {
     // Fire-and-forget，不阻塞播放
     apiService.recordChannelWatch(track.channel, track.thumbnail);
 
-    // 找出該頻道的所有歌曲，設為 playlist（讓預載可以工作）
+    // 找出該頻道的所有歌曲
     const channelData = channelRecommendations.find(ch =>
       ch.videos.some(v => v.videoId === track.videoId)
     );
 
     if (channelData) {
-      // 將該頻道的所有歌曲轉換為 Track 格式
-      const channelTracks: Track[] = channelData.videos.map(v => ({
-        id: v.videoId,
-        videoId: v.videoId,
-        title: v.title,
-        thumbnail: v.thumbnail,
-        channel: channelData.channelName,
-        duration: v.duration,
-      }));
+      // 將該頻道的所有歌曲轉換為 Track 格式，過濾掉直播流
+      const channelTracks: Track[] = channelData.videos
+        .filter(v => {
+          const duration = v.duration || 0;
+          // 過濾掉直播流（duration 為 0 或超過 2 小時）
+          if (duration === 0 || duration > 7200) {
+            console.log(`⏭️ 跳過直播流: ${v.title} (${duration}s)`);
+            return false;
+          }
+          return true;
+        })
+        .map(v => ({
+          id: v.videoId,
+          videoId: v.videoId,
+          title: v.title,
+          thumbnail: v.thumbnail,
+          channel: channelData.channelName,
+          duration: v.duration,
+        }));
 
-      // 找到當前歌曲在列表中的位置
-      const trackIndex = channelTracks.findIndex(t => t.videoId === track.videoId);
+      // 過濾掉已經在播放清單中的歌曲
+      const existingVideoIds = new Set(playlist.map(t => t.videoId));
+      const newTracks = channelTracks.filter(t => !existingVideoIds.has(t.videoId));
 
-      dispatch(setPlaylist(channelTracks));
-      dispatch(setQueue(channelTracks.slice(trackIndex)));
+      // Append 到現有播放清單
+      const updatedPlaylist = [...playlist, ...newTracks];
+      dispatch(setPlaylist(updatedPlaylist));
+      dispatch(setQueue(updatedPlaylist.slice(playlist.length))); // Queue 從新加入的開始
     } else {
-      dispatch(setPlaylist([track]));
-      dispatch(setQueue([track]));
+      // 單首歌曲，檢查是否已存在
+      const existingVideoIds = new Set(playlist.map(t => t.videoId));
+      if (!existingVideoIds.has(track.videoId)) {
+        dispatch(setPlaylist([...playlist, track]));
+        dispatch(setQueue([track]));
+      }
     }
 
     dispatch(setPendingTrack(track)); // 使用 pending，等載入完成才切換 UI
@@ -187,6 +205,17 @@ export default function HomeRecommendations() {
 
   const handleRefresh = () => {
     dispatch(refreshRecommendations());
+  };
+
+  const handleHideChannel = async (channelName: string) => {
+    try {
+      await apiService.hideChannel(channelName);
+      console.log(`🚫 已隱藏頻道: ${channelName}`);
+      // 刷新推薦列表
+      dispatch(refreshRecommendations());
+    } catch (error) {
+      console.error('隱藏頻道失敗:', error);
+    }
   };
 
   if (channelRecommendations.length === 0 && !loading) {
@@ -233,7 +262,12 @@ export default function HomeRecommendations() {
           key={`${channel.channelName}-${index}`}
           ref={index === channelRecommendations.length - 1 ? lastChannelRef : null}
         >
-          <ChannelSection channel={channel} onPlay={handlePlay} cacheStatus={cacheStatus} />
+          <ChannelSection
+            channel={channel}
+            onPlay={handlePlay}
+            onHideChannel={handleHideChannel}
+            cacheStatus={cacheStatus}
+          />
         </div>
       ))}
 
