@@ -20,9 +20,7 @@ jobs:
     strategy:
       matrix:
         platform:
-          - linux/amd64
-          # 暫時移除 ARM64 建置以加快速度並避免 QEMU 錯誤
-          # - linux/arm64
+          - linux/arm64
     
     steps:
       - name: Checkout code
@@ -84,12 +82,12 @@ jobs:
       - name: Create and push Frontend manifest
         run: |
           docker buildx imagetools create -t ${{ env.DOCKERHUB_USERNAME }}/home-media-frontend:latest \
-            ${{ env.DOCKERHUB_USERNAME }}/home-media-frontend:latest-linux-amd64
+            ${{ env.DOCKERHUB_USERNAME }}/home-media-frontend:latest-linux-arm64
 
       - name: Create and push Backend manifest
         run: |
           docker buildx imagetools create -t ${{ env.DOCKERHUB_USERNAME }}/home-media-backend:latest \
-            ${{ env.DOCKERHUB_USERNAME }}/home-media-backend:latest-linux-amd64
+            ${{ env.DOCKERHUB_USERNAME }}/home-media-backend:latest-linux-arm64
 
       - name: Summary
         run: |
