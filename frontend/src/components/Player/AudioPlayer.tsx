@@ -16,9 +16,10 @@ import { useAutoQueue } from '../../hooks/useAutoQueue';
 
 interface AudioPlayerProps {
   onOpenLyrics?: () => void;
+  embedded?: boolean; // 是否為嵌入模式（用於全螢幕歌詞）
 }
 
-export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
+export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPlayerProps) {
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex, currentTime } = useSelector((state: RootState) => state.player);
@@ -744,32 +745,43 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
   return (
     <Card
       sx={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1100,
-        borderRadius: 0,
+        ...(!embedded && {
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1100,
+        }),
+        borderRadius: embedded ? 0 : 0,
+        height: embedded ? '100%' : 'auto',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      <CardContent sx={{ pb: 2, '&:last-child': { pb: 2 } }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      <CardContent sx={{ pb: 2, '&:last-child': { pb: 2 }, flex: embedded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ...(embedded && { flexDirection: 'column', flex: 1 }) }}>
           {/* 專輯封面 */}
           <CardMedia
             component="img"
-            sx={{ width: 80, height: 80, borderRadius: 1 }}
+            sx={{ 
+              width: embedded ? '100%' : 80, 
+              height: embedded ? 'auto' : 80, 
+              aspectRatio: embedded ? '1' : 'auto',
+              maxWidth: embedded ? 280 : 80,
+              borderRadius: 1 
+            }}
             image={displayTrack.thumbnail}
             alt={displayTrack.title}
           />
 
           {/* 曲目資訊與控制 */}
-          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, flexGrow: 1 }}>
+          <Box sx={{ flexGrow: 1, minWidth: 0, ...(embedded && { width: '100%' }) }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ...(embedded && { flexDirection: 'column', alignItems: 'flex-start' }) }}>
+              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, flexGrow: 1, ...(embedded && { width: '100%', textAlign: 'center' }) }}>
                 {displayTrack.title}
               </Typography>
               {/* 快取狀態標籤 */}
-              {!isLoading && !isLoadingTrack && (
+              {!isLoading && !isLoadingTrack && !embedded && (
                 <Chip
                   icon={isCached ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
                   label={isCached ? '快取' : '網路'}
@@ -785,7 +797,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
               )}
               {(isLoading || isLoadingTrack) && <CircularProgress size={16} />}
             </Box>
-            <Typography variant="body2" color="text.secondary" noWrap>
+            <Typography variant="body2" color="text.secondary" noWrap sx={embedded ? { textAlign: 'center', mb: 1 } : {}}>
               {displayTrack.channel}
             </Typography>
 
@@ -793,7 +805,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
           </Box>
 
           {/* 點擊播放按鈕 - 當自動播放被阻擋時顯示 */}
-          {autoplayBlocked && (
+          {autoplayBlocked && !embedded && (
             <Button
               variant="contained"
               color="primary"
@@ -822,7 +834,7 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
           )}
 
           {/* 歌詞按鈕 */}
-          {!autoplayBlocked && onOpenLyrics && (
+          {!autoplayBlocked && onOpenLyrics && !embedded && (
             <Tooltip title="開啟歌詞">
               <IconButton
                 onClick={onOpenLyrics}

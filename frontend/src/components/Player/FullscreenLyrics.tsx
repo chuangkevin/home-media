@@ -3,7 +3,7 @@ import {
   Box, Typography, Drawer, CircularProgress, Alert, IconButton, Tooltip, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, List,
   ListItem, ListItemText, ListItemButton, InputAdornment, ToggleButtonGroup, ToggleButton,
-  ListItemAvatar, Avatar
+  ListItemAvatar, Avatar, useMediaQuery, useTheme
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -20,6 +20,8 @@ import OndemandVideoIcon from '@mui/icons-material/OndemandVideo';
 import AlbumIcon from '@mui/icons-material/Album';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import ClosedCaptionIcon from '@mui/icons-material/ClosedCaption';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
@@ -29,6 +31,7 @@ import { seekTo, setPendingTrack, setIsPlaying, setCurrentTime, clearSeekTarget 
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
+import AudioPlayer from './AudioPlayer';
 
 type ViewMode = 'lyrics' | 'video' | 'cover';
 
@@ -48,6 +51,8 @@ interface FullscreenLyricsProps {
 
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
   const dispatch = useDispatch();
+  const theme = useTheme();
+  const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 768px)');
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
@@ -59,6 +64,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 顯示模式
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
+  const [isFullscreenLayout, setIsFullscreenLayout] = useState(false);
 
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
@@ -830,74 +836,103 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: 'calc(100% - 140px)',
-            maxHeight: 'calc(100% - 140px)',
-            borderTopLeftRadius: 16,
-            borderTopRightRadius: 16,
-            bottom: 140,
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 140px)',
+            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 140px)',
+            borderTopLeftRadius: isFullscreenLayout ? 0 : 16,
+            borderTopRightRadius: isFullscreenLayout ? 0 : 16,
+            bottom: isFullscreenLayout ? 0 : 140,
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
           },
         }}
         ModalProps={{
           keepMounted: true,
           sx: {
-            bottom: 140,
-            height: 'calc(100% - 140px)',
+            bottom: isFullscreenLayout ? 0 : 140,
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 140px)',
             '& .MuiBackdrop-root': {
-              bottom: 140,
+              bottom: isFullscreenLayout ? 0 : 140,
             },
           },
         }}
       >
-        {/* 頂部操作列 */}
+        {/* 橫式裝置：左側播放器 */}
+        {isFullscreenLayout && isLandscape && (
+          <Box
+            sx={{
+              width: 320,
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              borderRight: 1,
+              borderColor: 'divider',
+              overflow: 'auto',
+            }}
+          >
+            <AudioPlayer embedded />
+          </Box>
+        )}
+
+        {/* 主歌詞區域 */}
         <Box
           sx={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 10,
-            backgroundColor: 'background.paper',
-            borderBottom: 1,
-            borderColor: 'divider',
-            px: 2,
-            py: 1,
-            flexShrink: 0,
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            minWidth: 0,
+            minHeight: 0,
           }}
         >
-          {/* 下拉指示器 */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
-            <Box
-              sx={{
-                width: 40,
-                height: 4,
-                backgroundColor: 'action.disabled',
-                borderRadius: 2,
-              }}
-            />
-          </Box>
+          {/* 頂部操作列 */}
+          <Box
+            sx={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 10,
+              backgroundColor: 'background.paper',
+              borderBottom: 1,
+              borderColor: 'divider',
+              px: 2,
+              py: 1,
+              flexShrink: 0,
+            }}
+          >
+            {/* 下拉指示器 */}
+            {!isFullscreenLayout && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 4,
+                    backgroundColor: 'action.disabled',
+                    borderRadius: 2,
+                  }}
+                />
+              </Box>
+            )}
 
-          {/* 曲目資訊與關閉按鈕 */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box
-              component="img"
-              src={track.thumbnail}
-              alt={track.title}
-              sx={{ width: 48, height: 48, borderRadius: 1, objectFit: 'cover' }}
-            />
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600 }}>
-                {track.title}
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="caption" color="text.secondary" noWrap>
-                  {track.channel}
+            {/* 曲目資訊與關閉按鈕 */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box
+                component="img"
+                src={track.thumbnail}
+                alt={track.title}
+                sx={{ width: 48, height: 48, borderRadius: 1, objectFit: 'cover' }}
+              />
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600 }}>
+                  {track.title}
                 </Typography>
-                {currentLyrics && (
-                  <Chip
-                    label={currentLyrics.source === 'youtube' ? 'YT' :
-                      currentLyrics.source === 'netease' ? '網易' :
-                      currentLyrics.source === 'lrclib' ? 'LRC' :
-                      currentLyrics.source === 'genius' ? 'G' : '?'}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {track.channel}
+                  </Typography>
+                  {currentLyrics && (
+                    <Chip
+                      label={currentLyrics.source === 'youtube' ? 'YT' :
+                        currentLyrics.source === 'netease' ? '網易' :
+                        currentLyrics.source === 'lrclib' ? 'LRC' :
+                        currentLyrics.source === 'genius' ? 'G' : '?'}
                     size="small"
                     sx={{ height: 16, fontSize: '0.65rem' }}
                   />
@@ -905,11 +940,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               </Box>
             </Box>
             {viewMode === 'lyrics' && (
-              <Tooltip title="搜尋其他歌詞">
-                <IconButton size="small" onClick={handleOpenSearch}>
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <>
+                <Tooltip title="搜尋其他歌詞">
+                  <IconButton size="small" onClick={handleOpenSearch}>
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={isFullscreenLayout ? "退出全螢幕" : "全螢幕歌詞"}>
+                  <IconButton size="small" onClick={() => setIsFullscreenLayout(!isFullscreenLayout)}>
+                    {isFullscreenLayout ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
+              </>
             )}
             <IconButton onClick={onClose}>
               <KeyboardArrowDownIcon />
@@ -917,27 +959,29 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
 
           {/* 模式切換 */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-            <ToggleButtonGroup
-              value={viewMode}
-              exclusive
-              onChange={(_, newMode) => newMode && setViewMode(newMode)}
-              size="small"
-            >
-              <ToggleButton value="lyrics">
-                <LyricsIcon sx={{ mr: 0.5, fontSize: 18 }} />
-                歌詞
-              </ToggleButton>
-              <ToggleButton value="video">
-                <OndemandVideoIcon sx={{ mr: 0.5, fontSize: 18 }} />
-                影片
-              </ToggleButton>
-              <ToggleButton value="cover">
-                <AlbumIcon sx={{ mr: 0.5, fontSize: 18 }} />
-                封面
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
+          {!isFullscreenLayout && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+              <ToggleButtonGroup
+                value={viewMode}
+                exclusive
+                onChange={(_, newMode) => newMode && setViewMode(newMode)}
+                size="small"
+              >
+                <ToggleButton value="lyrics">
+                  <LyricsIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                  歌詞
+                </ToggleButton>
+                <ToggleButton value="video">
+                  <OndemandVideoIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                  影片
+                </ToggleButton>
+                <ToggleButton value="cover">
+                  <AlbumIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                  封面
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+          )}
 
           {/* 歌詞微調控制（僅在歌詞模式顯示） */}
           {viewMode === 'lyrics' && currentLyrics?.isSynced && (
@@ -986,6 +1030,19 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           )}
         </Box>
 
+        {/* 直式裝置：頂部播放器 */}
+        {isFullscreenLayout && !isLandscape && (
+          <Box
+            sx={{
+              flexShrink: 0,
+              borderBottom: 1,
+              borderColor: 'divider',
+            }}
+          >
+            <AudioPlayer embedded />
+          </Box>
+        )}
+
         {/* 主內容區域 */}
         <Box
           ref={viewMode === 'lyrics' ? lyricsContainerRef : undefined}
@@ -1011,28 +1068,58 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             }),
           }}
         >
-          {viewMode === 'lyrics' && renderLyrics()}
-          {viewMode === 'video' && renderVideo()}
-          {viewMode === 'cover' && renderCover()}
+          {isFullscreenLayout ? renderLyrics() : (
+            <>
+              {viewMode === 'lyrics' && renderLyrics()}
+              {viewMode === 'video' && renderVideo()}
+              {viewMode === 'cover' && renderCover()}
+            </>
+          )}
         </Box>
 
-        {/* 待播清單 */}
+        {/* 待播清單 - 僅在非全螢幕或橫式裝置顯示 */}
+        {!isFullscreenLayout && (
+          <Box
+            sx={{
+              borderTop: 1,
+              borderColor: 'divider',
+              backgroundColor: 'background.paper',
+              maxHeight: '25%',
+              overflow: 'auto',
+              flexShrink: 0,
+            }}
+          >
+            <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block', fontWeight: 600 }}>
+              待播清單 ({upcomingTracks.length})
+            </Typography>
+            {renderUpcoming()}
+          </Box>
+        )}
+      </Box>
+
+      {/* 橫式裝置：右側播放清單 */}
+      {isFullscreenLayout && isLandscape && (
         <Box
           sx={{
-            borderTop: 1,
-            borderColor: 'divider',
-            backgroundColor: 'background.paper',
-            maxHeight: '25%',
-            overflow: 'auto',
+            width: 350,
             flexShrink: 0,
+            borderLeft: 1,
+            borderColor: 'divider',
+            overflow: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: 'background.paper',
           }}
         >
-          <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block', fontWeight: 600 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1.5, display: 'block', fontWeight: 600, borderBottom: 1, borderColor: 'divider' }}>
             待播清單 ({upcomingTracks.length})
           </Typography>
-          {renderUpcoming()}
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            {renderUpcoming()}
+          </Box>
         </Box>
-      </Drawer>
+      )}
+    </Drawer>
 
       {/* 歌詞搜尋對話框 */}
       <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} maxWidth="sm" fullWidth>
