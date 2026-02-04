@@ -29,7 +29,7 @@ const initialState: PlayerState = {
   duration: 0,
   volume: 0.7,
   queue: [],
-  repeat: 'all', // 預設循環播放整個列表
+  repeat: 'all', // 預設循環播放，配合自動佇列實現無限播放
   shuffle: false,
   displayMode: 'visualizer', // 預設顯示視覺化模式（影片模式有 YouTube 嵌入限制）
   seekTarget: null,

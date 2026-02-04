@@ -50,7 +50,8 @@ export default function PlayerControls() {
 
   // 檢查是否有上一首/下一首
   const hasPrevious = playlist.length > 0 && currentIndex > 0;
-  const hasNext = playlist.length > 0 && currentIndex < playlist.length - 1;
+  // 允許在最後一首時也能點下一首（會停止或循環，取決於 repeat 設定）
+  const hasNext = playlist.length > 0;
 
   return (
     <Box sx={{ width: '100%', mt: 1 }}>

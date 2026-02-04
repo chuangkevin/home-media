@@ -12,6 +12,7 @@ import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyri
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
+import { useAutoQueue } from '../../hooks/useAutoQueue';
 
 interface AudioPlayerProps {
   onOpenLyrics?: () => void;
@@ -28,6 +29,9 @@ export default function AudioPlayer({ onOpenLyrics }: AudioPlayerProps) {
   const pendingBlobUrlRef = useRef<string | null>(null);
   const lastAudioSrcRef = useRef<string | null>(null);
   const lastAudioTimeRef = useRef<number>(0);
+
+  // 🎵 自動播放佇列 - 當接近播放清單尾端時自動加入推薦歌曲
+  useAutoQueue();
   const lastAudioMutedRef = useRef<boolean>(false);
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
