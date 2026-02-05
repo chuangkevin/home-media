@@ -17,6 +17,8 @@ export interface YouTubeSearchResult {
 export interface YouTubeStreamInfo {
   videoId: string;
   title: string;
+  channel?: string;
+  thumbnail?: string;
   duration: number;
   formats: AudioFormat[];
 }

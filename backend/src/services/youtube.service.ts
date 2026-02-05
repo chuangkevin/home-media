@@ -219,9 +219,17 @@ class YouTubeService {
       const info = await ytdl.getInfo(videoId);
       const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
 
+      // 獲取最高解析度的縮圖
+      const thumbnails = info.videoDetails.thumbnails || [];
+      const thumbnail = thumbnails.length > 0 
+        ? thumbnails[thumbnails.length - 1].url 
+        : undefined;
+
       return {
         videoId,
         title: info.videoDetails.title,
+        channel: info.videoDetails.ownerChannelName || info.videoDetails.author?.name || 'Unknown',
+        thumbnail,
         duration: parseInt(info.videoDetails.lengthSeconds, 10),
         formats: audioFormats.map((format) => ({
           itag: format.itag,
