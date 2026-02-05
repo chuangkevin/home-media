@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Container,
   Typography,
   Alert,
   CircularProgress,
-  Tabs,
-  Tab,
+  BottomNavigation,
+  BottomNavigationAction,
+  Paper,
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
@@ -30,9 +32,143 @@ import audioCacheService from './services/audio-cache.service';
 import type { Track } from './types/track.types';
 import { useSocketConnection } from './hooks/useSocketConnection';
 import { useRadioSync } from './hooks/useRadioSync';
+import { useParams } from 'react-router-dom';
 
-function App() {
+// 單曲頁面元件
+function TrackPage() {
+  const { videoId } = useParams<{ videoId: string }>();
   const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const { currentTrack, playlist } = useSelector((state: RootState) => state.player);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!videoId) return;
+    
+    // 如果當前已經在播放這首歌，不需要重新加載
+    if (currentTrack?.videoId === videoId) {
+      return;
+    }
+
+    // 載入並播放歌曲（刷新頁面或直接訪問 URL 時）
+    const loadTrack = async () => {
+      try {
+        setLoading(true);
+        const videoInfo = await apiService.getVideoInfo(videoId);
+        const track: Track = {
+          videoId: videoInfo.videoId,
+          title: videoInfo.title,
+          channel: videoInfo.channel,
+          thumbnail: videoInfo.thumbnail,
+          duration: videoInfo.duration,
+        };
+        
+        // 將這首歌設為播放清單，這樣 useAutoQueue 才會觸發
+        dispatch(setPlaylist([track]));
+        dispatch(setPendingTrack(track));
+        dispatch(setIsPlaying(true));
+      } catch (err) {
+        console.error('Failed to load track:', err);
+        setError('載入歌曲失敗');
+        setTimeout(() => navigate('/'), 2000);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadTrack();
+    // 注意：不要將 currentTrack 放入依賴，否則每次歌曲切換都會觸發
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoId, dispatch, navigate]);
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert severity="error" sx={{ mb: 3 }}>
+        {error}
+      </Alert>
+    );
+  }
+
+  // 顯示推薦內容（與首頁相同）
+  return <HomeRecommendations />;
+}
+
+// 底部導航列元件
+function BottomNav() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const getNavValue = () => {
+    if (location.pathname === '/playlists') return '/playlists';
+    if (location.pathname === '/admin') return '/admin';
+    return '/';
+  };
+
+  const handleClick = (path: string) => {
+    // 保持 playing 參數
+    const playing = searchParams.get('playing');
+    const newPath = playing ? `${path}?playing=${playing}` : path;
+    navigate(newPath);
+  };
+
+  return (
+    <Paper
+      sx={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1200, // 高於播放器
+        borderTop: '1px solid',
+        borderColor: 'divider',
+      }}
+      elevation={8}
+    >
+      <BottomNavigation
+        value={getNavValue()}
+        showLabels
+        sx={{
+          height: 56, // 固定高度
+        }}
+      >
+        <BottomNavigationAction
+          label="首頁"
+          value="/"
+          icon={<HomeIcon />}
+          onClick={() => handleClick('/')}
+        />
+        <BottomNavigationAction
+          label="播放清單"
+          value="/playlists"
+          onClick={() => handleClick('/playlists')}
+          icon={<QueueMusicIcon />}
+        />
+        <BottomNavigationAction
+          label="設定"
+          value="/admin"
+          icon={<SettingsIcon />}
+          onClick={() => handleClick('/admin')}
+        />
+      </BottomNavigation>
+    </Paper>
+  );
+}
+
+function AppContent() {
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { currentTrack, displayMode } = useSelector(
     (state: RootState) => state.player
   );
@@ -40,7 +176,6 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
-  const [homeTab, setHomeTab] = useState(0); // 0: 首頁推薦, 1: 播放清單
   const [lyricsDrawerOpen, setLyricsDrawerOpen] = useState(false); // 歌詞抽屜狀態
   const [siteTitle, setSiteTitle] = useState('Home Media'); // 網站標題
 
@@ -50,12 +185,51 @@ function App() {
   // 電台同步（主播/聽眾）
   useRadioSync();
 
-  // 當歌曲開始播放時，自動展開歌詞抽屜
+  // 監聽路由變化，自動關閉歌詞抽屜
+  useEffect(() => {
+    setLyricsDrawerOpen(false);
+  }, [location.pathname]);
+
+  // 當歌曲開始播放時，自動展開歌詞抽屜並更新 URL
   useEffect(() => {
     if (currentTrack) {
       setLyricsDrawerOpen(true);
+      // 在 URL 中記錄當前播放的歌曲
+      const newParams = new URLSearchParams(searchParams);
+      newParams.set('playing', currentTrack.videoId);
+      setSearchParams(newParams, { replace: true });
     }
   }, [currentTrack?.videoId]);
+
+  // 頁面載入/重整時，從 URL 恢復播放狀態
+  useEffect(() => {
+    const playingVideoId = searchParams.get('playing');
+    if (playingVideoId && !currentTrack) {
+      // 載入並播放該歌曲
+      const loadTrack = async () => {
+        try {
+          const videoInfo = await apiService.getVideoInfo(playingVideoId);
+          const track: Track = {
+            videoId: videoInfo.videoId,
+            title: videoInfo.title,
+            channel: videoInfo.channel,
+            thumbnail: videoInfo.thumbnail,
+            duration: videoInfo.duration,
+          };
+          dispatch(setPlaylist([track]));
+          dispatch(setPendingTrack(track));
+          dispatch(setIsPlaying(true));
+        } catch (err) {
+          console.error('恢復播放失敗:', err);
+          // 清除無效的 playing 參數
+          const newParams = new URLSearchParams(searchParams);
+          newParams.delete('playing');
+          setSearchParams(newParams, { replace: true });
+        }
+      };
+      loadTrack();
+    }
+  }, []); // 只在頁面初始化時執行一次
 
   // 初始化音訊快取服務
   useEffect(() => {
@@ -151,8 +325,8 @@ function App() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', pb: 20 }}>
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+    <Box sx={{ minHeight: '100vh' }}>
+      <Container maxWidth="lg" sx={{ py: 4, pb: '250px' }}> {/* 180px 播放器 + 56px 導航欄 + 14px 額外空間 */}
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
@@ -175,12 +349,9 @@ function App() {
           </Box>
         </Box>
 
-        {/* 影片播放器 + 模式切換 */}
-        {currentTrack && (
-          <>
-            <DisplayModeToggle />
-            {displayMode === 'video' && <VideoPlayer track={currentTrack} />}
-          </>
+        {/* 影片播放器 */}
+        {currentTrack && displayMode === 'video' && (
+          <VideoPlayer track={currentTrack} />
         )}
 
         {/* 搜尋列 */}
@@ -202,36 +373,30 @@ function App() {
           </Box>
         )}
 
-        {/* 搜尋結果 */}
-        {!loading && hasSearched && (
-          <SearchResults
-            results={searchResults}
-            onPlay={handlePlay}
-            onAddToQueue={handleAddToQueue}
-          />
-        )}
-
-        {/* 首頁內容（未搜尋時顯示） */}
-        {!loading && !hasSearched && (
-          <>
-            <Tabs
-              value={homeTab}
-              onChange={(_, newValue) => setHomeTab(newValue)}
-              centered
-              sx={{ mb: 3 }}
-            >
-              <Tab icon={<HomeIcon />} label="首頁推薦" />
-              <Tab icon={<QueueMusicIcon />} label="播放清單" />
-              <Tab icon={<SettingsIcon />} label="系統管理" />
-            </Tabs>
-            {homeTab === 0 && <HomeRecommendations />}
-            {homeTab === 1 && <PlaylistSection />}
-            {homeTab === 2 && <AdminSettings />}
-          </>
-        )}
+        {/* 首頁內容 */}
+        <Routes>
+          <Route path="/" element={
+            <>
+              {!loading && hasSearched ? (
+                <SearchResults
+                  results={searchResults}
+                  onPlay={handlePlay}
+                  onAddToQueue={handleAddToQueue}
+                />
+              ) : (
+                !loading && <HomeRecommendations />
+              )}
+            </>
+          } />
+          <Route path="/playlists" element={<PlaylistSection />} />
+          <Route path="/admin" element={<AdminSettings />} />
+        </Routes>
       </Container>
 
-      {/* 播放器（固定在底部）*/}
+      {/* 底部導航列 */}
+      <BottomNav />
+
+      {/* 播放器（固定在底部，在導航列下方）*/}
       <AudioPlayer
         onOpenLyrics={() => setLyricsDrawerOpen(true)}
       />
@@ -245,6 +410,15 @@ function App() {
         />
       )}
     </Box>
+  );
+}
+
+// App 包裝元件（提供 Router context）
+function App() {
+  return (
+    <Router>
+      <AppContent />
+    </Router>
   );
 }
 
