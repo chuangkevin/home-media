@@ -866,7 +866,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       }}
     >
       <CardContent sx={{ pb: 2, '&:last-child': { pb: 2 }, flex: embedded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ...(embedded && { flexDirection: 'column', flex: 1 }) }}>
+        <Box sx={{ display: 'flex', alignItems: embedded ? 'center' : 'center', gap: 2, ...(embedded && { flexDirection: 'column', flex: 1, justifyContent: 'flex-start', pt: 2 }) }}>
           {/* 專輯封面 */}
           <CardMedia
             component="img"
@@ -883,12 +883,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
           {/* 曲目資訊與控制 */}
           <Box sx={{ flexGrow: 1, minWidth: 0, ...(embedded && { width: '100%' }) }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ...(embedded && { flexDirection: 'column', alignItems: 'flex-start' }) }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, flexGrow: 1, ...(embedded && { width: '100%', textAlign: 'center' }) }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, ...(embedded && { flexDirection: 'column', alignItems: 'center' }) }}>
+              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, ...(embedded ? { width: '100%', textAlign: 'center' } : { flex: '1 1 0', minWidth: 0 }) }}>
                 {displayTrack.title}
               </Typography>
               {/* 快取狀態標籤 */}
-              {!isLoading && !isLoadingTrack && !embedded && (
+              {!isLoading && !isLoadingTrack && (
                 <Chip
                   icon={isCached ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
                   label={isCached ? '快取' : '網路'}
@@ -908,60 +908,113 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               {displayTrack.channel}
             </Typography>
 
-            <PlayerControls />
+            <PlayerControls embedded={embedded} />
+
+            {/* embedded 模式下的功能按鈕 */}
+            {embedded && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mt: 2 }}>
+                {/* 點擊播放按鈕 - 當自動播放被阻擋時顯示 */}
+                {autoplayBlocked && (
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="small"
+                    startIcon={<PlayArrowIcon />}
+                    onClick={() => {
+                      if (audioRef.current) {
+                        audioRef.current.play().then(() => {
+                          setAutoplayBlocked(false);
+                        }).catch(console.error);
+                      }
+                    }}
+                    sx={{
+                      animation: 'pulse 1.5s infinite',
+                      '@keyframes pulse': {
+                        '0%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0.7)' },
+                        '70%': { boxShadow: '0 0 0 10px rgba(25, 118, 210, 0)' },
+                        '100%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0)' },
+                      },
+                    }}
+                  >
+                    點擊播放
+                  </Button>
+                )}
+                {/* 歌詞按鈕 */}
+                {!autoplayBlocked && onOpenLyrics && (
+                  <Tooltip title="開啟歌詞">
+                    <IconButton onClick={onOpenLyrics}>
+                      <LyricsIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                {/* 加到播放清單按鈕 */}
+                {!autoplayBlocked && (
+                  <Tooltip title="加到播放清單">
+                    <IconButton onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}>
+                      <PlaylistAddIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
+            )}
           </Box>
 
-          {/* 點擊播放按鈕 - 當自動播放被阻擋時顯示 */}
-          {autoplayBlocked && !embedded && (
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={<PlayArrowIcon />}
-              onClick={() => {
-                if (audioRef.current) {
-                  audioRef.current.play().then(() => {
-                    setAutoplayBlocked(false);
-                  }).catch(console.error);
-                }
-              }}
-              sx={{
-                ml: 2,
-                whiteSpace: 'nowrap',
-                animation: 'pulse 1.5s infinite',
-                '@keyframes pulse': {
-                  '0%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0.7)' },
-                  '70%': { boxShadow: '0 0 0 10px rgba(25, 118, 210, 0)' },
-                  '100%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0)' },
-                },
-              }}
-            >
-              點擊播放
-            </Button>
-          )}
+          {/* 非 embedded 模式的按鈕 */}
+          {!embedded && (
+            <>
+              {/* 點擊播放按鈕 - 當自動播放被阻擋時顯示 */}
+              {autoplayBlocked && (
+                <Button
+                  variant="contained"
+                  color="primary"
+                  size="large"
+                  startIcon={<PlayArrowIcon />}
+                  onClick={() => {
+                    if (audioRef.current) {
+                      audioRef.current.play().then(() => {
+                        setAutoplayBlocked(false);
+                      }).catch(console.error);
+                    }
+                  }}
+                  sx={{
+                    ml: 2,
+                    whiteSpace: 'nowrap',
+                    animation: 'pulse 1.5s infinite',
+                    '@keyframes pulse': {
+                      '0%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0.7)' },
+                      '70%': { boxShadow: '0 0 0 10px rgba(25, 118, 210, 0)' },
+                      '100%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0)' },
+                    },
+                  }}
+                >
+                  點擊播放
+                </Button>
+              )}
 
-          {/* 歌詞按鈕 */}
-          {!autoplayBlocked && onOpenLyrics && !embedded && (
-            <Tooltip title="開啟歌詞">
-              <IconButton
-                onClick={onOpenLyrics}
-                sx={{ ml: 1 }}
-              >
-                <LyricsIcon />
-              </IconButton>
-            </Tooltip>
-          )}
+              {/* 歌詞按鈕 */}
+              {!autoplayBlocked && onOpenLyrics && (
+                <Tooltip title="開啟歌詞">
+                  <IconButton
+                    onClick={onOpenLyrics}
+                    sx={{ ml: 1 }}
+                  >
+                    <LyricsIcon />
+                  </IconButton>
+                </Tooltip>
+              )}
 
-          {/* 加到播放清單按鈕 */}
-          {!autoplayBlocked && !embedded && (
-            <Tooltip title="加到播放清單">
-              <IconButton
-                onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}
-                sx={{ ml: 1 }}
-              >
-                <PlaylistAddIcon />
-              </IconButton>
-            </Tooltip>
+              {/* 加到播放清單按鈕 */}
+              {!autoplayBlocked && (
+                <Tooltip title="加到播放清單">
+                  <IconButton
+                    onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}
+                    sx={{ ml: 1 }}
+                  >
+                    <PlaylistAddIcon />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </>
           )}
         </Box>
       </CardContent>

@@ -18,7 +18,6 @@ import SearchBar from './components/Search/SearchBar';
 import SearchResults from './components/Search/SearchResults';
 import AudioPlayer from './components/Player/AudioPlayer';
 import VideoPlayer from './components/Player/VideoPlayer';
-import DisplayModeToggle from './components/Player/DisplayModeToggle';
 import FullscreenLyrics from './components/Player/FullscreenLyrics';
 import HomeRecommendations from './components/Home/HomeRecommendations';
 import PlaylistSection from './components/Playlist/PlaylistSection';
@@ -35,11 +34,11 @@ import { useRadioSync } from './hooks/useRadioSync';
 import { useParams } from 'react-router-dom';
 
 // 單曲頁面元件
+// @ts-ignore - 保留以供未來使用
 function TrackPage() {
   const { videoId } = useParams<{ videoId: string }>();
   const dispatch = useDispatch();
-  const navigate = useNavigate();
-  const { currentTrack, playlist } = useSelector((state: RootState) => state.player);
+  const { currentTrack } = useSelector((state: RootState) => state.player);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +56,7 @@ function TrackPage() {
         setLoading(true);
         const videoInfo = await apiService.getVideoInfo(videoId);
         const track: Track = {
+          id: videoInfo.videoId,
           videoId: videoInfo.videoId,
           title: videoInfo.title,
           channel: videoInfo.channel,
@@ -71,7 +71,6 @@ function TrackPage() {
       } catch (err) {
         console.error('Failed to load track:', err);
         setError('載入歌曲失敗');
-        setTimeout(() => navigate('/'), 2000);
       } finally {
         setLoading(false);
       }
@@ -80,7 +79,7 @@ function TrackPage() {
     loadTrack();
     // 注意：不要將 currentTrack 放入依賴，否則每次歌曲切換都會觸發
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoId, dispatch, navigate]);
+  }, [videoId, dispatch]);
 
   if (loading) {
     return (
@@ -166,7 +165,6 @@ function BottomNav() {
 
 function AppContent() {
   const dispatch = useDispatch();
-  const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { currentTrack, displayMode } = useSelector(
@@ -210,6 +208,7 @@ function AppContent() {
         try {
           const videoInfo = await apiService.getVideoInfo(playingVideoId);
           const track: Track = {
+            id: videoInfo.videoId,
             videoId: videoInfo.videoId,
             title: videoInfo.title,
             channel: videoInfo.channel,

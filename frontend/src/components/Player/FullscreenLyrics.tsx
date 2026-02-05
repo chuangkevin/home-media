@@ -598,8 +598,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       );
     }
 
+    // 全螢幕橫向模式：更大的歌詞
+    const isLandscapeFullscreen = isFullscreenLayout && isLandscape;
+
     return (
-      <Box sx={{ px: 2 }}>
+      <Box sx={{ 
+        px: isLandscapeFullscreen ? 6 : 2,
+        maxWidth: isLandscapeFullscreen ? '900px' : 'none',
+        mx: 'auto',
+        width: '100%',
+      }}>
         {/* 頂部填充 */}
         <Box sx={{ height: '30vh' }} />
         {currentLyrics.lines.map((line, index) => {
@@ -612,7 +620,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               ref={(el: HTMLDivElement | null) => (lineRefs.current[index] = el)}
               onClick={() => currentLyrics.isSynced && handleLyricClick(line.time, index)}
               sx={{
-                py: 2,
+                py: isLandscapeFullscreen ? 3 : 2,
                 px: 2,
                 textAlign: 'center',
                 transition: 'all 0.3s ease',
@@ -627,7 +635,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               <Typography
                 sx={{
                   fontWeight: isActive ? 700 : 400,
-                  fontSize: isActive ? '1.6rem' : '1.2rem',
+                  fontSize: isLandscapeFullscreen 
+                    ? (isActive ? '2.8rem' : '1.8rem')
+                    : (isActive ? '1.6rem' : '1.2rem'),
                   color: isActive
                     ? 'primary.main'
                     : isPassed
@@ -635,6 +645,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                     : 'text.primary',
                   opacity: isPassed ? 0.5 : 1,
                   transition: 'all 0.3s ease',
+                  lineHeight: isLandscapeFullscreen ? 1.4 : 1.5,
                 }}
               >
                 {toTraditional(line.text)}
@@ -838,11 +849,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
-            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
+            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
             borderTopLeftRadius: isFullscreenLayout ? 0 : 16,
             borderTopRightRadius: isFullscreenLayout ? 0 : 16,
-            bottom: isFullscreenLayout ? 0 : 180,
+            bottom: isFullscreenLayout ? 0 : 250,
             display: 'flex',
             flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
             pb: isFullscreenLayout ? 0 : 3,
@@ -851,10 +862,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         ModalProps={{
           keepMounted: true,
           sx: {
-            bottom: isFullscreenLayout ? 0 : 180,
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
+            bottom: isFullscreenLayout ? 0 : 250,
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
             '& .MuiBackdrop-root': {
-              bottom: isFullscreenLayout ? 0 : 180,
+              bottom: isFullscreenLayout ? 0 : 250,
             },
           },
         }}
@@ -863,7 +874,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         {isFullscreenLayout && isLandscape && (
           <Box
             sx={{
-              width: 320,
+              width: 280,
               flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
@@ -884,6 +895,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             flexDirection: 'column',
             minWidth: 0,
             minHeight: 0,
+            position: 'relative',
           }}
         >
           {/* 頂部操作列 */}
@@ -1105,7 +1117,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       {isFullscreenLayout && isLandscape && (
         <Box
           sx={{
-            width: 350,
+            width: 320,
             flexShrink: 0,
             borderLeft: 1,
             borderColor: 'divider',

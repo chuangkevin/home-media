@@ -12,7 +12,11 @@ import { formatDuration } from '../../utils/formatTime';
 import { CastButton } from '../Cast';
 import { useCastingControls } from '../../hooks/useCastingControls';
 
-export default function PlayerControls() {
+interface PlayerControlsProps {
+  embedded?: boolean;
+}
+
+export default function PlayerControls({ embedded = false }: PlayerControlsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -92,8 +96,8 @@ export default function PlayerControls() {
           <IconButton size="small" onClick={toggleMute}>
             <VolumeIcon />
           </IconButton>
-          {/* 桌面版顯示音量滑桿 */}
-          {!isMobile && (
+          {/* 桌面版或 embedded 模式顯示音量滑桿 */}
+          {(!isMobile || embedded) && (
             <Slider
               size="small"
               value={volume}
@@ -101,7 +105,7 @@ export default function PlayerControls() {
               max={1}
               step={0.01}
               onChange={onVolumeChange}
-              sx={{ width: 80 }}
+              sx={{ width: embedded ? 100 : 80 }}
             />
           )}
           {/* 投射按鈕 */}
