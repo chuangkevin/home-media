@@ -63,6 +63,7 @@ import playlistRoutes from './routes/playlist.routes';
 import spotifyRoutes from './routes/spotify.routes';
 import genreRecommendationRoutes from './routes/genre-recommendations.routes';
 import hiddenChannelsRoutes from './routes/hidden-channels.routes';
+import settingsRoutes from './routes/settings.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -127,6 +128,9 @@ app.use('/api/recommendations', genreRecommendationRoutes);
 
 // Hidden channels
 app.use('/api/hidden-channels', hiddenChannelsRoutes);
+
+// Settings
+app.use('/api/settings', settingsRoutes);
 
 // Error handlers
 app.use(notFoundHandler);

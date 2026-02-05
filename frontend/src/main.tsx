@@ -1,23 +1,53 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { Provider } from 'react-redux';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import App from './App';
 import { store } from './store';
+import apiService from './services/api.service';
 
-const darkTheme = createTheme({
-  palette: {
-    mode: 'dark',
-  },
-});
+function ThemedApp() {
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
+
+  // 載入主題設定
+  useEffect(() => {
+    apiService.getSettings().then(settings => {
+      if (settings.theme_mode) {
+        setThemeMode(settings.theme_mode);
+      }
+    }).catch(err => {
+      console.error('Failed to load theme settings:', err);
+    });
+
+    // 監聽設定變更事件（當 AdminSettings 儲存時觸發）
+    const handleThemeChange = (event: CustomEvent) => {
+      setThemeMode(event.detail);
+    };
+    window.addEventListener('themeChanged', handleThemeChange as EventListener);
+    return () => window.removeEventListener('themeChanged', handleThemeChange as EventListener);
+  }, []);
+
+  const theme = useMemo(
+    () => createTheme({
+      palette: {
+        mode: themeMode,
+      },
+    }),
+    [themeMode]
+  );
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <App />
+    </ThemeProvider>
+  );
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Provider store={store}>
-      <ThemeProvider theme={darkTheme}>
-        <CssBaseline />
-        <App />
-      </ThemeProvider>
+      <ThemedApp />
     </Provider>
   </React.StrictMode>
 );

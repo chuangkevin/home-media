@@ -10,8 +10,23 @@ import logger from '../utils/logger';
  * 負責生成基於觀看歷史的推薦內容
  */
 class RecommendationService {
-  private readonly CACHE_DURATION = 6 * 60 * 60 * 1000; // 6 小時
   private readonly VIDEOS_PER_CHANNEL = 5; // 每個頻道推薦 5 首影片
+
+  /**
+   * 從設定讀取快取時間
+   */
+  private getCacheDuration(): number {
+    try {
+      const setting = db.prepare('SELECT value FROM settings WHERE key = ?').get('cache_duration') as { value: string } | undefined;
+      if (setting) {
+        const duration = parseInt(setting.value, 10);
+        return isNaN(duration) ? 24 * 60 * 60 * 1000 : duration; // 預設 24 小時
+      }
+    } catch (error) {
+      logger.warn('Failed to get cache_duration setting:', error);
+    }
+    return 24 * 60 * 60 * 1000; // 預設 24 小時
+  }
 
   /**
    * 獲取首頁推薦（頻道分區）
@@ -155,7 +170,8 @@ class RecommendationService {
   private cacheRecommendations(channelName: string, videos: YouTubeSearchResult[]): void {
     try {
       const now = Date.now();
-      const expiresAt = now + this.CACHE_DURATION;
+      const cacheDuration = this.getCacheDuration();
+      const expiresAt = now + cacheDuration;
       const id = `${channelName}-${now}`;
 
       db.prepare(
@@ -170,7 +186,8 @@ class RecommendationService {
         expiresAt
       );
 
-      logger.info(`Cached recommendations for ${channelName} (expires in 6 hours)`);
+      const hours = (cacheDuration / (60 * 60 * 1000)).toFixed(1);
+      logger.info(`Cached recommendations for ${channelName} (expires in ${hours} hours)`);
     } catch (error) {
       logger.warn('Failed to cache recommendations:', error);
     }

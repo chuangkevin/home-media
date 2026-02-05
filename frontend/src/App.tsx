@@ -20,7 +20,7 @@ import DisplayModeToggle from './components/Player/DisplayModeToggle';
 import FullscreenLyrics from './components/Player/FullscreenLyrics';
 import HomeRecommendations from './components/Home/HomeRecommendations';
 import PlaylistSection from './components/Playlist/PlaylistSection';
-import SettingsPage from './components/Settings/SettingsPage';
+import AdminSettings from './components/Admin/AdminSettings';
 import RadioButton from './components/Radio/RadioButton';
 import RadioIndicator from './components/Radio/RadioIndicator';
 import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
@@ -42,6 +42,7 @@ function App() {
   const [hasSearched, setHasSearched] = useState(false);
   const [homeTab, setHomeTab] = useState(0); // 0: 首頁推薦, 1: 播放清單
   const [lyricsDrawerOpen, setLyricsDrawerOpen] = useState(false); // 歌詞抽屜狀態
+  const [siteTitle, setSiteTitle] = useState('Home Media'); // 網站標題
 
   // Socket 連線（遠端控制）
   useSocketConnection();
@@ -65,6 +66,18 @@ function App() {
       });
     }).catch(err => {
       console.error('Failed to initialize audio cache:', err);
+    });
+  }, []);
+
+  // 載入系統設定（網站標題等）
+  useEffect(() => {
+    apiService.getSettings().then(settings => {
+      if (settings.site_title) {
+        setSiteTitle(settings.site_title);
+        document.title = settings.site_title;
+      }
+    }).catch(err => {
+      console.error('Failed to load settings:', err);
     });
   }, []);
 
@@ -151,7 +164,7 @@ function App() {
             gutterBottom
             sx={{ fontWeight: 700 }}
           >
-            家用多媒體中心
+            {siteTitle}
           </Typography>
           <Typography variant="subtitle1" color="text.secondary">
             搜尋並播放 YouTube 音樂
@@ -209,11 +222,11 @@ function App() {
             >
               <Tab icon={<HomeIcon />} label="首頁推薦" />
               <Tab icon={<QueueMusicIcon />} label="播放清單" />
-              <Tab icon={<SettingsIcon />} label="系統設定" />
+              <Tab icon={<SettingsIcon />} label="系統管理" />
             </Tabs>
             {homeTab === 0 && <HomeRecommendations />}
             {homeTab === 1 && <PlaylistSection />}
-            {homeTab === 2 && <SettingsPage />}
+            {homeTab === 2 && <AdminSettings />}
           </>
         )}
       </Container>

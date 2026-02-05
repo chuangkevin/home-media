@@ -34,11 +34,39 @@ class AudioCacheService {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
 
-  // 快取設置
-  private readonly MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB 最大快取
-  private readonly MAX_ENTRIES = 200; // 最多儲存 200 首歌曲
-  private readonly CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 天快取期限
+  // 快取設置（預設值）
+  private MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB 最大快取
+  private MAX_ENTRIES = 200; // 最多儲存 200 首歌曲
+  private CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 天快取期限
   private readonly PRELOAD_ENABLED = true;
+  private settingsLoaded = false;
+
+  /**
+   * 從後端載入快取設定
+   */
+  private async loadSettings(): Promise<void> {
+    try {
+      const response = await fetch('/api/settings');
+      if (response.ok) {
+        const settings = await response.json();
+        
+        if (settings.audio_cache_ttl_days) {
+          this.CACHE_TTL = settings.audio_cache_ttl_days * 24 * 60 * 60 * 1000;
+        }
+        if (settings.audio_cache_max_size_gb) {
+          this.MAX_CACHE_SIZE = settings.audio_cache_max_size_gb * 1024 * 1024 * 1024;
+        }
+        if (settings.audio_cache_max_entries) {
+          this.MAX_ENTRIES = settings.audio_cache_max_entries;
+        }
+        
+        console.log(`📊 Audio cache settings: TTL=${settings.audio_cache_ttl_days}d, Size=${settings.audio_cache_max_size_gb}GB, Entries=${settings.audio_cache_max_entries}`);
+        this.settingsLoaded = true;
+      }
+    } catch (error) {
+      console.warn('Failed to load audio cache settings, using defaults:', error);
+    }
+  }
 
   /**
    * 初始化資料庫
@@ -47,6 +75,11 @@ class AudioCacheService {
   async init(): Promise<void> {
     if (this.db) return;
     if (this.initPromise) return this.initPromise;
+
+    // 載入快取設定
+    if (!this.settingsLoaded) {
+      await this.loadSettings();
+    }
 
     this.initPromise = new Promise((resolve, reject) => {
       // 不指定版本號，使用現有版本

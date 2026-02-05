@@ -463,6 +463,38 @@ class ApiService {
   async unhideChannel(channelName: string): Promise<void> {
     await this.api.delete(`/hidden-channels/${encodeURIComponent(channelName)}`);
   }
+
+  // ==================== 系統設定 ====================
+
+  /**
+   * 獲取所有設定
+   */
+  async getSettings(): Promise<any> {
+    const response = await this.api.get('/settings');
+    return response.data;
+  }
+
+  /**
+   * 獲取單一設定
+   */
+  async getSetting(key: string): Promise<any> {
+    const response = await this.api.get(`/settings/${key}`);
+    return response.data[key];
+  }
+
+  /**
+   * 更新設定
+   */
+  async updateSettings(settings: Record<string, any>): Promise<void> {
+    await this.api.post('/settings/batch', { settings });
+  }
+
+  /**
+   * 更新單一設定
+   */
+  async updateSetting(key: string, value: any): Promise<void> {
+    await this.api.put(`/settings/${key}`, { value });
+  }
 }
 
 // 播放清單型別

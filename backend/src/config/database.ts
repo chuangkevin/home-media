@@ -231,6 +231,38 @@ export function initDatabase() {
     )
   `);
 
+  // Settings 表（系統設定）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('string', 'number', 'boolean')),
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  // 初始化預設設定
+  const defaultSettings = [
+    { key: 'site_title', value: 'Home Media', type: 'string' },
+    { key: 'cache_duration', value: '86400000', type: 'number' },
+    { key: 'enable_lyrics', value: 'true', type: 'boolean' },
+    { key: 'auto_play', value: 'true', type: 'boolean' },
+    { key: 'theme_mode', value: 'dark', type: 'string' },
+    { key: 'audio_cache_ttl_days', value: '30', type: 'number' },
+    { key: 'audio_cache_max_size_gb', value: '2', type: 'number' },
+    { key: 'audio_cache_max_entries', value: '200', type: 'number' },
+  ];
+
+  const settingsStmt = db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value, type, updated_at)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  const now = Date.now();
+  for (const setting of defaultSettings) {
+    settingsStmt.run(setting.key, setting.value, setting.type, now);
+  }
+
   console.log('✅ Database initialized successfully');
 }
 
