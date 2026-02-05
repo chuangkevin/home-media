@@ -144,23 +144,38 @@ io.on('connection', (socket) => {
 });
 
 // 啟動伺服器
-const startServer = async () => {
+const startServer = () => {
   try {
     // 確保目錄存在
     ensureDirectories();
 
     // 初始化資料庫
+    console.log('🔄 Initializing database...');
     initDatabase();
+    console.log('✅ Database initialized successfully');
 
     // 啟動 HTTP 伺服器
-    server.listen(config.port, () => {
+    console.log('🔄 Starting HTTP server on port', config.port);
+    
+    server.listen(config.port, '0.0.0.0', () => {
+      console.log(`🚀 Server is NOW listening on port ${config.port}`);
       logger.info(`🚀 Server running on port ${config.port}`);
       logger.info(`📡 WebSocket running on port ${config.port}`);
       logger.info(`🌍 Environment: ${config.env}`);
       logger.info(`📊 Cache limit: ${config.cache.maxTracks} tracks`);
     });
+
+    server.on('error', (error: NodeJS.ErrnoException) => {
+      console.error('❌ Server error:', error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${config.port} is already in use`);
+      }
+      logger.error('Server error:', error);
+      process.exit(1);
+    });
   } catch (error) {
     logger.error('Failed to start server:', error);
+    console.error('❌ Server startup error:', error);
     process.exit(1);
   }
 };
