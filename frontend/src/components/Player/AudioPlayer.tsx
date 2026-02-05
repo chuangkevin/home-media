@@ -784,17 +784,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }
 
     // 設定媒體元資料（鎖屏顯示）
+    const artwork = currentTrack.thumbnail ? [
+      { src: currentTrack.thumbnail, sizes: '96x96', type: 'image/jpeg' },
+      { src: currentTrack.thumbnail, sizes: '128x128', type: 'image/jpeg' },
+      { src: currentTrack.thumbnail, sizes: '192x192', type: 'image/jpeg' },
+      { src: currentTrack.thumbnail, sizes: '256x256', type: 'image/jpeg' },
+      { src: currentTrack.thumbnail, sizes: '384x384', type: 'image/jpeg' },
+      { src: currentTrack.thumbnail, sizes: '512x512', type: 'image/jpeg' },
+    ] : [];
+
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentTrack.title,
       artist: currentTrack.channel,
-      artwork: [
-        { src: currentTrack.thumbnail, sizes: '96x96', type: 'image/jpeg' },
-        { src: currentTrack.thumbnail, sizes: '128x128', type: 'image/jpeg' },
-        { src: currentTrack.thumbnail, sizes: '192x192', type: 'image/jpeg' },
-        { src: currentTrack.thumbnail, sizes: '256x256', type: 'image/jpeg' },
-        { src: currentTrack.thumbnail, sizes: '384x384', type: 'image/jpeg' },
-        { src: currentTrack.thumbnail, sizes: '512x512', type: 'image/jpeg' },
-      ],
+      artwork,
     });
 
     // 設定播放控制按鈕回調
@@ -854,7 +856,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           bottom: 0,
           left: 0,
           right: 0,
-          zIndex: 1100,
+          zIndex: 1000, // 低於導航欄
+          paddingBottom: '56px', // 留出導航欄高度
         }),
         borderRadius: embedded ? 0 : 0,
         height: embedded ? '100%' : 'auto',
