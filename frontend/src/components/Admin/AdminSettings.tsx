@@ -12,12 +12,21 @@ import {
   Divider,
   Alert,
   CircularProgress,
+  List,
+  ListItem,
+  ListItemAvatar,
+  Avatar,
+  ListItemText,
+  IconButton,
+  Collapse,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import apiService from '../../services/api.service';
-import audioCacheService from '../../services/audio-cache.service';
+import audioCacheService, { type CacheListItem } from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 
 interface Settings {
@@ -46,6 +55,9 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [cachedTracks, setCachedTracks] = useState<CacheListItem[]>([]);
+  const [showCacheList, setShowCacheList] = useState(false);
+  const [deletingTrack, setDeletingTrack] = useState<string | null>(null);
 
   // 載入設定
   const loadSettings = async () => {
@@ -93,6 +105,7 @@ export default function AdminSettings() {
     try {
       setClearing('local');
       await audioCacheService.clear();
+      setCachedTracks([]);
       setMessage({ type: 'success', text: '本地音訊快取已清除' });
       setTimeout(() => {
         setMessage(null);
@@ -103,6 +116,41 @@ export default function AdminSettings() {
       setMessage({ type: 'error', text: '清除本地快取失敗' });
       setClearing(null);
     }
+  };
+
+  // 載入快取列表
+  const loadCacheList = async () => {
+    try {
+      const list = await audioCacheService.getCacheList();
+      setCachedTracks(list);
+    } catch (error) {
+      console.error('Failed to load cache list:', error);
+    }
+  };
+
+  // 刪除單首音樂快取
+  const handleDeleteTrack = async (videoId: string) => {
+    if (!confirm('確定要刪除這首歌的快取嗎？')) return;
+    try {
+      setDeletingTrack(videoId);
+      await audioCacheService.delete(videoId);
+      await loadCacheList();
+      setMessage({ type: 'success', text: '快取已刪除' });
+      setTimeout(() => setMessage(null), 2000);
+    } catch (error) {
+      console.error('Failed to delete track cache:', error);
+      setMessage({ type: 'error', text: '刪除快取失敗' });
+    } finally {
+      setDeletingTrack(null);
+    }
+  };
+
+  // 切換快取列表顯示
+  const handleToggleCacheList = async () => {
+    if (!showCacheList) {
+      await loadCacheList();
+    }
+    setShowCacheList(!showCacheList);
   };
 
   // 清除歌詞快取
@@ -294,6 +342,66 @@ export default function AdminSettings() {
                   />
                 </Grid>
               </Grid>
+
+              {/* 快取列表 */}
+              <Box sx={{ mt: 3 }}>
+                <Button
+                  variant="outlined"
+                  startIcon={showCacheList ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                  onClick={handleToggleCacheList}
+                  fullWidth
+                >
+                  {showCacheList ? '隱藏快取列表' : '顯示快取列表'}
+                </Button>
+
+                <Collapse in={showCacheList}>
+                  <Box sx={{ mt: 2 }}>
+                    {cachedTracks.length === 0 ? (
+                      <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
+                        目前沒有快取
+                      </Typography>
+                    ) : (
+                      <List sx={{ bgcolor: 'background.paper', borderRadius: 1 }}>
+                        {cachedTracks.map((track) => (
+                          <ListItem
+                            key={track.videoId}
+                            divider
+                            secondaryAction={
+                              <IconButton
+                                edge="end"
+                                aria-label="delete"
+                                onClick={() => handleDeleteTrack(track.videoId)}
+                                disabled={deletingTrack === track.videoId}
+                                color="error"
+                              >
+                                {deletingTrack === track.videoId ? (
+                                  <CircularProgress size={24} />
+                                ) : (
+                                  <DeleteIcon />
+                                )}
+                              </IconButton>
+                            }
+                          >
+                            <ListItemAvatar>
+                              <Avatar src={track.thumbnail} variant="rounded" />
+                            </ListItemAvatar>
+                            <ListItemText
+                              primary={track.title}
+                              secondary={
+                                <>
+                                  {track.channel && `${track.channel} • `}
+                                  {(track.size / 1024 / 1024).toFixed(1)} MB
+                                  {track.duration && ` • ${Math.floor(track.duration / 60)}:${String(Math.floor(track.duration % 60)).padStart(2, '0')}`}
+                                </>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    )}
+                  </Box>
+                </Collapse>
+              </Box>
             </CardContent>
           </Card>
         </Grid>
