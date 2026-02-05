@@ -838,22 +838,23 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 140px)',
-            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 140px)',
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
+            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
             borderTopLeftRadius: isFullscreenLayout ? 0 : 16,
             borderTopRightRadius: isFullscreenLayout ? 0 : 16,
-            bottom: isFullscreenLayout ? 0 : 140,
+            bottom: isFullscreenLayout ? 0 : 180,
             display: 'flex',
             flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
+            pb: isFullscreenLayout ? 0 : 3,
           },
         }}
         ModalProps={{
           keepMounted: true,
           sx: {
-            bottom: isFullscreenLayout ? 0 : 140,
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 140px)',
+            bottom: isFullscreenLayout ? 0 : 180,
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
             '& .MuiBackdrop-root': {
-              bottom: isFullscreenLayout ? 0 : 140,
+              bottom: isFullscreenLayout ? 0 : 180,
             },
           },
         }}
@@ -1086,9 +1087,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               borderTop: 1,
               borderColor: 'divider',
               backgroundColor: 'background.paper',
-              maxHeight: '25%',
+              maxHeight: '20%',
               overflow: 'auto',
               flexShrink: 0,
+              pb: 3,
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block', fontWeight: 600 }}>
