@@ -34,5 +34,6 @@ export interface LyricsPreferences {
   videoId: string;
   timeOffset: number;
   lrclibId: number | null;
+  neteaseId: number | null;
   updatedAt?: number;
 }

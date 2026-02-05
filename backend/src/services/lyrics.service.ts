@@ -607,7 +607,7 @@ class LyricsService {
 
   /**
    * 清理歌曲標題（移除常見後綴，提取真正的歌名）
-   * 改進版：加入 Unicode 正規化
+   * 改進版：加入 Unicode 正規化 + 更好的中文標題提取
    */
   private cleanSongTitle(title: string): string {
     // 0. Unicode 正規化：統一字符形式
@@ -618,8 +618,6 @@ class LyricsService {
 
     // 統一括號：全角 -> 半角（但保留中文括號用於後續提取）
     normalized = normalized
-      .replace(/（/g, '(')
-      .replace(/）/g, ')')
       .replace(/[\u200b\u200c\u200d\ufeff]/g, '') // 移除零寬字符
       .replace(/\s+/g, ' ')                       // 統一空白
       .trim();
@@ -627,27 +625,44 @@ class LyricsService {
     // 1. 優先提取中文括號【】或《》內的歌名
     const chineseBracketMatch = normalized.match(/[【《]([^【】《》]+)[】》]/);
     if (chineseBracketMatch) {
-      return chineseBracketMatch[1].trim();
+      const extracted = chineseBracketMatch[1].trim();
+      console.log(`🎵 [cleanSongTitle] 從中文括號提取: "${extracted}" (原始: "${title}")`);
+      return extracted;
     }
 
-    // 2. 嘗試提取 - 後面的歌名（常見格式：Artist - Song）
-    const dashMatch = normalized.match(/[-–—]\s*(.+?)(?:\s*[\(\[【]|$)/);
-    if (dashMatch && !dashMatch[1].match(/official|mv|music|video|audio|lyrics/i)) {
-      return dashMatch[1].trim();
-    }
-
-    // 3. 移除常見後綴
+    // 2. 移除常見後綴（包含中文和英文）
     let cleaned = normalized
-      .replace(/\s*[\(\[【].*?(official|mv|music video|lyric|audio|hd|hq|4k|1080p|官方|完整版|高音質|lyrics?).*?[\)\]】]/gi, '')
-      .replace(/\s*-\s*(official|mv|music video|lyric|audio).*$/gi, '')
-      .replace(/\s*(official|mv|music video|lyrics?)$/gi, '')
-      .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫✨]/g, '') // 移除常見表情符號
+      .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p|官方|完整版|高音質|歌詞).*?[\)\]】》]/gi, '')
+      .replace(/\s*-\s*(official|mv|music video|lyric|lyrics|audio).*$/gi, '')
+      .replace(/\s*(official|mv|music video|lyrics?|lyric video)$/gi, '')
+      .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫]/g, '') // 移除常見表情符號
       .trim();
 
-    // 4. 如果標題開頭有藝術家名稱（通常以空格分隔），嘗試移除
-    // 例如："原子邦妮 Astro Bunny 在名為未來的波浪裡" -> "在名為未來的波浪裡"
-    // 這個很難自動判斷，所以只移除明確的模式
+    // 3. 嘗試提取 - 後面的歌名（常見格式：Artist - Song）
+    const dashMatch = cleaned.match(/[-–—]\s*(.+?)$/);
+    if (dashMatch && dashMatch[1].length > 2 && !dashMatch[1].match(/official|mv|music|video|audio|lyrics/i)) {
+      const extracted = dashMatch[1].trim();
+      console.log(`🎵 [cleanSongTitle] 從破折號提取: "${extracted}" (原始: "${title}")`);
+      return extracted;
+    }
 
+    // 4. 移除藝術家名稱前綴（如果存在明確分隔）
+    // 例如："原子邦妮 Astro Bunny 在名為未來的波浪裡" -> 嘗試找出歌名部分
+    // 通常藝術家名稱較短，歌名較長且可能包含中文
+    const words = cleaned.split(/\s+/);
+    if (words.length >= 3) {
+      // 如果有3個以上的詞，可能前面是藝術家名
+      // 嘗試找出最長的中文片段作為歌名
+      const chinesePartMatch = cleaned.match(/[\u4e00-\u9fff]+[\u4e00-\u9fff\s]*/);
+      if (chinesePartMatch && chinesePartMatch[0].length > 4) {
+        // 如果有超過4個中文字，可能是歌名
+        const extracted = chinesePartMatch[0].trim();
+        console.log(`🎵 [cleanSongTitle] 從中文片段提取: "${extracted}" (原始: "${title}")`);
+        return extracted;
+      }
+    }
+
+    console.log(`🎵 [cleanSongTitle] 清理後: "${cleaned}" (原始: "${title}")`);
     return cleaned;
   }
 
@@ -1029,10 +1044,10 @@ class LyricsService {
   getPreferences(videoId: string): LyricsPreferences | null {
     try {
       const row = db.prepare(`
-        SELECT video_id, time_offset, lrclib_id, updated_at
+        SELECT video_id, time_offset, lrclib_id, netease_id, updated_at
         FROM lyrics_preferences
         WHERE video_id = ?
-      `).get(videoId) as { video_id: string; time_offset: number; lrclib_id: number | null; updated_at: number } | undefined;
+      `).get(videoId) as { video_id: string; time_offset: number; lrclib_id: number | null; netease_id: number | null; updated_at: number } | undefined;
 
       if (!row) {
         return null;
@@ -1042,6 +1057,7 @@ class LyricsService {
         videoId: row.video_id,
         timeOffset: row.time_offset,
         lrclibId: row.lrclib_id,
+        neteaseId: row.netease_id,
         updatedAt: row.updated_at,
       };
     } catch (error) {
@@ -1053,7 +1069,7 @@ class LyricsService {
   /**
    * 更新歌詞偏好設定
    */
-  updatePreferences(videoId: string, prefs: { timeOffset?: number; lrclibId?: number | null }): void {
+  updatePreferences(videoId: string, prefs: { timeOffset?: number; lrclibId?: number | null; neteaseId?: number | null }): void {
     try {
       const now = Date.now();
       const existing = this.getPreferences(videoId);
@@ -1064,23 +1080,25 @@ class LyricsService {
           UPDATE lyrics_preferences
           SET time_offset = COALESCE(?, time_offset),
               lrclib_id = COALESCE(?, lrclib_id),
+              netease_id = COALESCE(?, netease_id),
               updated_at = ?
           WHERE video_id = ?
         `).run(
           prefs.timeOffset !== undefined ? prefs.timeOffset : null,
           prefs.lrclibId !== undefined ? prefs.lrclibId : null,
+          prefs.neteaseId !== undefined ? prefs.neteaseId : null,
           now,
           videoId
         );
       } else {
         // 建立新記錄
         db.prepare(`
-          INSERT INTO lyrics_preferences (video_id, time_offset, lrclib_id, updated_at)
-          VALUES (?, ?, ?, ?)
-        `).run(videoId, prefs.timeOffset ?? 0, prefs.lrclibId ?? null, now);
+          INSERT INTO lyrics_preferences (video_id, time_offset, lrclib_id, netease_id, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(videoId, prefs.timeOffset ?? 0, prefs.lrclibId ?? null, prefs.neteaseId ?? null, now);
       }
 
-      logger.info(`✅ 儲存歌詞偏好: ${videoId} offset=${prefs.timeOffset} lrclibId=${prefs.lrclibId}`);
+      logger.info(`✅ 儲存歌詞偏好: ${videoId} offset=${prefs.timeOffset} lrclibId=${prefs.lrclibId} neteaseId=${prefs.neteaseId}`);
     } catch (error) {
       logger.error(`儲存歌詞偏好失敗: ${videoId}`, error);
       throw error;
@@ -1093,6 +1111,7 @@ export interface LyricsPreferences {
   videoId: string;
   timeOffset: number;
   lrclibId: number | null;
+  neteaseId: number | null;
   updatedAt: number;
 }
 

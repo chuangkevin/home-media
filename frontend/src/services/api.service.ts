@@ -241,7 +241,7 @@ class ApiService {
   /**
    * 更新歌詞偏好設定（fire-and-forget，不阻塞主流程）
    */
-  updateLyricsPreferences(videoId: string, prefs: { timeOffset?: number; lrclibId?: number | null }): void {
+  updateLyricsPreferences(videoId: string, prefs: { timeOffset?: number; lrclibId?: number | null; neteaseId?: number | null }): void {
     this.api.put(`/lyrics/preferences/${videoId}`, prefs, { timeout: 5000 })
       .catch(err => console.warn('updateLyricsPreferences failed:', err.message));
   }

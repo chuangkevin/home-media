@@ -168,9 +168,19 @@ export function initDatabase() {
       video_id TEXT PRIMARY KEY,
       time_offset REAL DEFAULT 0,
       lrclib_id INTEGER,
+      netease_id INTEGER,
       updated_at INTEGER NOT NULL
     )
   `);
+
+  // 為 lyrics_preferences 添加 netease_id 欄位（如果不存在）
+  const lyricsPrefsInfo = db.pragma('table_info(lyrics_preferences)') as Array<{ name: string }>;
+  const hasNeteaseId = lyricsPrefsInfo.some((col) => col.name === 'netease_id');
+  
+  if (!hasNeteaseId) {
+    db.exec(`ALTER TABLE lyrics_preferences ADD COLUMN netease_id INTEGER`);
+    console.log('✅ Added netease_id column to lyrics_preferences table');
+  }
 
   // 為 cached_tracks 添加頻道資訊欄位（如果不存在）
   // 使用 ALTER TABLE 的安全方式

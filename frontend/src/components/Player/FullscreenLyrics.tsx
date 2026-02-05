@@ -517,6 +517,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         if (searchSource === 'lrclib') {
           apiService.updateLyricsPreferences(track.videoId, { lrclibId: result.id });
           await lyricsCacheService.setLrclibId(track.videoId, result.id);
+        } else if (searchSource === 'netease') {
+          apiService.updateLyricsPreferences(track.videoId, { neteaseId: result.id });
+          await lyricsCacheService.setNeteaseId(track.videoId, result.id);
         }
         await lyricsCacheService.set(track.videoId, lyrics);
         dispatch(setCurrentLyrics(lyrics));

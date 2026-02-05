@@ -15,7 +15,10 @@ import {
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import DeleteIcon from '@mui/icons-material/Delete';
 import apiService from '../../services/api.service';
+import audioCacheService from '../../services/audio-cache.service';
+import lyricsCacheService from '../../services/lyrics-cache.service';
 
 interface Settings {
   site_title: string;
@@ -41,6 +44,7 @@ export default function AdminSettings() {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [clearing, setClearing] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // 載入設定
@@ -80,6 +84,60 @@ export default function AdminSettings() {
       setMessage({ type: 'error', text: '儲存設定失敗' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 清除本地音訊快取
+  const handleClearLocalCache = async () => {
+    if (!confirm('確定要清除本地音訊快取嗎？')) return;
+    try {
+      setClearing('local');
+      await audioCacheService.clear();
+      setMessage({ type: 'success', text: '本地音訊快取已清除' });
+      setTimeout(() => {
+        setMessage(null);
+        setClearing(null);
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to clear local cache:', error);
+      setMessage({ type: 'error', text: '清除本地快取失敗' });
+      setClearing(null);
+    }
+  };
+
+  // 清除歌詞快取
+  const handleClearLyricsCache = async () => {
+    if (!confirm('確定要清除歌詞快取嗎？')) return;
+    try {
+      setClearing('lyrics');
+      await lyricsCacheService.clear();
+      setMessage({ type: 'success', text: '歌詞快取已清除' });
+      setTimeout(() => {
+        setMessage(null);
+        setClearing(null);
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to clear lyrics cache:', error);
+      setMessage({ type: 'error', text: '清除歌詞快取失敗' });
+      setClearing(null);
+    }
+  };
+
+  // 清除伺服器快取
+  const handleClearServerCache = async () => {
+    if (!confirm('確定要清除伺服器快取嗎？')) return;
+    try {
+      setClearing('server');
+      await apiService.clearServerCache();
+      setMessage({ type: 'success', text: '伺服器快取已清除' });
+      setTimeout(() => {
+        setMessage(null);
+        setClearing(null);
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to clear server cache:', error);
+      setMessage({ type: 'error', text: '清除伺服器快取失敗' });
+      setClearing(null);
     }
   };
 
@@ -242,7 +300,7 @@ export default function AdminSettings() {
       </Grid>
 
       {/* 操作按鈕 */}
-      <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
+      <Box sx={{ mt: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         <Button
           variant="contained"
           color="primary"
@@ -262,6 +320,41 @@ export default function AdminSettings() {
           size="large"
         >
           重新載入
+        </Button>
+
+        <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+
+        <Button
+          variant="outlined"
+          color="warning"
+          startIcon={clearing === 'local' ? <CircularProgress size={20} /> : <DeleteIcon />}
+          onClick={handleClearLocalCache}
+          disabled={clearing !== null}
+          size="large"
+        >
+          {clearing === 'local' ? '清除中...' : '清除本地音訊快取'}
+        </Button>
+
+        <Button
+          variant="outlined"
+          color="warning"
+          startIcon={clearing === 'lyrics' ? <CircularProgress size={20} /> : <DeleteIcon />}
+          onClick={handleClearLyricsCache}
+          disabled={clearing !== null}
+          size="large"
+        >
+          {clearing === 'lyrics' ? '清除中...' : '清除歌詞快取'}
+        </Button>
+
+        <Button
+          variant="outlined"
+          color="error"
+          startIcon={clearing === 'server' ? <CircularProgress size={20} /> : <DeleteIcon />}
+          onClick={handleClearServerCache}
+          disabled={clearing !== null}
+          size="large"
+        >
+          {clearing === 'server' ? '清除中...' : '清除伺服器快取'}
         </Button>
       </Box>
     </Box>

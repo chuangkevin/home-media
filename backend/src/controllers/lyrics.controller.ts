@@ -17,7 +17,7 @@ export class LyricsController {
       }
 
       const preferences = await lyricsService.getPreferences(videoId);
-      res.json(preferences || { videoId, timeOffset: 0, lrclibId: null });
+      res.json(preferences || { videoId, timeOffset: 0, lrclibId: null, neteaseId: null });
     } catch (error) {
       logger.error('Get lyrics preferences error:', error);
       res.status(500).json({
@@ -33,18 +33,18 @@ export class LyricsController {
   async updatePreferences(req: Request, res: Response): Promise<void> {
     try {
       const { videoId } = req.params;
-      const { timeOffset, lrclibId } = req.body;
+      const { timeOffset, lrclibId, neteaseId } = req.body;
 
       if (!videoId) {
         res.status(400).json({ error: 'Video ID is required' });
         return;
       }
 
-      console.log(`💾 [Lyrics Prefs] Update: videoId=${videoId}, timeOffset=${timeOffset}, lrclibId=${lrclibId}`);
+      console.log(`💾 [Lyrics Prefs] Update: videoId=${videoId}, timeOffset=${timeOffset}, lrclibId=${lrclibId}, neteaseId=${neteaseId}`);
 
-      await lyricsService.updatePreferences(videoId, { timeOffset, lrclibId });
+      await lyricsService.updatePreferences(videoId, { timeOffset, lrclibId, neteaseId });
 
-      res.json({ success: true, videoId, timeOffset, lrclibId });
+      res.json({ success: true, videoId, timeOffset, lrclibId, neteaseId });
     } catch (error) {
       logger.error('Update lyrics preferences error:', error);
       res.status(500).json({

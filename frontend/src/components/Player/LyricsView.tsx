@@ -324,12 +324,15 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         : await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
 
       if (lyrics) {
-        // 儲存選擇（LRCLIB 需要儲存 ID，同步到後端和本地）
+        // 儲存選擇（同步到後端和本地）
         if (searchSource === 'lrclib') {
-          // 後端（跨裝置同步）
+          // LRCLIB
           apiService.updateLyricsPreferences(track.videoId, { lrclibId: result.id });
-          // 本地（離線支援）
           await lyricsCacheService.setLrclibId(track.videoId, result.id);
+        } else if (searchSource === 'netease') {
+          // NetEase
+          apiService.updateLyricsPreferences(track.videoId, { neteaseId: result.id });
+          await lyricsCacheService.setNeteaseId(track.videoId, result.id);
         }
         // 更新本地快取
         await lyricsCacheService.set(track.videoId, lyrics);

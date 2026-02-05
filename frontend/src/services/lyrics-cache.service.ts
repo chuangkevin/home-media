@@ -15,6 +15,7 @@ interface CachedLyrics {
 interface LyricsPreference {
   videoId: string;
   lrclibId?: number; // 使用者選擇的 LRCLIB 歌詞 ID
+  neteaseId?: number; // 使用者選擇的 NetEase 歌詞 ID
   timeOffset?: number; // 時間偏移（秒）
   updatedAt: number;
 }
@@ -375,7 +376,7 @@ class LyricsCacheService {
       request.onsuccess = () => {
         const pref = request.result as LyricsPreference | undefined;
         if (pref) {
-          console.log(`✅ Loaded lyrics preference for ${videoId}: lrclibId=${pref.lrclibId}, offset=${pref.timeOffset}`);
+          console.log(`✅ Loaded lyrics preference for ${videoId}: lrclibId=${pref.lrclibId}, neteaseId=${pref.neteaseId}, offset=${pref.timeOffset}`);
         }
         resolve(pref || null);
       };
@@ -414,6 +415,38 @@ class LyricsCacheService {
 
       request.onerror = () => {
         console.error('Failed to save lrclibId:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * 儲存使用者選擇的 NetEase ID
+   */
+  async setNeteaseId(videoId: string, neteaseId: number): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    const existing = await this.getPreference(videoId);
+    const pref: LyricsPreference = {
+      videoId,
+      neteaseId,
+      timeOffset: existing?.timeOffset,
+      updatedAt: Date.now(),
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([this.prefsStoreName], 'readwrite');
+      const store = transaction.objectStore(this.prefsStoreName);
+      const request = store.put(pref);
+
+      request.onsuccess = () => {
+        console.log(`💾 Saved neteaseId ${neteaseId} for ${videoId}`);
+        resolve();
+      };
+
+      request.onerror = () => {
+        console.error('Failed to save neteaseId:', request.error);
         reject(request.error);
       };
     });
