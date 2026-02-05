@@ -153,8 +153,10 @@ export default function HomeRecommendations() {
   );
 
   const handlePlay = (track: Track) => {
-    // Fire-and-forget，不阻塞播放
-    apiService.recordChannelWatch(track.channel, track.thumbnail);
+    // Fire-and-forget，不阻塞播放（只在 channel 存在時記錄）
+    if (track.channel) {
+      apiService.recordChannelWatch(track.channel, track.thumbnail);
+    }
 
     // 找出該頻道的所有歌曲
     const channelData = channelRecommendations.find(ch =>
