@@ -211,23 +211,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           console.log(`🎵 從後端快取串流: ${pendingTrack.title}`);
           setIsCached(true);
         } else {
-          // 後端沒 cache：立即串流播放，背景下載快取（不阻塞）
-          console.log(`🎵 立即串流播放，背景下載快取: ${pendingTrack.title}`);
+          // 後端沒 cache：立即串流播放（快取延後到音訊開始載入後）
+          console.log(`🎵 立即串流播放，背景下載快取（延後觸發）: ${pendingTrack.title}`);
           audioSrc = streamUrl;
           setIsCached(false);
-          
-          // 背景下載到前端快取（不阻塞播放）
-          audioCacheService.fetchAndCache(videoId, streamUrl, {
-            title: pendingTrack.title,
-            channel: pendingTrack.channel,
-            thumbnail: pendingTrack.thumbnail,
-            duration: pendingTrack.duration,
-          })
-            .then(() => {
-              console.log(`💾 背景快取下載完成: ${pendingTrack.title}`);
-              setIsCached(true);
-            })
-            .catch(err => console.warn(`背景快取下載失敗: ${pendingTrack.title}`, err));
         }
 
         // 設定 audio src
@@ -309,6 +296,23 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             });
           } else if (displayModeRef.current === 'video') {
             console.log(`🎬 影片模式下不播放音訊，由 VideoPlayer 控制`);
+          }
+
+          // 延後觸發前端背景快取，避免與串流搶頻寬造成 readyState 卡住
+          if (!serverStatus.cached) {
+            setTimeout(() => {
+              audioCacheService.fetchAndCache(videoId, streamUrl, {
+                title: pendingTrack.title,
+                channel: pendingTrack.channel,
+                thumbnail: pendingTrack.thumbnail,
+                duration: pendingTrack.duration,
+              })
+                .then(() => {
+                  console.log(`💾 背景快取下載完成: ${pendingTrack.title}`);
+                  setIsCached(true);
+                })
+                .catch(err => console.warn(`背景快取下載失敗: ${pendingTrack.title}`, err));
+            }, 1000);
           }
         };
 

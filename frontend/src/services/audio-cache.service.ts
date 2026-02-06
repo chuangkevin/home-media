@@ -33,6 +33,7 @@ class AudioCacheService {
   private storeName = 'audioCache';
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
+  private inFlightDownloads = new Map<string, Promise<string>>();
 
   // 快取設置（預設值）
   private MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB 最大快取
@@ -455,44 +456,55 @@ class AudioCacheService {
    * 在 Blob URL 上不支持。改用伺服器端快取優先策略。
    */
   async fetchAndCache(videoId: string, streamUrl: string, metadata?: CachedAudioMetadata): Promise<string> {
-    try {
-      console.log(`⏬ Downloading audio: ${videoId}`);
-      const startTime = Date.now();
-
-      // 下載完整音訊到後端並快取
-      const response = await fetch(streamUrl, {
-        redirect: 'follow',
-        mode: 'cors',
-        credentials: 'omit',
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
-      const downloadTime = ((Date.now() - startTime) / 1000).toFixed(2);
-      const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
-
-      console.log(`✅ Downloaded: ${videoId} (${sizeMB}MB in ${downloadTime}s)`);
-
-      // 檢查是否下載到有效資料
-      if (blob.size === 0) {
-        throw new Error(`Downloaded empty audio for ${videoId}`);
-      }
-
-      // 儲存到 IndexedDB 快取（非同步，用於離線/快速重播）
-      this.set(videoId, blob, metadata).catch(err => {
-        console.error(`Failed to cache in IndexedDB ${videoId}:`, err);
-      });
-
-      // 返回伺服器 stream URL（支持 Range request）而不是 Blob URL
-      // 伺服器端快取會在下次請求時自動使用
-      return streamUrl;
-    } catch (error) {
-      console.error(`Failed to fetch audio for ${videoId}:`, error);
-      throw error;
+    if (this.inFlightDownloads.has(videoId)) {
+      return this.inFlightDownloads.get(videoId)!;
     }
+
+    const downloadPromise = (async () => {
+      try {
+        console.log(`⏬ Downloading audio: ${videoId}`);
+        const startTime = Date.now();
+
+        // 下載完整音訊到後端並快取
+        const response = await fetch(streamUrl, {
+          redirect: 'follow',
+          mode: 'cors',
+          credentials: 'omit',
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const blob = await response.blob();
+        const downloadTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
+
+        console.log(`✅ Downloaded: ${videoId} (${sizeMB}MB in ${downloadTime}s)`);
+
+        // 檢查是否下載到有效資料
+        if (blob.size === 0) {
+          throw new Error(`Downloaded empty audio for ${videoId}`);
+        }
+
+        // 儲存到 IndexedDB 快取（非同步，用於離線/快速重播）
+        this.set(videoId, blob, metadata).catch(err => {
+          console.error(`Failed to cache in IndexedDB ${videoId}:`, err);
+        });
+
+        // 返回伺服器 stream URL（支持 Range request）而不是 Blob URL
+        // 伺服器端快取會在下次請求時自動使用
+        return streamUrl;
+      } catch (error) {
+        console.error(`Failed to fetch audio for ${videoId}:`, error);
+        throw error;
+      } finally {
+        this.inFlightDownloads.delete(videoId);
+      }
+    })();
+
+    this.inFlightDownloads.set(videoId, downloadPromise);
+    return downloadPromise;
   }
 
   /**
