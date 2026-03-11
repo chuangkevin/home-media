@@ -91,7 +91,7 @@ jobs:
             docker compose -f docker-compose.yml up -d --force-recreate
 
             echo "🧹 Cleaning up old images..."
-            docker image prune -af --filter "until=24h"
+            docker image prune -af --filter "until=24h" || true
 
             echo "✅ Deployment completed successfully!"
             docker compose -f docker-compose.yml ps
