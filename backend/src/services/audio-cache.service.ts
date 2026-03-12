@@ -647,14 +647,18 @@ class AudioCacheService {
       return;
     }
 
-    console.log(`📦 [AudioCache] Pre-caching ${uncachedIds.length}/${videoIds.length} videos...`);
+    console.log(`📦 [AudioCache] Pre-caching ${uncachedIds.length}/${videoIds.length} videos (sequential, low priority)...`);
 
-    // 逐個取得 URL 並排入下載佇列，不阻塞
+    // 逐個下載，避免同時產生大量 yt-dlp 搶佔串流資源
     for (const videoId of uncachedIds) {
-      // 用 fire-and-forget 方式，不等每個完成
-      this.precacheSingle(videoId).catch((err) => {
-        console.warn(`⚠️ [AudioCache] Pre-cache failed for ${videoId}:`, err?.message || err);
-      });
+      // 再次檢查，可能在等待期間已被串流快取
+      if (this.has(videoId) || this.downloadingMap.has(videoId)) continue;
+      try {
+        await this.precacheSingle(videoId);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`⚠️ [AudioCache] Pre-cache failed for ${videoId}: ${msg}`);
+      }
     }
   }
 
