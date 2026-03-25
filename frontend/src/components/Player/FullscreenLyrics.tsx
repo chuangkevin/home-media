@@ -52,6 +52,7 @@ interface FullscreenLyricsProps {
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
   const dispatch = useDispatch();
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 768px)');
+  const isShortViewport = useMediaQuery('(max-height: 768px)');
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
@@ -633,7 +634,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         width: '100%',
       }}>
         {/* 頂部填充 */}
-        <Box sx={{ height: '30vh' }} />
+        <Box sx={{ height: isShortViewport ? '10vh' : '25vh' }} />
         {currentLyrics.lines.map((line, index) => {
           const isActive = currentLyrics.isSynced && index === currentLineIndex;
           const isPassed = currentLyrics.isSynced && index < currentLineIndex;
@@ -678,7 +679,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           );
         })}
         {/* 底部填充 */}
-        <Box sx={{ height: '30vh' }} />
+        <Box sx={{ height: isShortViewport ? '10vh' : '25vh' }} />
       </Box>
     );
   };

@@ -10,6 +10,7 @@ import {
   BottomNavigation,
   BottomNavigationAction,
   Paper,
+  useMediaQuery,
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
@@ -176,6 +177,7 @@ function AppContent() {
   const [hasSearched, setHasSearched] = useState(false);
   const [lyricsDrawerOpen, setLyricsDrawerOpen] = useState(false); // 歌詞抽屜狀態
   const [siteTitle, setSiteTitle] = useState('Home Media'); // 網站標題
+  const isShortViewport = useMediaQuery('(max-height: 768px)');
 
   // Socket 連線（遠端控制）
   useSocketConnection();
@@ -292,7 +294,7 @@ function AppContent() {
 
   return (
     <Box sx={{ minHeight: '100vh' }}>
-      <Container maxWidth="lg" sx={{ py: 4, pb: '250px' }}> {/* 180px 播放器 + 56px 導航欄 + 14px 額外空間 */}
+      <Container maxWidth="lg" sx={{ py: 4, pb: isShortViewport ? '192px' : '212px' }}> {/* 播放器 + 56px 導航欄 + 16px 間距 */}
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>

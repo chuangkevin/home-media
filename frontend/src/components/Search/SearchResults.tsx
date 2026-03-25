@@ -80,7 +80,7 @@ export default function SearchResults({
   return (
     <Grid container spacing={2}>
       {results.map((track) => (
-        <Grid item xs={12} sm={6} md={4} key={track.id}>
+        <Grid item xs={12} sm={6} md={4} lg={3} key={track.id}>
           <Card
             sx={{
               display: 'flex',

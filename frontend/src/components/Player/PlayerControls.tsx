@@ -14,9 +14,10 @@ import { useCastingControls } from '../../hooks/useCastingControls';
 
 interface PlayerControlsProps {
   embedded?: boolean;
+  isCompact?: boolean;
 }
 
-export default function PlayerControls({ embedded = false }: PlayerControlsProps) {
+export default function PlayerControls({ embedded = false, isCompact = false }: PlayerControlsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -83,8 +84,8 @@ export default function PlayerControls({ embedded = false }: PlayerControlsProps
           <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious}>
             <SkipPreviousIcon />
           </IconButton>
-          <IconButton onClick={onPlayPause} color="primary" size="large">
-            {isPlaying ? <PauseIcon fontSize="large" /> : <PlayArrowIcon fontSize="large" />}
+          <IconButton onClick={onPlayPause} color="primary" size={isCompact ? 'medium' : 'large'}>
+            {isPlaying ? <PauseIcon fontSize={isCompact ? 'medium' : 'large'} /> : <PlayArrowIcon fontSize={isCompact ? 'medium' : 'large'} />}
           </IconButton>
           <IconButton size="small" onClick={handleNext} disabled={!hasNext}>
             <SkipNextIcon />

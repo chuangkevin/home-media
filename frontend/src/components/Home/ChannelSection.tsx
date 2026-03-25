@@ -131,8 +131,8 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           <Card
             key={video.videoId}
             sx={{
-              minWidth: 280,
-              maxWidth: 280,
+              minWidth: { xs: 240, sm: 260, md: 280 },
+              maxWidth: { xs: 240, sm: 260, md: 280 },
               flexShrink: 0,
               cursor: 'pointer',
               position: 'relative',

@@ -243,7 +243,7 @@ export default function AdminSettings() {
   }
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
+    <Box sx={{ maxWidth: { lg: 1200, xl: 1600 }, mx: 'auto', p: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
         系統設定
       </Typography>

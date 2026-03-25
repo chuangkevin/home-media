@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton, Tooltip } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton, Tooltip, useMediaQuery } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
@@ -25,6 +25,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex, currentTime } = useSelector((state: RootState) => state.player);
+  const isCompactPlayer = useMediaQuery('(max-height: 768px)');
   const [isLoading, setIsLoading] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const currentVideoIdRef = useRef<string | null>(null);
@@ -914,11 +915,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       sx={{
         ...(!embedded && {
           position: 'fixed',
-          bottom: 0,
+          bottom: 56,
           left: 0,
           right: 0,
-          zIndex: 1000, // 低於導航欄
-          paddingBottom: '56px', // 留出導航欄高度
+          zIndex: 1100, // 低於導航欄(1200)，高於其他內容
         }),
         borderRadius: embedded ? 0 : 0,
         height: embedded ? '100%' : 'auto',
@@ -926,26 +926,28 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         flexDirection: 'column',
       }}
     >
-      <CardContent sx={{ pb: 2, '&:last-child': { pb: 2 }, flex: embedded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ display: 'flex', alignItems: embedded ? 'center' : 'center', gap: 2, ...(embedded && { flexDirection: 'column', flex: 1, justifyContent: 'flex-start', pt: 2 }) }}>
-          {/* 專輯封面 */}
-          <CardMedia
-            component="img"
-            sx={{ 
-              width: embedded ? '100%' : 80, 
-              height: embedded ? 'auto' : 80, 
-              aspectRatio: embedded ? '1' : 'auto',
-              maxWidth: embedded ? 280 : 80,
-              borderRadius: 1 
-            }}
-            image={displayTrack.thumbnail}
-            alt={displayTrack.title}
-          />
+      <CardContent sx={{ pb: isCompactPlayer && !embedded ? 1 : 2, '&:last-child': { pb: isCompactPlayer && !embedded ? 1 : 2 }, pt: isCompactPlayer && !embedded ? 1 : undefined, flex: embedded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ display: 'flex', alignItems: embedded ? 'center' : 'center', gap: isCompactPlayer && !embedded ? 1 : 2, ...(embedded && { flexDirection: 'column', flex: 1, justifyContent: 'flex-start', pt: 2 }) }}>
+          {/* 專輯封面 - 在 compact 模式下隱藏 */}
+          {!(isCompactPlayer && !embedded) && (
+            <CardMedia
+              component="img"
+              sx={{
+                width: embedded ? '100%' : 80,
+                height: embedded ? 'auto' : 80,
+                aspectRatio: embedded ? '1' : 'auto',
+                maxWidth: embedded ? 280 : 80,
+                borderRadius: 1
+              }}
+              image={displayTrack.thumbnail}
+              alt={displayTrack.title}
+            />
+          )}
 
           {/* 曲目資訊與控制 */}
           <Box sx={{ flexGrow: 1, minWidth: 0, ...(embedded && { width: '100%' }) }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, ...(embedded && { flexDirection: 'column', alignItems: 'center' }) }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, ...(embedded ? { width: '100%', textAlign: 'center' } : { flex: '1 1 0', minWidth: 0 }) }}>
+              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, ...(embedded ? { width: '100%', textAlign: 'center' } : { flex: '1 1 0', minWidth: 0 }), ...(isCompactPlayer && !embedded && { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) }}>
                 {displayTrack.title}
               </Typography>
               {/* 快取狀態標籤 */}
@@ -969,7 +971,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               {displayTrack.channel}
             </Typography>
 
-            <PlayerControls embedded={embedded} />
+            <PlayerControls embedded={embedded} isCompact={isCompactPlayer && !embedded} />
 
             {/* embedded 模式下的功能按鈕 */}
             {embedded && (
