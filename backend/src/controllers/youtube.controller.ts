@@ -8,6 +8,13 @@ import logger from '../utils/logger';
 
 export class YouTubeController {
   /**
+   * Track in-flight yt-dlp stream processes per videoId to avoid duplicate spawns.
+   * If a stream request arrives for a videoId that already has an active yt-dlp process,
+   * respond with 429 to let the client retry later.
+   */
+  private inFlightStreams: Map<string, Promise<void>> = new Map();
+
+  /**
    * GET /api/search?q=query&limit=20
    * 搜尋 YouTube 影片
    */
@@ -107,9 +114,35 @@ export class YouTubeController {
         return;
       }
 
+      // Check for in-flight yt-dlp process for this videoId
+      if (this.inFlightStreams.has(videoId)) {
+        console.log(`⏳ [Stream] In-flight yt-dlp already running for ${videoId}, returning 429`);
+        res.status(429).json({
+          error: 'Stream already in progress for this video',
+          retryAfter: 3,
+        });
+        return;
+      }
+
       // 使用 yt-dlp 直接串流（避免 403）
       console.log(`🎵 [Stream] yt-dlp direct stream: ${videoId}`);
       logger.info(`Streaming audio for video: ${videoId} via yt-dlp direct`);
+
+      // Track this stream as in-flight
+      let resolveInFlight: () => void;
+      const inFlightPromise = new Promise<void>((resolve) => {
+        resolveInFlight = resolve;
+      });
+      this.inFlightStreams.set(videoId, inFlightPromise);
+
+      // Clean up in-flight tracking when request finishes
+      const cleanupInFlight = () => {
+        this.inFlightStreams.delete(videoId);
+        resolveInFlight();
+      };
+      res.on('finish', cleanupInFlight);
+      res.on('close', cleanupInFlight);
+
       this.streamWithYtDlp(req, res, videoId);
 
     } catch (error) {
@@ -162,6 +195,15 @@ export class YouTubeController {
       stderrOutput += chunk.toString();
     });
 
+    // Handle backpressure: when cacheStream signals drain, resume stdout
+    if (cacheStream) {
+      cacheStream.on('drain', () => {
+        if (ytdlp.stdout && !ytdlp.stdout.destroyed) {
+          ytdlp.stdout.resume();
+        }
+      });
+    }
+
     // 當有 stdout 數據時
     ytdlp.stdout.on('data', (chunk: Buffer) => {
       hasData = true;
@@ -183,9 +225,12 @@ export class YouTubeController {
         res.write(chunk);
       }
 
-      // 同時寫入快取檔案
+      // 同時寫入快取檔案（處理 backpressure）
       if (cacheStream && !cacheStream.destroyed) {
-        cacheStream.write(chunk);
+        const canContinue = cacheStream.write(chunk);
+        if (!canContinue && ytdlp.stdout) {
+          ytdlp.stdout.pause();
+        }
       }
     });
 

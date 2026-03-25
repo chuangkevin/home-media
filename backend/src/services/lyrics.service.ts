@@ -334,7 +334,7 @@ class LyricsService {
     };
 
     try {
-      const cleanTitle = this.cleanSongTitle(title);
+      const cleanTitle = this.cleanSongTitle(title, artist);
       const cleanArtist = artist ? this.cleanArtistName(artist) : '';
       const searchQuery = cleanArtist ? `${cleanTitle} ${cleanArtist}` : cleanTitle;
 
@@ -419,14 +419,16 @@ class LyricsService {
   ): Promise<Lyrics | null> {
     try {
       // 清理標題（移除常見的 MV、Official Video 等後綴）
-      const cleanTitle = this.cleanSongTitle(title);
+      const cleanTitle = this.cleanSongTitle(title, artist);
       const cleanArtist = artist ? this.cleanArtistName(artist) : '';
 
       console.log(`🎼 [LRCLIB] Searching: "${cleanTitle}" by "${cleanArtist}"`);
       logger.info(`[LRCLIB] Starting search for: ${cleanTitle}`);
 
-      // 使用 search API（只用歌名搜尋，因為藝術家名稱可能有不同語言版本）
-      const url = `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`;
+      // 使用 search API（加入藝術家名稱以提高搜尋精準度）
+      const url = cleanArtist
+        ? `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(cleanArtist)}`
+        : `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`;
       console.log(`🎼 [LRCLIB] Fetching: ${url}`);
 
       // 使用 https 模組來繞過 SSL 問題，增加超時時間和重試
@@ -609,7 +611,7 @@ class LyricsService {
    * 清理歌曲標題（移除常見後綴，提取真正的歌名）
    * 改進版：加入 Unicode 正規化 + 更好的中文標題提取
    */
-  private cleanSongTitle(title: string): string {
+  private cleanSongTitle(title: string, channelName?: string): string {
     // 0. Unicode 正規化：統一字符形式
     let normalized = title
       .normalize('NFD')                           // 分解形式
@@ -638,7 +640,39 @@ class LyricsService {
       .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫]/g, '') // 移除常見表情符號
       .trim();
 
-    // 3. 嘗試提取 - 後面的歌名（常見格式：Artist - Song）
+    // 3a. 如果有頻道名稱，利用它來判斷 artist/title 分割
+    if (channelName) {
+      const cleanChannel = this.cleanArtistName(channelName);
+      // Try splitting on various dash types with spaces
+      const dashSplitMatch = cleaned.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+      if (dashSplitMatch) {
+        const beforeDash = dashSplitMatch[1].trim();
+        const afterDash = dashSplitMatch[2].trim();
+
+        // Check if before-dash matches channel name (fuzzy: case-insensitive, includes)
+        const normalizedBefore = beforeDash.toLowerCase();
+        const normalizedChannel = cleanChannel.toLowerCase();
+
+        if (normalizedBefore === normalizedChannel ||
+            normalizedChannel.includes(normalizedBefore) ||
+            normalizedBefore.includes(normalizedChannel)) {
+          // Artist is before dash, song title is after dash
+          console.log(`🎵 [cleanSongTitle] 藝人匹配提取: "${afterDash}" (藝人: "${beforeDash}", 頻道: "${channelName}")`);
+          return afterDash;
+        }
+
+        // Check if after-dash matches channel (reversed format: "Song - Artist")
+        const normalizedAfter = afterDash.toLowerCase();
+        if (normalizedAfter === normalizedChannel ||
+            normalizedChannel.includes(normalizedAfter) ||
+            normalizedAfter.includes(normalizedChannel)) {
+          console.log(`🎵 [cleanSongTitle] 反向藝人匹配提取: "${beforeDash}" (藝人: "${afterDash}", 頻道: "${channelName}")`);
+          return beforeDash;
+        }
+      }
+    }
+
+    // 3b. 嘗試提取 - 後面的歌名（常見格式：Artist - Song）— 無頻道名稱時的後備邏輯
     const dashMatch = cleaned.match(/[-–—]\s*(.+?)$/);
     if (dashMatch && dashMatch[1].length > 2 && !dashMatch[1].match(/official|mv|music|video|audio|lyrics/i)) {
       const extracted = dashMatch[1].trim();

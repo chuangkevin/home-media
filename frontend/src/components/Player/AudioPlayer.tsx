@@ -296,9 +296,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             console.log(`🎬 影片模式下不播放音訊，由 VideoPlayer 控制`);
           }
 
-          // 延後觸發前端背景快取，避免與串流搶頻寬造成 readyState 卡住
+          // 延後觸發前端背景快取：等 play() 成功且 timeupdate 確認真正有音訊輸出
           if (!serverStatus.cached) {
-            setTimeout(() => {
+            const startFetchAndCache = () => {
               audioCacheService.fetchAndCache(videoId, streamUrl, {
                 title: pendingTrack.title,
                 channel: pendingTrack.channel,
@@ -310,7 +310,26 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                   setIsCached(true);
                 })
                 .catch(err => console.warn(`背景快取下載失敗: ${pendingTrack.title}`, err));
-            }, 1000);
+            };
+
+            // If playing, wait for first timeupdate to confirm real audio output before caching
+            if (shouldPlay && displayModeRef.current !== 'video') {
+                // Wait for first timeupdate confirming real audio output
+                const onTimeUpdate = () => {
+                  audio.removeEventListener('timeupdate', onTimeUpdate);
+                  console.log(`🎵 Playback confirmed (timeupdate), starting background cache`);
+                  startFetchAndCache();
+                };
+                audio.addEventListener('timeupdate', onTimeUpdate);
+                // Safety timeout: if no timeupdate within 10s, start cache anyway
+                setTimeout(() => {
+                  audio.removeEventListener('timeupdate', onTimeUpdate);
+                  startFetchAndCache();
+                }, 10000);
+            } else {
+              // Not auto-playing (e.g. paused state or video mode) - defer with timeout
+              setTimeout(startFetchAndCache, 3000);
+            }
           }
 
           // 🎵 播放成功後才開始搜尋歌詞（避免與音訊串流搶 yt-dlp 資源）
@@ -599,6 +618,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     let stalledTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastTimeUpdate = Date.now();
     let lastCurrentTime = 0;
+    let streamRetryCount = 0;
+    const MAX_STREAM_RETRIES = 3;
+    const STREAM_RETRY_DELAYS = [1000, 3000, 7000]; // exponential backoff
 
     const handleTimeUpdate = () => {
       // 影片模式時不更新時間（由 VideoPlayer 負責）
@@ -627,6 +649,32 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const handleError = (e: Event) => {
       const error = (e.target as HTMLAudioElement).error;
       console.error('Audio error:', error?.code, error?.message);
+
+      // Retry with exponential backoff for uncached stream failures
+      const videoId = currentVideoIdRef.current;
+      if (videoId && streamRetryCount < MAX_STREAM_RETRIES && !isCached) {
+        const delay = STREAM_RETRY_DELAYS[streamRetryCount] || 7000;
+        streamRetryCount++;
+        console.log(`🔄 Stream error retry ${streamRetryCount}/${MAX_STREAM_RETRIES} in ${delay}ms for ${videoId}`);
+        setTimeout(() => {
+          if (audio && currentVideoIdRef.current === videoId) {
+            // Set fresh stream URL with cache-busting query param
+            const freshUrl = `${apiService.getStreamUrl(videoId)}?_retry=${streamRetryCount}&_t=${Date.now()}`;
+            console.log(`🔄 Retrying stream: ${freshUrl.substring(0, 80)}...`);
+            audio.src = freshUrl;
+            audio.load();
+            audio.play().catch((err) => {
+              console.error(`Retry ${streamRetryCount} play failed:`, err);
+            });
+          }
+        }, delay);
+        return;
+      }
+
+      // All retries exhausted or cached track error
+      if (streamRetryCount >= MAX_STREAM_RETRIES) {
+        console.error(`❌ All ${MAX_STREAM_RETRIES} stream retries failed for ${videoId}`);
+      }
       dispatch(setIsPlaying(false));
     };
 

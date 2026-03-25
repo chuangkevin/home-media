@@ -723,9 +723,21 @@ class AudioCacheService {
       let downloadedBytes = 0;
       let stderrOutput = '';
 
+      // Handle backpressure: when writeStream signals drain, resume stdout
+      writeStream.on('drain', () => {
+        if (proc.stdout && !proc.stdout.destroyed) {
+          proc.stdout.resume();
+        }
+      });
+
       proc.stdout.on('data', (chunk: Buffer) => {
         downloadedBytes += chunk.length;
-        writeStream.write(chunk);
+
+        // 寫入快取檔案（處理 backpressure）
+        const canContinue = writeStream.write(chunk);
+        if (!canContinue && proc.stdout) {
+          proc.stdout.pause();
+        }
 
         // 更新進度
         this.downloadProgressMap.set(videoId, {

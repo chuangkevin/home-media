@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, CircularProgress, Alert, IconButton, Tooltip, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, List,
@@ -84,59 +84,93 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     loadPreference();
   }, [track.videoId, dispatch]);
 
-  // 根據當前時間計算應該高亮的歌詞行（加入時間偏移）
+  // 使用 rAF 直接讀取 audio.currentTime，避免 Redux dispatch 延遲
+  const rafIdRef = useRef<number>(0);
+  const lastLineIndexRef = useRef<number>(-1);
+
+  const scrollToLine = useCallback((lineIndex: number) => {
+    if (!isLyricsVisible || isFineTuning) return;
+
+    const container = lyricsContainerRef.current;
+    const line = lineRefs.current[lineIndex];
+
+    if (lineIndex >= 0 && container && line) {
+      const containerRect = container.getBoundingClientRect();
+      const lineRect = line.getBoundingClientRect();
+      const lineCenter = lineRect.top + lineRect.height / 2;
+      const containerCenter = containerRect.top + containerRect.height / 2;
+      const scrollOffset = lineCenter - containerCenter;
+
+      // 只在偏移量超過 2px 時才滾動，避免不必要的微小滾動
+      if (Math.abs(scrollOffset) > 2) {
+        container.scrollTo({
+          top: container.scrollTop + scrollOffset,
+          behavior: 'smooth',
+        });
+      }
+    }
+  }, [isLyricsVisible, isFineTuning]);
+
+  // rAF-based line detection: reads audio.currentTime directly each frame
   useEffect(() => {
     if (!currentLyrics || !currentLyrics.isSynced || currentLyrics.lines.length === 0) {
       return;
     }
 
+    // 是否應該運行 rAF 循環
+    const shouldRun = isLyricsVisible && !document.hidden;
+    if (!shouldRun) return;
+
     const lines = currentLyrics.lines;
-    let newLineIndex = -1;
+    let running = true;
 
-    // 計算調整後的時間（加上偏移量）
-    // timeOffset > 0 表示歌詞提前（音樂慢），需要用更大的時間來匹配
-    // timeOffset < 0 表示歌詞延後（音樂快），需要用更小的時間來匹配
-    const adjustedTime = currentTime + timeOffset;
+    const tick = () => {
+      if (!running) return;
 
-    // 找到當前時間對應的歌詞行
-    for (let i = 0; i < lines.length; i++) {
-      if (adjustedTime >= lines[i].time) {
-        newLineIndex = i;
-      } else {
-        break;
+      const audio = document.querySelector('audio');
+      if (audio) {
+        // 直接從 audio 元素讀取 currentTime，避免 Redux 延遲
+        const adjustedTime = audio.currentTime + timeOffset;
+
+        // 找到當前時間對應的歌詞行
+        let newLineIndex = -1;
+        for (let i = 0; i < lines.length; i++) {
+          if (adjustedTime >= lines[i].time) {
+            newLineIndex = i;
+          } else {
+            break;
+          }
+        }
+
+        // 只在行索引變化時更新 Redux 和滾動
+        if (newLineIndex !== lastLineIndexRef.current) {
+          lastLineIndexRef.current = newLineIndex;
+          dispatch(setCurrentLineIndex(newLineIndex));
+          scrollToLine(newLineIndex);
+        }
       }
-    }
 
-    if (newLineIndex !== currentLineIndex) {
-      dispatch(setCurrentLineIndex(newLineIndex));
-    }
-  }, [currentTime, timeOffset, currentLyrics, currentLineIndex, dispatch]);
+      rafIdRef.current = requestAnimationFrame(tick);
+    };
 
-  // 自動滾動到當前歌詞行（只在歌詞可見且非微調模式時滾動）
-  useEffect(() => {
-    // 如果歌詞不可見或正在微調模式，不自動滾動
-    if (!isLyricsVisible || isFineTuning) return;
+    rafIdRef.current = requestAnimationFrame(tick);
 
-    const container = lyricsContainerRef.current;
-    const line = lineRefs.current[currentLineIndex];
+    // visibilitychange 監聽：tab 切換時暫停/恢復
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(rafIdRef.current);
+      } else {
+        rafIdRef.current = requestAnimationFrame(tick);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    if (currentLineIndex >= 0 && container && line) {
-      // 使用 getBoundingClientRect 計算精確位置
-      const containerRect = container.getBoundingClientRect();
-      const lineRect = line.getBoundingClientRect();
-
-      // 計算歌詞行中心與容器中心的差距
-      const lineCenter = lineRect.top + lineRect.height / 2;
-      const containerCenter = containerRect.top + containerRect.height / 2;
-      const scrollOffset = lineCenter - containerCenter;
-
-      // 調整 scrollTop 讓歌詞行居中
-      container.scrollTo({
-        top: container.scrollTop + scrollOffset,
-        behavior: 'smooth',
-      });
-    }
-  }, [currentLineIndex, isLyricsVisible, isFineTuning]);
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafIdRef.current);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentLyrics, timeOffset, isLyricsVisible, isFineTuning, dispatch, scrollToLine]);
 
   // 監聯歌詞容器是否可見（控制自動滾動 + 顯示「看歌詞」按鈕）
   useEffect(() => {
