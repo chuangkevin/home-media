@@ -883,17 +883,25 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: '100%',
-            maxHeight: '100%',
-            borderTopLeftRadius: 0,
-            borderTopRightRadius: 0,
-            bottom: 0,
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
+            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
+            borderTopLeftRadius: isFullscreenLayout ? 0 : 16,
+            borderTopRightRadius: isFullscreenLayout ? 0 : 16,
+            bottom: isFullscreenLayout ? 0 : 180,
             display: 'flex',
             flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
           },
         }}
         ModalProps={{
           keepMounted: true,
+          sx: {
+            // backdrop 也只蓋到 drawer 區域，露出底部播放器
+            bottom: isFullscreenLayout ? 0 : 180,
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
+            '& .MuiBackdrop-root': {
+              bottom: isFullscreenLayout ? 0 : 180,
+            },
+          },
         }}
       >
         {/* 橫式裝置：左側播放器 */}
@@ -1130,8 +1138,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
         )}
 
-        {/* 底部嵌入式播放器 - 非橫式全螢幕時顯示 */}
-        {!(isFullscreenLayout && isLandscape) && (
+        {/* 全螢幕模式：底部嵌入式播放器 */}
+        {isFullscreenLayout && !isLandscape && (
           <Box
             sx={{
               flexShrink: 0,
