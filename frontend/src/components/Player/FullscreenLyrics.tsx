@@ -541,7 +541,31 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   const handleOpenSearch = () => {
     const match = track.title.match(/[【《]([^【】《》]+)[】》]/);
-    const defaultQuery = match ? match[1] : track.title.split(/[-–—]/)[0].trim();
+    let defaultQuery: string;
+    if (match) {
+      defaultQuery = match[1];
+    } else {
+      const cleaned = track.title
+        .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p).*?[\)\]】》]/gi, '')
+        .replace(/\s*-\s*(official|mv|music video|lyric|lyrics|audio).*$/gi, '')
+        .replace(/\s*(official|mv|music video|lyrics?|lyric video)$/gi, '')
+        .trim();
+      const dashSplit = cleaned.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+      if (dashSplit && track.channel) {
+        const cleanChannel = track.channel.replace(/\s*-\s*topic$/i, '').replace(/\s*vevo$/i, '').replace(/\s*official$/i, '').trim().toLowerCase();
+        const before = dashSplit[1].trim().toLowerCase();
+        const after = dashSplit[2].trim().toLowerCase();
+        if (before === cleanChannel || cleanChannel.includes(before) || before.includes(cleanChannel)) {
+          defaultQuery = dashSplit[2].trim();
+        } else if (after === cleanChannel || cleanChannel.includes(after) || after.includes(cleanChannel)) {
+          defaultQuery = dashSplit[1].trim();
+        } else {
+          defaultQuery = cleaned;
+        }
+      } else {
+        defaultQuery = cleaned;
+      }
+    }
     setSearchQuery(defaultQuery);
     setSearchResults([]);
     setSearchOpen(true);

@@ -393,9 +393,34 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
   // 打開搜尋對話框時，預設填入歌曲名稱
   const handleOpenSearch = () => {
-    // 嘗試從標題中提取歌名
+    // 嘗試從標題中提取歌名（考慮頻道名稱匹配）
     const match = track.title.match(/[【《]([^【】《》]+)[】》]/);
-    const defaultQuery = match ? match[1] : track.title.split(/[-–—]/)[0].trim();
+    let defaultQuery: string;
+    if (match) {
+      defaultQuery = match[1];
+    } else {
+      // 清理後綴後，根據頻道名判斷 artist-title 分割方向
+      const cleaned = track.title
+        .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p).*?[\)\]】》]/gi, '')
+        .replace(/\s*-\s*(official|mv|music video|lyric|lyrics|audio).*$/gi, '')
+        .replace(/\s*(official|mv|music video|lyrics?|lyric video)$/gi, '')
+        .trim();
+      const dashSplit = cleaned.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+      if (dashSplit && track.channel) {
+        const cleanChannel = track.channel.replace(/\s*-\s*topic$/i, '').replace(/\s*vevo$/i, '').replace(/\s*official$/i, '').trim().toLowerCase();
+        const before = dashSplit[1].trim().toLowerCase();
+        const after = dashSplit[2].trim().toLowerCase();
+        if (before === cleanChannel || cleanChannel.includes(before) || before.includes(cleanChannel)) {
+          defaultQuery = dashSplit[2].trim(); // artist before dash → song is after
+        } else if (after === cleanChannel || cleanChannel.includes(after) || after.includes(cleanChannel)) {
+          defaultQuery = dashSplit[1].trim(); // artist after dash → song is before
+        } else {
+          defaultQuery = cleaned; // no match, use full cleaned title
+        }
+      } else {
+        defaultQuery = cleaned;
+      }
+    }
     setSearchQuery(defaultQuery);
     setSearchResults([]);
     setSearchOpen(true);
