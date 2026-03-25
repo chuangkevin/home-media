@@ -136,12 +136,18 @@ export class YouTubeController {
 
       // Check for in-flight yt-dlp process for this videoId
       if (this.inFlightStreams.has(videoId)) {
-        console.log(`⏳ [Stream] In-flight yt-dlp already running for ${videoId}, returning 429`);
-        res.status(429).json({
-          error: 'Stream already in progress for this video',
-          retryAfter: 3,
-        });
-        return;
+        console.log(`⏳ [Stream] In-flight yt-dlp already running for ${videoId}, waiting for completion`);
+        try {
+          await this.inFlightStreams.get(videoId);
+          // After waiting, check if cache now exists
+          if (audioCacheService.has(videoId)) {
+            console.log(`🎵 [Stream] In-flight completed, serving from cache: ${videoId}`);
+            this.streamFromCache(req, res, videoId);
+            return;
+          }
+        } catch {}
+        // If still no cache, fall through to new stream
+        console.log(`⚠️ [Stream] In-flight completed but no cache for ${videoId}, starting new stream`);
       }
 
       // 使用 yt-dlp 直接串流（避免 403）
@@ -155,15 +161,30 @@ export class YouTubeController {
       });
       this.inFlightStreams.set(videoId, inFlightPromise);
 
-      // Clean up in-flight tracking when request finishes
+      // Clean up in-flight tracking — delayed until cache write completes
+      let cacheWriteComplete = false;
       const cleanupInFlight = () => {
         this.inFlightStreams.delete(videoId);
         resolveInFlight();
       };
-      res.on('finish', cleanupInFlight);
-      res.on('close', cleanupInFlight);
+      res.on('finish', () => {
+        if (cacheWriteComplete || !this.inFlightStreams.has(videoId)) {
+          cleanupInFlight();
+        }
+      });
+      res.on('close', () => {
+        // Give cache write 5 seconds to complete before force cleanup
+        setTimeout(() => {
+          if (!cacheWriteComplete) {
+            cleanupInFlight();
+          }
+        }, 5000);
+      });
 
-      this.streamWithYtDlp(req, res, videoId);
+      this.streamWithYtDlp(req, res, videoId, () => {
+        cacheWriteComplete = true;
+        cleanupInFlight();
+      });
 
     } catch (error) {
       logger.error('Stream controller error:', error);
@@ -178,7 +199,7 @@ export class YouTubeController {
   /**
    * 使用 yt-dlp 直接串流音訊到客戶端，同時寫入快取
    */
-  private streamWithYtDlp(req: Request, res: Response, videoId: string): void {
+  private streamWithYtDlp(req: Request, res: Response, videoId: string, onCacheWriteComplete?: () => void): void {
     const ytdlpPath = youtubeService.getYtDlpPath();
     const baseArgs = youtubeService.getYtDlpBaseArgs();
 
@@ -201,13 +222,19 @@ export class YouTubeController {
     const tempPath = `${cachePath}.tmp`;
     let cacheStream: fs.WriteStream | null = null;
 
-    // 不是 Range request 時才寫入快取
+    // 不是 Range request 時才寫入快取（避免與已存在的快取檔案衝突）
     if (!req.headers.range) {
-      cacheStream = fs.createWriteStream(tempPath);
-      cacheStream.on('error', (err) => {
-        logger.error(`Cache write error for ${videoId}:`, err);
+      if (fs.existsSync(cachePath) || fs.existsSync(tempPath)) {
+        // Cache already exists or is being written, don't write again
+        console.log(`⚠️ [Stream] Cache file already exists for ${videoId}, skipping cache write`);
         cacheStream = null;
-      });
+      } else {
+        cacheStream = fs.createWriteStream(tempPath);
+        cacheStream.on('error', (err) => {
+          logger.error(`Cache write error for ${videoId}:`, err);
+          cacheStream = null;
+        });
+      }
     }
 
     // 收集 stderr（yt-dlp 的進度/錯誤資訊）
@@ -280,7 +307,16 @@ export class YouTubeController {
               try { fs.unlinkSync(tempPath); } catch {}
             }
           }
+          // Signal that cache write is complete so in-flight dedup can clean up
+          if (onCacheWriteComplete) {
+            onCacheWriteComplete();
+          }
         });
+      } else {
+        // No cache write in progress, signal completion immediately
+        if (onCacheWriteComplete) {
+          onCacheWriteComplete();
+        }
       }
     });
 
