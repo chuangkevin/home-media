@@ -924,52 +924,41 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             position: 'relative',
           }}
         >
-          {/* 頂部操作列 - 全螢幕歌詞模式精簡顯示 */}
+          {/* 頂部操作列 */}
           <Box
             sx={{
               position: 'sticky',
               top: 0,
               zIndex: 10,
               backgroundColor: 'background.paper',
-              borderBottom: isFullscreenLayout ? 0 : 1,
+              borderBottom: 1,
               borderColor: 'divider',
               px: 2,
-              py: isFullscreenLayout ? 0.5 : 1,
+              py: 1,
               flexShrink: 0,
-              ...(isFullscreenLayout && {
-                backgroundColor: 'transparent',
-                position: 'absolute',
-                right: 0,
-                left: 'auto',
-                width: 'auto',
-              }),
             }}
           >
             {/* 下拉指示器 */}
-            {!isFullscreenLayout && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
-                <Box
-                  sx={{
-                    width: 40,
-                    height: 4,
-                    backgroundColor: 'action.disabled',
-                    borderRadius: 2,
-                  }}
-                />
-              </Box>
-            )}
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+              <Box
+                sx={{
+                  width: 40,
+                  height: 4,
+                  backgroundColor: 'action.disabled',
+                  borderRadius: 2,
+                }}
+              />
+            </Box>
 
-            {/* 曲目資訊與關閉按鈕 - 全螢幕只顯示按鈕 */}
+            {/* 曲目資訊與關閉按鈕 */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {!isFullscreenLayout && (
-                <Box
-                  component="img"
-                  src={track.thumbnail}
-                  alt={track.title}
-                  sx={{ width: 48, height: 48, borderRadius: 1, objectFit: 'cover' }}
-                />
-              )}
-              <Box sx={{ flexGrow: 1, minWidth: 0, ...(isFullscreenLayout && { display: 'none' }) }}>
+              <Box
+                component="img"
+                src={track.thumbnail}
+                alt={track.title}
+                sx={{ width: 48, height: 48, borderRadius: 1, objectFit: 'cover' }}
+              />
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600 }}>
                   {track.title}
                 </Typography>
@@ -1033,8 +1022,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             </Box>
           )}
 
-          {/* 歌詞微調控制（僅在歌詞模式 + 非全螢幕顯示） */}
-          {viewMode === 'lyrics' && currentLyrics?.isSynced && !isFullscreenLayout && (
+          {/* 歌詞微調控制（僅在歌詞模式顯示） */}
+          {viewMode === 'lyrics' && currentLyrics?.isSynced && (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: 1 }}>
               {isFineTuning ? (
                 <>
