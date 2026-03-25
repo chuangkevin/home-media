@@ -883,23 +883,23 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
-            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
+            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
             borderTopLeftRadius: isFullscreenLayout ? 0 : 16,
             borderTopRightRadius: isFullscreenLayout ? 0 : 16,
-            bottom: isFullscreenLayout ? 0 : 180,
+            bottom: isFullscreenLayout ? 0 : 250,
             display: 'flex',
             flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
+            pb: isFullscreenLayout ? 0 : 3,
           },
         }}
         ModalProps={{
           keepMounted: true,
           sx: {
-            // backdrop 也只蓋到 drawer 區域，露出底部播放器
-            bottom: isFullscreenLayout ? 0 : 180,
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 180px)',
+            bottom: isFullscreenLayout ? 0 : 250,
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
             '& .MuiBackdrop-root': {
-              bottom: isFullscreenLayout ? 0 : 180,
+              bottom: isFullscreenLayout ? 0 : 250,
             },
           },
         }}
@@ -1119,16 +1119,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           )}
         </Box>
 
-        {/* 待播清單 - 非全螢幕模式顯示 */}
+        {/* 待播清單 - 僅在非全螢幕或橫式裝置顯示 */}
         {!isFullscreenLayout && (
           <Box
             sx={{
               borderTop: 1,
               borderColor: 'divider',
               backgroundColor: 'background.paper',
-              maxHeight: '15%',
+              maxHeight: '20%',
               overflow: 'auto',
               flexShrink: 0,
+              pb: 3,
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block', fontWeight: 600 }}>
@@ -1138,14 +1139,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
         )}
 
-        {/* 全螢幕模式：底部嵌入式播放器 */}
+        {/* 直式裝置：頂部播放器（全螢幕模式） */}
         {isFullscreenLayout && !isLandscape && (
           <Box
             sx={{
               flexShrink: 0,
               borderTop: 1,
               borderColor: 'divider',
-              backgroundColor: 'background.paper',
             }}
           >
             <AudioPlayer embedded />

@@ -919,10 +919,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       sx={{
         ...(!embedded && {
           position: 'fixed',
-          bottom: 56,
+          bottom: 0,
           left: 0,
           right: 0,
-          zIndex: 1100, // 低於導航欄(1200)，高於其他內容
+          zIndex: 1000,
+          paddingBottom: '56px', // 為 BottomNav 留空間
         }),
         borderRadius: embedded ? 0 : 0,
         height: embedded ? '100%' : 'auto',
