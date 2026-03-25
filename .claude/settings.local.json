@@ -1,4 +1,5 @@
 {
+  "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": [
       "Bash(git -C \"D:\\\\Projects\\\\home-media\" log --oneline -10)",
@@ -18,7 +19,11 @@
       "Bash(taskkill:*)",
       "Bash(while read pid)",
       "Bash(do taskkill //F //PID $pid)",
-      "Bash(done)"
+      "Bash(done)",
+      "WebSearch",
+      "WebFetch(domain:tw.bid.yahoo.com)",
+      "WebFetch(domain:www.coolpc.com.tw)",
+      "WebFetch(domain:coolpc.com.tw)"
     ]
   }
 }
