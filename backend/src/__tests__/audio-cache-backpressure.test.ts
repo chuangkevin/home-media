@@ -14,7 +14,7 @@ describe('Stream backpressure handling', () => {
     // Create a slow writable that immediately signals backpressure
     const slowWritable = new Writable({
       highWaterMark: 16, // Very small buffer
-      write(chunk, encoding, callback) {
+      write(_chunk, _encoding, callback) {
         // Simulate slow write
         setTimeout(callback, 50);
       },
@@ -49,7 +49,7 @@ describe('Stream backpressure handling', () => {
 
     const slowWritable = new Writable({
       highWaterMark: 16,
-      write(chunk, encoding, callback) {
+      write(_chunk, _encoding, callback) {
         writeCallback = callback;
       },
     });
@@ -70,7 +70,7 @@ describe('Stream backpressure handling', () => {
 
     // Complete the pending write to trigger drain
     if (writeCallback) {
-      writeCallback();
+      (writeCallback as () => void)();
     }
 
     // Wait for drain event to propagate
@@ -81,13 +81,11 @@ describe('Stream backpressure handling', () => {
 
   it('should write all data completely when backpressure is handled', async () => {
     const source = new PassThrough();
-    const chunks: Buffer[] = [];
     let totalBytes = 0;
 
     const writable = new Writable({
       highWaterMark: 32,
-      write(chunk, encoding, callback) {
-        chunks.push(chunk);
+      write(chunk, _encoding, callback) {
         totalBytes += chunk.length;
         // Simulate async write
         setImmediate(callback);
@@ -131,7 +129,7 @@ describe('Stream backpressure handling', () => {
 
     const slowWriter = new Writable({
       highWaterMark: 16,
-      write(chunk, encoding, callback) {
+      write(chunk, _encoding, callback) {
         receivedData.push(Buffer.from(chunk));
         // Simulate slow disk
         setTimeout(callback, 10);
@@ -178,7 +176,7 @@ describe('Cache file finalization', () => {
     const events: string[] = [];
 
     const writable = new Writable({
-      write(chunk, encoding, callback) {
+      write(_chunk, _encoding, callback) {
         setImmediate(callback);
       },
     });
