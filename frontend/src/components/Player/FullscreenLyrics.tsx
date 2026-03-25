@@ -163,11 +163,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             onReady: (event: any) => {
               if (!isMounted) return;
               setVideoReady(true);
-              // 同步到當前播放時間
               event.target.seekTo(currentTime, true);
-              // 如果音訊正在播放，影片也播放
+              // Try to play - if iOS blocks it, YouTube's built-in play button handles it
               if (audioIsPlaying) {
-                event.target.playVideo();
+                try {
+                  event.target.playVideo();
+                } catch {}
               }
             },
             onStateChange: (event: any) => {
@@ -894,13 +895,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         }}
         ModalProps={{
           keepMounted: true,
-          sx: {
-            bottom: isFullscreenLayout ? 0 : 250,
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
-            '& .MuiBackdrop-root': {
-              bottom: isFullscreenLayout ? 0 : 250,
-            },
-          },
+          // Don't set bottom/height on Modal - let it cover full screen for proper backdrop
         }}
       >
         {/* 橫式裝置：左側播放器 */}

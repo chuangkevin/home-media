@@ -659,7 +659,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         onScroll={isFineTuning ? handleFineTuneScroll : undefined}
         sx={{
           width: '100%',
-          height: 'min(500px, 60vh)',
+          height: '100%',
           overflow: 'auto',
           backgroundColor: 'background.default',
           position: 'relative',
