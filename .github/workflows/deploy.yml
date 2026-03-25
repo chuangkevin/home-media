@@ -82,10 +82,18 @@ jobs:
             retry_pull
 
             echo "🛑 Stopping existing containers..."
-            docker compose -f docker-compose.yml down --remove-orphans
+            docker compose -f docker-compose.yml down --remove-orphans --timeout 30 || true
 
             echo "🧹 Force removing any leftover containers..."
             docker rm -f home-media-backend home-media-frontend 2>/dev/null || true
+            sleep 3
+
+            echo "🔍 Checking for remaining containers..."
+            if docker ps -a --filter "name=home-media" -q | grep -q .; then
+              echo "⚠️ Containers still exist, force killing..."
+              docker ps -a --filter "name=home-media" -q | xargs -r docker rm -f 2>/dev/null || true
+              sleep 2
+            fi
 
             echo "🚀 Starting updated containers..."
             docker compose -f docker-compose.yml up -d --force-recreate
