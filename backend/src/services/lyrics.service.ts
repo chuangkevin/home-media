@@ -6,6 +6,7 @@ import logger from '../utils/logger';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { extractTrackInfo, isConfigured as isGeminiConfigured } from './gemini.service';
 
 // @ts-ignore - no types available
 import NeteaseMusic from 'simple-netease-cloud-music';
@@ -334,8 +335,7 @@ class LyricsService {
     };
 
     try {
-      const cleanTitle = this.cleanSongTitle(title, artist);
-      const cleanArtist = artist ? this.cleanArtistName(artist) : '';
+      const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
       const searchQuery = cleanArtist ? `${cleanTitle} ${cleanArtist}` : cleanTitle;
 
       console.log(`🎵 [NetEase] Searching: "${searchQuery}"`);
@@ -418,9 +418,8 @@ class LyricsService {
     artist?: string
   ): Promise<Lyrics | null> {
     try {
-      // 清理標題（移除常見的 MV、Official Video 等後綴）
-      const cleanTitle = this.cleanSongTitle(title, artist);
-      const cleanArtist = artist ? this.cleanArtistName(artist) : '';
+      // 清理標題（regex 優先，Gemini fallback）
+      const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
 
       console.log(`🎼 [LRCLIB] Searching: "${cleanTitle}" by "${cleanArtist}"`);
       logger.info(`[LRCLIB] Starting search for: ${cleanTitle}`);
@@ -698,6 +697,38 @@ class LyricsService {
 
     console.log(`🎵 [cleanSongTitle] 清理後: "${cleaned}" (原始: "${title}")`);
     return cleaned;
+  }
+
+  /**
+   * 用 Gemini AI 增強的歌名/藝人提取（regex 優先，Gemini 作為 fallback）
+   */
+  private async extractWithGemini(title: string, artist?: string): Promise<{ cleanTitle: string; cleanArtist: string }> {
+    const regexTitle = this.cleanSongTitle(title, artist);
+    const regexArtist = artist ? this.cleanArtistName(artist) : '';
+
+    // 如果 regex 有信心地提取了（通過 dash match 或 bracket match），直接用
+    // 如果 regex 提取結果跟清理後的完整標題相同（表示沒成功提取），嘗試 Gemini
+    const titleUnchanged = regexTitle === title.trim() ||
+      regexTitle === title.replace(/\s*[\(\[【《].*?[\)\]】》]/gi, '').trim();
+
+    if (!titleUnchanged || !isGeminiConfigured()) {
+      return { cleanTitle: regexTitle, cleanArtist: regexArtist };
+    }
+
+    console.log(`🤖 [Lyrics] Regex 未能提取歌名，嘗試 Gemini: "${title}"`);
+    try {
+      const geminiResult = await extractTrackInfo(title, artist);
+      if (geminiResult) {
+        return {
+          cleanTitle: geminiResult.title,
+          cleanArtist: geminiResult.artist,
+        };
+      }
+    } catch (err) {
+      console.warn('⚠️ [Lyrics] Gemini fallback failed:', err);
+    }
+
+    return { cleanTitle: regexTitle, cleanArtist: regexArtist };
   }
 
   /**

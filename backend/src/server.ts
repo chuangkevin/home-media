@@ -64,6 +64,7 @@ import spotifyRoutes from './routes/spotify.routes';
 import genreRecommendationRoutes from './routes/genre-recommendations.routes';
 import hiddenChannelsRoutes from './routes/hidden-channels.routes';
 import settingsRoutes from './routes/settings.routes';
+import geminiRoutes from './routes/gemini.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -131,6 +132,9 @@ app.use('/api/hidden-channels', hiddenChannelsRoutes);
 
 // Settings
 app.use('/api/settings', settingsRoutes);
+
+// Gemini AI
+app.use('/api/gemini', geminiRoutes);
 
 // Error handlers
 app.use(notFoundHandler);

@@ -495,6 +495,21 @@ class ApiService {
   async updateSetting(key: string, value: any): Promise<void> {
     await this.api.put(`/settings/${key}`, { value });
   }
+
+  // Gemini API Key 管理
+  async getGeminiStatus(): Promise<{ configured: boolean; keys: Array<{ suffix: string; fromEnv: boolean }> }> {
+    const res = await this.api.get('/gemini/status');
+    return res.data;
+  }
+
+  async addGeminiKeys(keys: string): Promise<{ added: number; skipped: number; total: number }> {
+    const res = await this.api.post('/gemini/keys', { keys });
+    return res.data;
+  }
+
+  async removeGeminiKey(suffix: string): Promise<void> {
+    await this.api.delete(`/gemini/keys/${suffix}`);
+  }
 }
 
 // 播放清單型別
