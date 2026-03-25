@@ -882,6 +882,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       dispatch(playNext());
     });
 
+    // 明確移除 seekbackward/seekforward，iOS 才會顯示上/下首按鈕而非前進後退 10 秒
+    try {
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
+    } catch {
+      // 部分瀏覽器不支援設為 null
+    }
+
     console.log('🎵 Media Session API 已設定:', currentTrack.title);
 
     return () => {
