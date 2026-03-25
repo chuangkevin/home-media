@@ -4,7 +4,6 @@ import { Box, Typography, Button, Link, CircularProgress } from '@mui/material';
 import MusicVideoIcon from '@mui/icons-material/MusicVideo';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import PlayArrow from '@mui/icons-material/PlayArrow';
 import type { Track } from '../../types/track.types';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
 import { RootState } from '../../store';
@@ -49,14 +48,12 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   const [error, setError] = useState<string | null>(null);
   const [showIOSHint, setShowIOSHint] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [showPlayButton, setShowPlayButton] = useState(false);
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 當曲目變化時重置狀態
   useEffect(() => {
     setError(null);
     setLoading(true);
-    setShowPlayButton(false);
   }, [track.videoId]);
 
   // 載入 YouTube IFrame API
@@ -81,7 +78,6 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
       setError(null);
       setShowIOSHint(false);
       setLoading(true);
-      setShowPlayButton(false);
       
       // 清除舊的超時計時器
       if (loadTimeoutRef.current) {
@@ -146,10 +142,14 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
                 }
               }
 
-              // iOS: autoplay 被阻擋，顯示手動播放按鈕
+              // iOS: YouTube's built-in play button handles user gesture requirement
+              // No need for custom overlay - just let the iframe handle it
               if (isIOS()) {
-                console.log('🎬 iOS 設備，顯示手動播放按鈕');
-                setShowPlayButton(true);
+                console.log('🎬 iOS: YouTube 內建播放按鈕處理自動播放限制');
+                // Try to play anyway - if blocked, YouTube shows its own play button
+                try {
+                  event.target.playVideo();
+                } catch {}
                 return;
               }
 
@@ -452,21 +452,6 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
       {loading && (
         <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'white', zIndex: 1 }}>
           <CircularProgress color="inherit" />
-        </Box>
-      )}
-      {showPlayButton && (
-        <Box
-          onClick={() => {
-            playerRef.current?.playVideo();
-            setShowPlayButton(false);
-          }}
-          sx={{
-            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            backgroundColor: 'rgba(0,0,0,0.5)', cursor: 'pointer', zIndex: 2,
-          }}
-        >
-          <PlayArrow sx={{ fontSize: 80, color: 'white' }} />
         </Box>
       )}
       <div

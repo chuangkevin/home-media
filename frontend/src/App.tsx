@@ -294,7 +294,7 @@ function AppContent() {
 
   return (
     <Box sx={{ minHeight: '100vh' }}>
-      <Container maxWidth="lg" sx={{ py: 4, pb: isShortViewport ? '192px' : '212px' }}> {/* 播放器 + 56px 導航欄 + 16px 間距 */}
+      <Container maxWidth="lg" sx={{ py: 4, pb: isShortViewport ? '220px' : '240px' }}> {/* 播放器 + 56px 導航欄 + 16px 間距 */}
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
