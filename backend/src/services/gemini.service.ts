@@ -12,6 +12,8 @@ let cachedKeys: string[] = [];
 let keyIndex = 0;
 let lastLoadTime = 0;
 const CACHE_TTL = 60_000; // 60 秒快取
+const badKeys = new Map<string, number>(); // key -> 失敗時間戳
+const BAD_KEY_COOLDOWN = 10 * 60 * 1000; // 壞 key 冷卻 10 分鐘
 
 function loadKeys(): string[] {
   const now = Date.now();
@@ -50,16 +52,45 @@ export function invalidateKeyCache(): void {
   cachedKeys = [];
 }
 
+function isKeyBad(key: string): boolean {
+  const failedAt = badKeys.get(key);
+  if (!failedAt) return false;
+  if (Date.now() - failedAt > BAD_KEY_COOLDOWN) {
+    badKeys.delete(key); // 冷卻期過，重新嘗試
+    return false;
+  }
+  return true;
+}
+
+function markKeyBad(key: string): void {
+  badKeys.set(key, Date.now());
+  console.warn(`🚫 [Gemini] Key ...${key.slice(-4)} marked bad, cooldown ${BAD_KEY_COOLDOWN / 1000}s`);
+}
+
 function getApiKey(): string | null {
   const keys = loadKeys();
   if (keys.length === 0) return null;
-  const key = keys[keyIndex % keys.length];
-  keyIndex = (keyIndex + 1) % keys.length;
-  return key;
+
+  // 嘗試找一個非壞的 key（最多繞一圈）
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[keyIndex % keys.length];
+    keyIndex = (keyIndex + 1) % keys.length;
+    if (!isKeyBad(key)) return key;
+  }
+
+  // 全部都壞了，清除最舊的壞 key 重試
+  console.warn(`⚠️ [Gemini] All ${keys.length} keys are bad, clearing oldest`);
+  let oldestKey = '';
+  let oldestTime = Infinity;
+  for (const [k, t] of badKeys) {
+    if (t < oldestTime) { oldestTime = t; oldestKey = k; }
+  }
+  if (oldestKey) badKeys.delete(oldestKey);
+  return oldestKey || keys[0];
 }
 
 function getApiKeyExcluding(failedKey: string): string | null {
-  const keys = loadKeys().filter(k => k !== failedKey);
+  const keys = loadKeys().filter(k => k !== failedKey && !isKeyBad(k));
   if (keys.length === 0) return null;
   return keys[Math.floor(Math.random() * keys.length)];
 }
@@ -109,17 +140,24 @@ ${channelName ? `頻道: "${channelName}"` : ''}
       }
       return null;
     } catch (err: any) {
-      const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED');
-      if (is429 && attempt < maxRetries) {
+      const msg = err?.message || '';
+      const is429 = err?.status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
+      const is403 = err?.status === 403 || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID');
+
+      if (is403) {
+        markKeyBad(currentKey); // 無效 key，標記壞掉
+      }
+
+      if ((is429 || is403) && attempt < maxRetries) {
         const altKey = getApiKeyExcluding(currentKey);
         if (altKey) {
-          console.warn(`⚠️ [Gemini] 429 on key ...${currentKey.slice(-4)}, switching to ...${altKey.slice(-4)}`);
+          console.warn(`⚠️ [Gemini] ${is429 ? '429' : '403'} on key ...${currentKey.slice(-4)}, switching to ...${altKey.slice(-4)}`);
           currentKey = altKey;
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, is429 ? 1000 : 100));
           continue;
         }
       }
-      console.error(`❌ [Gemini] extractTrackInfo failed:`, err?.message || err);
+      console.error(`❌ [Gemini] extractTrackInfo failed:`, msg);
       return null;
     }
   }
@@ -287,17 +325,22 @@ Return exactly this JSON format:
       console.log(`🎨 [Gemini] Style: ${parsed.mood}/${parsed.genre}/${parsed.energy} for "${title}"`);
       return parsed;
     } catch (err: any) {
-      const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED');
-      if (is429 && attempt < maxRetries) {
+      const msg = err?.message || '';
+      const is429 = err?.status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
+      const is403 = err?.status === 403 || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID');
+
+      if (is403) markKeyBad(currentKey);
+
+      if ((is429 || is403) && attempt < maxRetries) {
         const altKey = getApiKeyExcluding(currentKey);
         if (altKey) {
-          console.warn(`⚠️ [Gemini] 429 on style analysis, switching key`);
+          console.warn(`⚠️ [Gemini] ${is429 ? '429' : '403'} on style analysis, switching key`);
           currentKey = altKey;
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, is429 ? 1000 : 100));
           continue;
         }
       }
-      console.error(`❌ [Gemini] analyzeTrackStyle failed:`, err?.message || err);
+      console.error(`❌ [Gemini] analyzeTrackStyle failed:`, msg);
       return null;
     }
   }
