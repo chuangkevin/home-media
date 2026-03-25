@@ -33,6 +33,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const lastAudioSrcRef = useRef<string | null>(null);
   const lastAudioTimeRef = useRef<number>(0);
   const wasCompletedRef = useRef(false);
+  const completeSentRef = useRef(false);
 
   // 🎵 自動播放佇列 - 當接近播放清單尾端時自動加入推薦歌曲
   useAutoQueue();
@@ -68,6 +69,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       }
     }
     wasCompletedRef.current = false;
+    completeSentRef.current = false;
 
     const videoId = pendingTrack.videoId;
 
@@ -336,10 +338,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                   startFetchAndCache();
                 };
                 audio.addEventListener('timeupdate', onTimeUpdate);
-                // Safety timeout: if no timeupdate within 10s, start cache anyway
+                // Safety timeout: if no timeupdate within 10s, start cache only if actually playing
                 setTimeout(() => {
                   audio.removeEventListener('timeupdate', onTimeUpdate);
-                  startFetchAndCache();
+                  if (audio.readyState >= 2 && !audio.paused) {
+                    startFetchAndCache();
+                  }
                 }, 10000);
             } else {
               // Not auto-playing (e.g. paused state or video mode) - defer with timeout
@@ -642,6 +646,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       if (displayMode !== 'video') {
         dispatch(setCurrentTime(audio.currentTime));
       }
+      // Record complete when 90% reached
+      if (!completeSentRef.current && audio.duration > 0 && audio.currentTime >= audio.duration * 0.9) {
+        completeSentRef.current = true;
+        wasCompletedRef.current = true;
+        if (currentVideoIdRef.current) {
+          apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
+        }
+      }
       // 追蹤時間更新，用於偵測假播放
       lastTimeUpdate = Date.now();
       lastCurrentTime = audio.currentTime;
@@ -656,8 +668,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     const handleEnded = () => {
       wasCompletedRef.current = true;
-      // Record complete signal
-      if (currentVideoIdRef.current) {
+      // Record complete signal (only if not already sent at 90%)
+      if (!completeSentRef.current && currentVideoIdRef.current) {
+        completeSentRef.current = true;
         apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
       }
       // 影片模式時由 VideoPlayer 處理播放結束

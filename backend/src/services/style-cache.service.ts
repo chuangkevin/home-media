@@ -291,6 +291,15 @@ export async function getUserProfile(): Promise<any | null> {
       const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
       if (ageMs < WEEK_MS) {
+        // Also check if 20+ new tracks have been played since last profile generation
+        const newPlays = db.prepare(
+          'SELECT COUNT(*) as count FROM cached_tracks WHERE last_played > ?'
+        ).get(row.updated_at) as { count: number };
+
+        if (newPlays.count >= 20) {
+          return await generateUserProfile();
+        }
+
         return profile;
       }
     }

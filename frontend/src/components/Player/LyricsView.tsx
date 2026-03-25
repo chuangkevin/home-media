@@ -105,7 +105,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       if (Math.abs(scrollOffset) > 2) {
         container.scrollTo({
           top: container.scrollTop + scrollOffset,
-          behavior: 'smooth',
+          behavior: 'auto',
         });
       }
     }

@@ -4,7 +4,8 @@ import { spawn } from 'child_process';
 import { pipeline } from 'stream';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
-import { queueForAnalysis } from '../services/style-cache.service';
+import { queueForAnalysis, prioritize as prioritizeStyleAnalysis } from '../services/style-cache.service';
+import { getDatabase } from '../config/database';
 import logger from '../utils/logger';
 
 export class YouTubeController {
@@ -115,6 +116,15 @@ export class YouTubeController {
         res.status(400).json({ error: 'Invalid video ID' });
         return;
       }
+
+      // Prioritize style analysis for the track being played
+      try {
+        const db = getDatabase();
+        const track = db.prepare('SELECT title, channel_name, tags, category FROM cached_tracks WHERE video_id = ?').get(videoId) as any;
+        if (track) {
+          prioritizeStyleAnalysis(videoId, track.title, track.channel_name, track.tags ? JSON.parse(track.tags) : undefined, track.category);
+        }
+      } catch {}
 
       // 檢查伺服器端快取
       if (audioCacheService.has(videoId)) {
