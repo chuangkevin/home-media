@@ -1,5 +1,6 @@
 import ytdl from '@distube/ytdl-core';
 import youtubedl from 'youtube-dl-exec';
+import YouTube from 'youtube-sr';
 import fs from 'fs';
 import path from 'path';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
@@ -32,7 +33,7 @@ class YouTubeService {
   private urlCache: Map<string, CachedUrl> = new Map();
   private pendingRequests: Map<string, Promise<string>> = new Map(); // 防止重複請求
   private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
-  private readonly SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 小時（搜尋結果快取）
+  private readonly SEARCH_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 小時（搜尋結果快取）
   private cookiesPath: string | null = null;
 
   constructor() {
@@ -91,50 +92,71 @@ class YouTubeService {
 
       const startTime = Date.now();
 
-      // 使用 yt-dlp 搜尋，指定台灣地區以獲取中文標題
-      const result: any = await youtubedl(`ytsearch${limit}:${query}`, {
-        ...this.getYtDlpBaseOptions(),
-        dumpSingleJson: true,
-        flatPlaylist: true,
-        geoBypassCountry: 'TW', // 台灣地區
-        extractorArgs: 'youtube:lang=zh-TW', // 強制使用繁體中文
-      } as any);
+      let tracks: YouTubeSearchResult[];
 
-      const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      try {
+        // 優先使用 youtube-sr（快速，無需 yt-dlp 進程）
+        const videos = await YouTube.search(query, { limit, type: 'video' });
 
-      // yt-dlp 返回的是一個包含 entries 的物件
-      const entries = result?.entries || [];
+        tracks = videos
+          .filter((video) => video.id) // 過濾掉無效結果
+          .map((video) => ({
+            id: video.id || '',
+            videoId: video.id || '',
+            title: video.title || 'Unknown Title',
+            channel: video.channel?.name || 'Unknown Channel',
+            duration: video.duration ? Math.floor(video.duration / 1000) : 0, // ms → seconds
+            thumbnail: video.thumbnail?.url || '',
+          }));
 
-      // 過濾掉非影片結果（頻道 ID 以 UC 開頭，影片 ID 為 11 字元）
-      const videoEntries = entries.filter((video: any) => {
-        const id = video.id || '';
-        // 影片 ID 為 11 字元，且不以 UC 開頭（頻道）
-        return id.length === 11 && !id.startsWith('UC');
-      });
+        const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`✅ [youtube-sr] 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
+        logger.info(`[youtube-sr] Found ${tracks.length} results for: ${query} in ${searchTime}s`);
+      } catch (srError) {
+        // youtube-sr 失敗，回退到 yt-dlp
+        console.warn(`⚠️ youtube-sr 搜尋失敗，回退到 yt-dlp:`, srError);
+        logger.warn('youtube-sr search failed, falling back to yt-dlp:', srError);
 
-      const tracks: YouTubeSearchResult[] = videoEntries.map((video: any) => ({
-        id: video.id || '',
-        videoId: video.id || '',
-        title: video.title || 'Unknown Title',
-        channel: video.channel || video.uploader || 'Unknown Channel',
-        duration: video.duration || 0,
-        thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
-        views: video.view_count,
-        uploadedAt: video.upload_date,
-        // 新增 metadata for recommendations
-        tags: video.tags || [],
-        categories: video.categories || [],
-        description: video.description || '',
-        language: video.language || null,
-      }));
+        const result: any = await youtubedl(`ytsearch${limit}:${query}`, {
+          ...this.getYtDlpBaseOptions(),
+          dumpSingleJson: true,
+          flatPlaylist: true,
+          geoBypassCountry: 'TW',
+          extractorArgs: 'youtube:lang=zh-TW',
+        } as any);
+
+        const entries = result?.entries || [];
+
+        const videoEntries = entries.filter((video: any) => {
+          const id = video.id || '';
+          return id.length === 11 && !id.startsWith('UC');
+        });
+
+        tracks = videoEntries.map((video: any) => ({
+          id: video.id || '',
+          videoId: video.id || '',
+          title: video.title || 'Unknown Title',
+          channel: video.channel || video.uploader || 'Unknown Channel',
+          duration: video.duration || 0,
+          thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
+          views: video.view_count,
+          uploadedAt: video.upload_date,
+          tags: video.tags || [],
+          categories: video.categories || [],
+          description: video.description || '',
+          language: video.language || null,
+        }));
+
+        const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`✅ [yt-dlp fallback] 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
+        logger.info(`[yt-dlp fallback] Found ${tracks.length} results for: ${query} in ${searchTime}s`);
+      }
 
       // 快取搜尋結果
       if (tracks.length > 0) {
         this.cacheSearchResults(query, tracks);
       }
 
-      console.log(`✅ 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
-      logger.info(`Found ${tracks.length} results for: ${query} in ${searchTime}s`);
       return tracks;
     } catch (error) {
       console.error(`❌ 搜尋失敗:`, error);

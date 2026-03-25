@@ -40,7 +40,7 @@ export class YouTubeController {
 
       // 搜尋結果返回後，背景預快取所有結果的音訊
       if (results.length > 0) {
-        const videoIds = results.map(r => r.videoId);
+        const videoIds = results.slice(0, 3).map(r => r.videoId);
         console.log(`📦 [Search] Triggering pre-cache for ${videoIds.length} search results`);
         audioCacheService.precacheVideos(videoIds).catch((err) => {
           console.warn('⚠️ [Search] Pre-cache batch failed:', err);

@@ -1,6 +1,6 @@
 ## Context
 
-Home-media is a YouTube music streaming center deployed on Raspberry Pi. It uses yt-dlp to extract audio, streams it to browsers, and caches files server-side (10GB LRU) and client-side (IndexedDB). Four bugs have been identified that affect daily usage across all devices.
+Home-media is a YouTube music streaming center deployed on Raspberry Pi. It uses yt-dlp to extract audio, streams it to browsers, and caches files server-side (10GB LRU) and client-side (IndexedDB). Four bugs and one major performance issue have been identified that affect daily usage across all devices.
 
 **Current State:**
 - Stream handler (`youtube.controller.ts:128-289`) manually writes chunks to both HTTP response and cache file without backpressure handling
@@ -8,6 +8,8 @@ Home-media is a YouTube music streaming center deployed on Raspberry Pi. It uses
 - Playback flow (`AudioPlayer.tsx`) was recently optimized (48dc50b) but still has reliability issues for uncached tracks
 - Lyrics title parser (`lyrics.service.ts:612-667`) uses regex that fails on common "Artist - Song" formats
 - Lyrics scroll (`LyricsView.tsx:87-139`) uses `smooth` scroll behavior causing 100-500ms visual lag
+- Search (`youtube.service.ts:79-144`) uses yt-dlp `ytsearch20:` which spawns a process and takes 5-30 seconds; `youtube-sr` is installed but unused
+- After search, backend precaches all 20 results sequentially (each spawning yt-dlp), and frontend fires `preloadAudio()` + `fetchAndCache()` adding more load
 
 ## Goals / Non-Goals
 
@@ -16,6 +18,7 @@ Home-media is a YouTube music streaming center deployed on Raspberry Pi. It uses
 - Make first-play of uncached tracks reliable without page refresh
 - Correctly extract song titles from YouTube video titles for lyrics search
 - Make lyrics scrolling visually precise and responsive
+- Reduce search latency from 5-30s to <3s
 
 **Non-Goals:**
 - Redesigning the caching architecture (LRU strategy, size limits)
@@ -65,6 +68,26 @@ Home-media is a YouTube music streaming center deployed on Raspberry Pi. It uses
 3. Applies scroll with CSS `transition` on a transform instead of `scrollTo({behavior: 'smooth'})`
 
 **Why over current approach:** `timeupdate` fires at 4-15Hz (browser-dependent). `requestAnimationFrame` fires at 60Hz, giving much smoother visual tracking. Direct `audio.currentTime` access avoids Redux dispatch → re-render → effect cycle latency.
+
+### D7: Use youtube-sr for search, yt-dlp as fallback
+
+**Choice:** Replace `youtubedl('ytsearch20:query', ...)` with `youtube-sr` library's `YouTube.search()` method. Keep yt-dlp as fallback if youtube-sr fails.
+
+**Why:** `youtube-sr` is a pure HTTP scraper (no process spawn), returning results in 1-3 seconds vs. 5-30 seconds for yt-dlp. It's already installed (`^4.3.11`) but never used for search. yt-dlp is overkill for search — it's designed for downloading, not search.
+
+**Alternative considered:** Using YouTube Data API v3. Rejected because it requires an API key, contradicting the project's zero-config philosophy.
+
+### D8: Extend search cache TTL to 24 hours
+
+**Choice:** Change `SEARCH_CACHE_TTL` from 1 hour to 24 hours.
+
+**Why:** Search results rarely change within 24 hours. YouTube video metadata (title, channel, thumbnail) is stable. The 1-hour TTL was overly aggressive, causing unnecessary repeat searches.
+
+### D9: Limit precache to 3 tracks and remove frontend preload on search
+
+**Choice:** Reduce `precacheVideos()` call in search handler from all results to first 3. Remove `preloadAudio()` and `fetchAndCache()` calls from frontend `handleSearch()`.
+
+**Why:** Precaching 20 tracks spawns 20 sequential yt-dlp processes (each 10-30s). Users typically only play 1-3 tracks from search results. Frontend preload duplicates the backend precache work.
 
 ## Risks / Trade-offs
 

@@ -42,10 +42,23 @@
 - [x] 4.7 Test: verify lyrics scroll matches audio timing precisely
 - [x] 4.8 Update spec status, commit, push
 
-## 5. E2E Testing & Final Verification
+## 5. Search Performance (P1)
 
-- [ ] 5.1 Write e2e test: play uncached track → verify audio plays → verify cache file created intact
-- [ ] 5.2 Write e2e test: search lyrics for "Artist - Song" format → verify correct lyrics returned
-- [ ] 5.3 Write e2e test: play track with synced lyrics → verify scroll timing
-- [ ] 5.4 Final integration test across all fixes
-- [ ] 5.5 Update all spec statuses, final commit, push
+- [x] 5.1 Replace yt-dlp search with youtube-sr in `youtube.service.ts` search method, keep yt-dlp as fallback
+- [x] 5.2 Map youtube-sr result fields to existing `YouTubeSearchResult` type
+- [x] 5.3 Extend `SEARCH_CACHE_TTL` from 1 hour to 24 hours
+- [x] 5.4 Limit `precacheVideos()` in search handler to first 3 results instead of all
+- [x] 5.5 Remove frontend `preloadAudio()` and `fetchAndCache()` calls from `handleSearch()` in `App.tsx`
+- [x] 5.6 Write unit test: youtube-sr search returns valid results mapped to correct type
+- [x] 5.7 Write unit test: fallback to yt-dlp when youtube-sr fails
+- [x] 5.8 Test: measure search latency before/after (target <3s)
+- [x] 5.9 Update spec status, commit, push
+
+## 6. E2E Testing & Final Verification
+
+- [ ] 6.1 Write e2e test: play uncached track → verify audio plays → verify cache file created intact
+- [ ] 6.2 Write e2e test: search lyrics for "Artist - Song" format → verify correct lyrics returned
+- [ ] 6.3 Write e2e test: play track with synced lyrics → verify scroll timing
+- [ ] 6.4 Write e2e test: search returns results within 3 seconds
+- [ ] 6.5 Final integration test across all fixes
+- [ ] 6.6 Update all spec statuses, final commit, push

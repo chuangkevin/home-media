@@ -268,39 +268,6 @@ function AppContent() {
       // 設置播放列表
       dispatch(setPlaylist(results));
 
-      // 預加載第 1 首歌曲（最可能被播放，減少並發壓力）
-      if (results.length > 0) {
-        const preloadCount = Math.min(1, results.length);
-        console.log(`🔄 預加載前 ${preloadCount} 首歌曲...`);
-
-        results.slice(0, preloadCount).forEach(async (track, index) => {
-          // 1. 觸發後端預載入（獲取 yt-dlp URL，非阻塞）
-          apiService.preloadAudio(track.videoId).then(() => {
-            console.log(`🔗 第 ${index + 1} 首後端 URL 預載完成: ${track.title}`);
-          }).catch(err => {
-            console.warn(`⚠️ 第 ${index + 1} 首後端預載失敗:`, err);
-          });
-
-          // 2. 前端快取預載入
-          const streamUrl = apiService.getStreamUrl(track.videoId);
-          const cached = await audioCacheService.get(track.videoId);
-          if (cached) {
-            console.log(`✅ 第 ${index + 1} 首已在前端快取中: ${track.title}`);
-          } else {
-            audioCacheService.preload(track.videoId, streamUrl, {
-              title: track.title,
-              channel: track.channel,
-              thumbnail: track.thumbnail,
-              duration: track.duration,
-            }).then(() => {
-              console.log(`💾 第 ${index + 1} 首前端快取完成: ${track.title}`);
-            }).catch(err => {
-              console.warn(`⚠️ 第 ${index + 1} 首前端快取失敗:`, err);
-            });
-          }
-        });
-      }
-
       setSearchResults(results);
     } catch (err) {
       setError(err instanceof Error ? err.message : '搜尋失敗，請稍後再試');
