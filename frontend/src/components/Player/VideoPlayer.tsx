@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Typography, Button, Link } from '@mui/material';
+import { Box, Typography, Button, Link, CircularProgress } from '@mui/material';
 import MusicVideoIcon from '@mui/icons-material/MusicVideo';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import PlayArrow from '@mui/icons-material/PlayArrow';
 import type { Track } from '../../types/track.types';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
 import { RootState } from '../../store';
@@ -47,11 +48,15 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   // 錯誤狀態
   const [error, setError] = useState<string | null>(null);
   const [showIOSHint, setShowIOSHint] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showPlayButton, setShowPlayButton] = useState(false);
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 當曲目變化時重置錯誤
+  // 當曲目變化時重置狀態
   useEffect(() => {
     setError(null);
+    setLoading(true);
+    setShowPlayButton(false);
   }, [track.videoId]);
 
   // 載入 YouTube IFrame API
@@ -72,9 +77,11 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
     const initPlayer = () => {
       if (!isMounted || !containerRef.current) return;
 
-      // 重置錯誤狀態
+      // 重置狀態
       setError(null);
       setShowIOSHint(false);
+      setLoading(true);
+      setShowPlayButton(false);
       
       // 清除舊的超時計時器
       if (loadTimeoutRef.current) {
@@ -118,16 +125,17 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           events: {
             onReady: (event: any) => {
               if (!isMounted) return;
-              
+
               // 清除超時計時器 - 播放器已就緒
               if (loadTimeoutRef.current) {
                 clearTimeout(loadTimeoutRef.current);
                 loadTimeoutRef.current = null;
               }
-              
+
+              setLoading(false);
               console.log(`🎬 YouTube 播放器就緒: ${track.videoId}`);
               dispatch(setDuration(event.target.getDuration()));
-              
+
               // 同步到切換前的音訊播放位置
               if (initialTimeRef.current > 0) {
                 try {
@@ -137,7 +145,14 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
                   console.warn('🎬 尋找位置失敗:', e);
                 }
               }
-              
+
+              // iOS: autoplay 被阻擋，顯示手動播放按鈕
+              if (isIOS()) {
+                console.log('🎬 iOS 設備，顯示手動播放按鈕');
+                setShowPlayButton(true);
+                return;
+              }
+
               // 根據當前播放狀態決定是否播放
               // 注意：此時 isPlaying 會在下一個 effect 同步，所以檢查 Redux 狀態
               if (event.target && event.target.playVideo) {
@@ -155,7 +170,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
                     }
                   }
                 }, 100);
-                
+
                 return () => clearTimeout(checkPlayState);
               }
             },
@@ -177,13 +192,14 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             },
             onError: (event: any) => {
               if (!isMounted) return;
-              
+
               // 清除超時計時器 - 已收到錯誤回調
               if (loadTimeoutRef.current) {
                 clearTimeout(loadTimeoutRef.current);
                 loadTimeoutRef.current = null;
               }
-              
+
+              setLoading(false);
               const errorCode = event.data;
               const errorMessage = YT_ERROR_CODES[errorCode] || `YouTube 錯誤碼: ${errorCode}`;
               console.error(`🎬 YouTube 播放器錯誤: ${errorCode} - ${errorMessage}`);
@@ -429,8 +445,30 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
         borderRadius: 2,
         overflow: 'hidden',
         boxShadow: 3,
+        position: 'relative',
+        backgroundColor: 'black',
       }}
     >
+      {loading && (
+        <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'white', zIndex: 1 }}>
+          <CircularProgress color="inherit" />
+        </Box>
+      )}
+      {showPlayButton && (
+        <Box
+          onClick={() => {
+            playerRef.current?.playVideo();
+            setShowPlayButton(false);
+          }}
+          sx={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.5)', cursor: 'pointer', zIndex: 2,
+          }}
+        >
+          <PlayArrow sx={{ fontSize: 80, color: 'white' }} />
+        </Box>
+      )}
       <div
         ref={containerRef}
         style={{
