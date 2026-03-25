@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import { pipeline } from 'stream';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
+import { queueForAnalysis } from '../services/style-cache.service';
 import logger from '../utils/logger';
 
 export class YouTubeController {
@@ -45,6 +46,15 @@ export class YouTubeController {
         audioCacheService.precacheVideos(videoIds).catch((err) => {
           console.warn('⚠️ [Search] Pre-cache batch failed:', err);
         });
+
+        // Queue style analysis for search results (background, rate-limited)
+        queueForAnalysis(results.map(r => ({
+          videoId: r.videoId,
+          title: r.title,
+          channel: r.channel,
+          tags: r.tags,
+          category: r.categories?.[0],
+        })));
       }
     } catch (error) {
       logger.error('Search controller error:', error);

@@ -510,6 +510,23 @@ class ApiService {
   async removeGeminiKey(suffix: string): Promise<void> {
     await this.api.delete(`/gemini/keys/${suffix}`);
   }
+
+  // ==================== 播放信號追蹤 ====================
+
+  async recordSkip(videoId: string): Promise<void> {
+    await this.api.post(`/tracks/${videoId}/signal`, { type: 'skip' });
+  }
+
+  async recordComplete(videoId: string): Promise<void> {
+    await this.api.post(`/tracks/${videoId}/signal`, { type: 'complete' });
+  }
+
+  // ==================== 風格分析 ====================
+
+  async analyzeTrackStyle(videoId: string, title: string, channel?: string, tags?: string[]): Promise<any> {
+    const res = await this.api.post(`/tracks/${videoId}/style`, { title, channel, tags });
+    return res.data;
+  }
 }
 
 // 播放清單型別

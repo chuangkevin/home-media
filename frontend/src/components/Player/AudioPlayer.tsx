@@ -32,6 +32,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const pendingBlobUrlRef = useRef<string | null>(null);
   const lastAudioSrcRef = useRef<string | null>(null);
   const lastAudioTimeRef = useRef<number>(0);
+  const wasCompletedRef = useRef(false);
 
   // 🎵 自動播放佇列 - 當接近播放清單尾端時自動加入推薦歌曲
   useAutoQueue();
@@ -58,6 +59,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 當有 pendingTrack 時，預載音訊（不切換 UI）
   useEffect(() => {
     if (!pendingTrack || !audioRef.current) return;
+
+    // Record skip signal if previous track was not completed and played less than 50%
+    if (audioRef.current && currentVideoIdRef.current && !wasCompletedRef.current) {
+      const audio = audioRef.current;
+      if (audio.duration > 0 && audio.currentTime < audio.duration * 0.5) {
+        apiService.recordSkip(currentVideoIdRef.current).catch(() => {});
+      }
+    }
+    wasCompletedRef.current = false;
 
     const videoId = pendingTrack.videoId;
 
@@ -279,6 +289,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
           // 確認切換（UI 現在更新）
           dispatch(confirmPendingTrack());
+
+          // Trigger background style analysis for current track
+          if (pendingTrack) {
+            apiService.analyzeTrackStyle(videoId, pendingTrack.title, pendingTrack.channel).catch(() => {});
+          }
 
           // 自動播放（影片模式下由 VideoPlayer 控制，不播放音訊）
           if (shouldPlay && displayModeRef.current !== 'video') {
@@ -640,6 +655,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
 
     const handleEnded = () => {
+      wasCompletedRef.current = true;
+      // Record complete signal
+      if (currentVideoIdRef.current) {
+        apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
+      }
       // 影片模式時由 VideoPlayer 處理播放結束
       if (displayMode !== 'video') {
         dispatch(playNext());

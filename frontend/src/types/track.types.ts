@@ -7,6 +7,7 @@ export interface Track {
   thumbnail: string;
   views?: number;
   uploadedAt?: string;
+  reason?: string;
 }
 
 export interface SearchResponse {

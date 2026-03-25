@@ -99,6 +99,20 @@ export function initDatabase() {
     )
   `);
 
+  // Track styles 表（AI 推薦系統）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS track_styles (
+      video_id TEXT PRIMARY KEY,
+      mood TEXT NOT NULL,
+      genre TEXT NOT NULL,
+      subgenre TEXT,
+      energy TEXT NOT NULL,
+      language TEXT,
+      themes TEXT,
+      analyzed_at INTEGER NOT NULL
+    )
+  `);
+
   // 搜尋歷史表
   db.exec(`
     CREATE TABLE IF NOT EXISTS search_history (
@@ -219,6 +233,16 @@ export function initDatabase() {
     db.exec(`ALTER TABLE cached_tracks ADD COLUMN country TEXT`);
   }
 
+  const hasSkipCount = tableInfo.some((col) => col.name === 'skip_count');
+  const hasCompleteCount = tableInfo.some((col) => col.name === 'complete_count');
+
+  if (!hasSkipCount) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN skip_count INTEGER DEFAULT 0`);
+  }
+  if (!hasCompleteCount) {
+    db.exec(`ALTER TABLE cached_tracks ADD COLUMN complete_count INTEGER DEFAULT 0`);
+  }
+
   // 建立索引
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_cached_tracks_last_played ON cached_tracks(last_played);
@@ -231,6 +255,8 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_channel_cache ON channel_videos_cache(channel_name, cached_at DESC);
     CREATE INDEX IF NOT EXISTS idx_recommendations_cache ON recommendations_cache(expires_at);
     CREATE INDEX IF NOT EXISTS idx_search_results_cache ON search_results_cache(query, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_track_styles_mood ON track_styles(mood);
+    CREATE INDEX IF NOT EXISTS idx_track_styles_genre ON track_styles(genre);
   `);
 
   // Hidden channels 表（用戶隱藏的頻道）

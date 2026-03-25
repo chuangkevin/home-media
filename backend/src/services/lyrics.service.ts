@@ -700,34 +700,30 @@ class LyricsService {
   }
 
   /**
-   * 用 Gemini AI 增強的歌名/藝人提取（regex 優先，Gemini 作為 fallback）
+   * 歌名/藝人提取：Gemini 優先，regex 作為 fallback
+   * 歌詞搜尋是核心功能（使用者要跟著唱），準確度最重要
    */
   private async extractWithGemini(title: string, artist?: string): Promise<{ cleanTitle: string; cleanArtist: string }> {
+    // Gemini 優先：有設定 API Key 就用 AI 提取
+    if (isGeminiConfigured()) {
+      try {
+        console.log(`🤖 [Lyrics] 使用 Gemini 提取歌名: "${title}"`);
+        const geminiResult = await extractTrackInfo(title, artist);
+        if (geminiResult && geminiResult.title) {
+          console.log(`🤖 [Lyrics] Gemini 提取成功: title="${geminiResult.title}", artist="${geminiResult.artist}"`);
+          return {
+            cleanTitle: geminiResult.title,
+            cleanArtist: geminiResult.artist || (artist ? this.cleanArtistName(artist) : ''),
+          };
+        }
+      } catch (err) {
+        console.warn('⚠️ [Lyrics] Gemini 提取失敗，回退到 regex:', err);
+      }
+    }
+
+    // Fallback: regex 提取
     const regexTitle = this.cleanSongTitle(title, artist);
     const regexArtist = artist ? this.cleanArtistName(artist) : '';
-
-    // 如果 regex 有信心地提取了（通過 dash match 或 bracket match），直接用
-    // 如果 regex 提取結果跟清理後的完整標題相同（表示沒成功提取），嘗試 Gemini
-    const titleUnchanged = regexTitle === title.trim() ||
-      regexTitle === title.replace(/\s*[\(\[【《].*?[\)\]】》]/gi, '').trim();
-
-    if (!titleUnchanged || !isGeminiConfigured()) {
-      return { cleanTitle: regexTitle, cleanArtist: regexArtist };
-    }
-
-    console.log(`🤖 [Lyrics] Regex 未能提取歌名，嘗試 Gemini: "${title}"`);
-    try {
-      const geminiResult = await extractTrackInfo(title, artist);
-      if (geminiResult) {
-        return {
-          cleanTitle: geminiResult.title,
-          cleanArtist: geminiResult.artist,
-        };
-      }
-    } catch (err) {
-      console.warn('⚠️ [Lyrics] Gemini fallback failed:', err);
-    }
-
     return { cleanTitle: regexTitle, cleanArtist: regexArtist };
   }
 

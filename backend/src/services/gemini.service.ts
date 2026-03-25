@@ -222,3 +222,84 @@ export function removeKey(suffix: string): boolean {
 export function isConfigured(): boolean {
   return loadKeys().length > 0;
 }
+
+export interface TrackStyle {
+  mood: string;
+  genre: string;
+  subgenre: string;
+  energy: string;
+  language: string;
+  themes: string[];
+}
+
+export async function analyzeTrackStyle(
+  title: string,
+  channel?: string,
+  tags?: string[],
+  category?: string
+): Promise<TrackStyle | null> {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+
+  const prompt = `Analyze this song and return JSON only. No other text.
+Title: "${title}"
+${channel ? `Channel: "${channel}"` : ''}
+${tags?.length ? `Tags: ${JSON.stringify(tags)}` : ''}
+${category ? `Category: "${category}"` : ''}
+
+Return exactly this JSON format:
+{"mood":"one of: energetic/chill/melancholic/upbeat/dark/dreamy/aggressive/romantic","genre":"primary genre in English","subgenre":"specific subgenre","energy":"one of: very-low/low/medium/high/very-high","language":"ISO 639-1 code like en/ja/zh/ko","themes":["max 3 keywords"]}`;
+
+  let currentKey = apiKey;
+  const maxRetries = 2;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const genai = new GoogleGenerativeAI(currentKey);
+      const model = genai.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: {
+          maxOutputTokens: 150,
+          temperature: 0,
+        },
+      });
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
+
+      const jsonMatch = text.match(/\{[\s\S]*?\}/);
+      if (!jsonMatch) {
+        console.warn(`⚠️ [Gemini] Style analysis: cannot parse response: ${text.substring(0, 100)}`);
+        return null;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]) as TrackStyle;
+
+      // Validate enum values
+      const validMoods = ['energetic', 'chill', 'melancholic', 'upbeat', 'dark', 'dreamy', 'aggressive', 'romantic'];
+      const validEnergy = ['very-low', 'low', 'medium', 'high', 'very-high'];
+
+      if (!validMoods.includes(parsed.mood)) parsed.mood = 'chill';
+      if (!validEnergy.includes(parsed.energy)) parsed.energy = 'medium';
+      if (!Array.isArray(parsed.themes)) parsed.themes = [];
+      parsed.themes = parsed.themes.slice(0, 3);
+
+      console.log(`🎨 [Gemini] Style: ${parsed.mood}/${parsed.genre}/${parsed.energy} for "${title}"`);
+      return parsed;
+    } catch (err: any) {
+      const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED');
+      if (is429 && attempt < maxRetries) {
+        const altKey = getApiKeyExcluding(currentKey);
+        if (altKey) {
+          console.warn(`⚠️ [Gemini] 429 on style analysis, switching key`);
+          currentKey = altKey;
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+      }
+      console.error(`❌ [Gemini] analyzeTrackStyle failed:`, err?.message || err);
+      return null;
+    }
+  }
+  return null;
+}

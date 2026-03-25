@@ -65,6 +65,7 @@ import genreRecommendationRoutes from './routes/genre-recommendations.routes';
 import hiddenChannelsRoutes from './routes/hidden-channels.routes';
 import settingsRoutes from './routes/settings.routes';
 import geminiRoutes from './routes/gemini.routes';
+import trackRoutes from './routes/track.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -135,6 +136,9 @@ app.use('/api/settings', settingsRoutes);
 
 // Gemini AI
 app.use('/api/gemini', geminiRoutes);
+
+// Track signal & style
+app.use('/api/tracks', trackRoutes);
 
 // Error handlers
 app.use(notFoundHandler);

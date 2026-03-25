@@ -230,6 +230,11 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
               >
                 {video.title}
               </Typography>
+              {video.reason && (
+                <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5, fontSize: '0.7rem' }}>
+                  {video.reason}
+                </Typography>
+              )}
             </CardContent>
           </Card>
         ))}

@@ -3,6 +3,8 @@ import { getDatabase } from '../config/database';
 import logger from '../utils/logger';
 import { SpotifyAudioFeatures } from '../types/spotify.types';
 import youtubeService from '../services/youtube.service';
+import { getStyles, getUserProfile } from '../services/style-cache.service';
+import { calculateStyleSimilarity, applyPlaybackSignalAdjustment } from '../services/style-similarity.service';
 
 const router = Router();
 
@@ -23,6 +25,19 @@ interface RecommendationScore {
   score: number;
   reasons: string[];
 }
+
+/**
+ * Get user preference profile
+ * GET /api/recommendations/profile
+ */
+router.get('/profile', async (_req: Request, res: Response) => {
+  const profile = await getUserProfile();
+  if (profile) {
+    res.json({ profile });
+  } else {
+    res.json({ profile: null, reason: 'insufficient_data' });
+  }
+});
 
 /**
  * Get recommendations based on a seed track (using genres and audio features)
@@ -144,7 +159,8 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     // Get candidates from cached_tracks only
     const candidates = db
       .prepare(
-        `SELECT video_id, title, channel_name, thumbnail, genres, audio_features, tags
+        `SELECT video_id, title, channel_name, thumbnail, genres, audio_features, tags,
+                COALESCE(skip_count, 0) as skip_count, COALESCE(complete_count, 0) as complete_count
          FROM cached_tracks
          WHERE video_id != ?
          LIMIT 200`
@@ -155,18 +171,43 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
       return res.json({ recommendations: [], message: 'No tracks available for recommendations' });
     }
 
+    // Load style data for seed + all candidates
+    const candidateIds = candidates.map((c: any) => c.video_id as string);
+    const allIds = [videoId, ...candidateIds];
+    const styleMap = getStyles(allIds);
+    const seedStyle = styleMap.get(videoId);
+
     // Calculate similarity scores
     const scores: RecommendationScore[] = candidates.map((candidate) => {
-      const candidateMetadata: TrackMetadata = {
-        videoId: candidate.video_id,
-        title: candidate.title,
-        channelName: candidate.channel_name,
-        genres: candidate.genres ? JSON.parse(candidate.genres) : [],
-        audioFeatures: candidate.audio_features ? JSON.parse(candidate.audio_features) : null,
-        tags: candidate.tags ? JSON.parse(candidate.tags) : [],
-      };
+      const candidateStyle = styleMap.get(candidate.video_id);
 
-      const { score, reasons } = calculateSimilarity(seed, candidateMetadata);
+      let score: number;
+      let reasons: string[];
+
+      if (seedStyle && candidateStyle) {
+        // Use style-based scoring
+        const sameChannel = candidate.channel_name === seed.channelName;
+        const styleResult = calculateStyleSimilarity(seedStyle, candidateStyle, sameChannel);
+        score = styleResult.score;
+        reasons = [styleResult.reason];
+      } else {
+        // Fallback to existing tag/title/genre scoring
+        const candidateMetadata: TrackMetadata = {
+          videoId: candidate.video_id,
+          title: candidate.title,
+          channelName: candidate.channel_name,
+          genres: candidate.genres ? JSON.parse(candidate.genres) : [],
+          audioFeatures: candidate.audio_features ? JSON.parse(candidate.audio_features) : null,
+          tags: candidate.tags ? JSON.parse(candidate.tags) : [],
+        };
+
+        const fallback = calculateSimilarity(seed, candidateMetadata);
+        score = fallback.score;
+        reasons = fallback.reasons;
+      }
+
+      // Apply skip/complete playback signal adjustment
+      score = applyPlaybackSignalAdjustment(score, candidate.skip_count || 0, candidate.complete_count || 0);
 
       return {
         videoId: candidate.video_id,
