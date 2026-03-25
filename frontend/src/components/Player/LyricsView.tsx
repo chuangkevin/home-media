@@ -395,9 +395,10 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const handleOpenSearch = () => {
     // 嘗試從標題中提取歌名（考慮頻道名稱匹配）
     const match = track.title.match(/[【《]([^【】《》]+)[】》]/);
-    let defaultQuery: string;
+    let songName: string;
+    let artistName = '';
     if (match) {
-      defaultQuery = match[1];
+      songName = match[1];
     } else {
       // 清理後綴後，根據頻道名判斷 artist-title 分割方向
       const cleaned = track.title
@@ -411,16 +412,23 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         const before = dashSplit[1].trim().toLowerCase();
         const after = dashSplit[2].trim().toLowerCase();
         if (before === cleanChannel || cleanChannel.includes(before) || before.includes(cleanChannel)) {
-          defaultQuery = dashSplit[2].trim(); // artist before dash → song is after
+          songName = dashSplit[2].trim(); // artist before dash → song is after
+          artistName = dashSplit[1].trim();
         } else if (after === cleanChannel || cleanChannel.includes(after) || after.includes(cleanChannel)) {
-          defaultQuery = dashSplit[1].trim(); // artist after dash → song is before
+          songName = dashSplit[1].trim(); // artist after dash → song is before
+          artistName = dashSplit[2].trim();
         } else {
-          defaultQuery = cleaned; // no match, use full cleaned title
+          songName = cleaned; // no match, use full cleaned title
         }
       } else {
-        defaultQuery = cleaned;
+        songName = cleaned;
       }
     }
+    // 如果沒有從標題提取到藝人，使用頻道名作為藝人
+    if (!artistName && track.channel) {
+      artistName = track.channel.replace(/\s*-\s*topic$/i, '').replace(/\s*vevo$/i, '').replace(/\s*official$/i, '').trim();
+    }
+    const defaultQuery = artistName ? `${songName} - ${artistName}` : songName;
     setSearchQuery(defaultQuery);
     setSearchResults([]);
     setSearchOpen(true);

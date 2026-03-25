@@ -542,9 +542,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   const handleOpenSearch = () => {
     const match = track.title.match(/[【《]([^【】《》]+)[】》]/);
-    let defaultQuery: string;
+    let songName: string;
+    let artistName = '';
     if (match) {
-      defaultQuery = match[1];
+      songName = match[1];
     } else {
       const cleaned = track.title
         .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p).*?[\)\]】》]/gi, '')
@@ -557,16 +558,23 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         const before = dashSplit[1].trim().toLowerCase();
         const after = dashSplit[2].trim().toLowerCase();
         if (before === cleanChannel || cleanChannel.includes(before) || before.includes(cleanChannel)) {
-          defaultQuery = dashSplit[2].trim();
+          songName = dashSplit[2].trim();
+          artistName = dashSplit[1].trim();
         } else if (after === cleanChannel || cleanChannel.includes(after) || after.includes(cleanChannel)) {
-          defaultQuery = dashSplit[1].trim();
+          songName = dashSplit[1].trim();
+          artistName = dashSplit[2].trim();
         } else {
-          defaultQuery = cleaned;
+          songName = cleaned;
         }
       } else {
-        defaultQuery = cleaned;
+        songName = cleaned;
       }
     }
+    // 如果沒有從標題提取到藝人，使用頻道名作為藝人
+    if (!artistName && track.channel) {
+      artistName = track.channel.replace(/\s*-\s*topic$/i, '').replace(/\s*vevo$/i, '').replace(/\s*official$/i, '').trim();
+    }
+    const defaultQuery = artistName ? `${songName} - ${artistName}` : songName;
     setSearchQuery(defaultQuery);
     setSearchResults([]);
     setSearchOpen(true);

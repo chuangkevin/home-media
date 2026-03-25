@@ -336,7 +336,7 @@ class LyricsService {
 
     try {
       const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
-      const searchQuery = cleanArtist ? `${cleanTitle} ${cleanArtist}` : cleanTitle;
+      const searchQuery = cleanArtist ? `${cleanTitle} - ${cleanArtist}` : cleanTitle;
 
       console.log(`🎵 [NetEase] Searching: "${searchQuery}"`);
       logger.info(`[NetEase] Starting search for: ${searchQuery}`);
