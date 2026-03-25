@@ -514,26 +514,18 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const audio = audioRef.current;
 
     if (displayMode === 'video') {
-      // 🎬 進入影片模式：完全停止音訊
+      // 🎬 進入影片模式：靜音但保留 audio 元素播放
+      // 重要：不能清空 audio.src，否則 iOS 鎖屏時 Media Session 失效
       if (audio.src) {
         lastAudioSrcRef.current = audio.currentSrc || audio.src;
       }
       lastAudioTimeRef.current = audio.currentTime || 0;
       lastAudioMutedRef.current = audio.muted;
 
-      if (!audio.paused) {
-        audio.pause();
-        console.log('⏸️ 暫停音訊，切換到影片模式');
-      }
-
+      // 靜音音訊，讓影片的聲音為主
       audio.muted = true;
-
-      // 完全清空音訊源，確保不會播放
-      if (audio.src) {
-        audio.src = '';
-        audio.load();
-        console.log('🎬 已清空音訊源，確保影片模式下不播放音訊');
-      }
+      audio.volume = 0;
+      console.log('🔇 影片模式：音訊靜音（保留 Media Session 用於鎖屏控制）');
     } else {
       // 🎵 返回音訊模式：恢復音訊狀態
       if (!audio.src && lastAudioSrcRef.current) {
@@ -542,6 +534,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       }
 
       audio.muted = lastAudioMutedRef.current;
+      audio.volume = volume / 100; // 恢復音量
 
       // 恢復音訊時間（從 Redux 獲取最新時間，已由 VideoPlayer 同步）
       if (currentTime > 0 && audio.readyState >= 1) {
@@ -808,11 +801,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       }
     }, 3000); // 改為 3 秒檢查一次
 
-    // 影片模式防護：無論什麼原因觸發了 audio.play()，在影片模式下一律暫停
+    // 影片模式防護：確保音訊在影片模式下保持靜音（但不暫停，保留 Media Session）
     const handlePlaying = () => {
       if (displayModeRef.current === 'video') {
-        console.log('🎬 影片模式下攔截音訊播放，自動暫停');
-        audio.pause();
+        if (!audio.muted) {
+          audio.muted = true;
+          audio.volume = 0;
+          console.log('🔇 影片模式下確保音訊靜音');
+        }
       }
     };
 
