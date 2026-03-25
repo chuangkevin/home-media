@@ -924,18 +924,25 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             position: 'relative',
           }}
         >
-          {/* 頂部操作列 */}
+          {/* 頂部操作列 - 全螢幕歌詞模式精簡顯示 */}
           <Box
             sx={{
               position: 'sticky',
               top: 0,
               zIndex: 10,
               backgroundColor: 'background.paper',
-              borderBottom: 1,
+              borderBottom: isFullscreenLayout ? 0 : 1,
               borderColor: 'divider',
               px: 2,
-              py: 1,
+              py: isFullscreenLayout ? 0.5 : 1,
               flexShrink: 0,
+              ...(isFullscreenLayout && {
+                backgroundColor: 'transparent',
+                position: 'absolute',
+                right: 0,
+                left: 'auto',
+                width: 'auto',
+              }),
             }}
           >
             {/* 下拉指示器 */}
@@ -952,15 +959,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               </Box>
             )}
 
-            {/* 曲目資訊與關閉按鈕 */}
+            {/* 曲目資訊與關閉按鈕 - 全螢幕只顯示按鈕 */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box
-                component="img"
-                src={track.thumbnail}
-                alt={track.title}
-                sx={{ width: 48, height: 48, borderRadius: 1, objectFit: 'cover' }}
-              />
-              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              {!isFullscreenLayout && (
+                <Box
+                  component="img"
+                  src={track.thumbnail}
+                  alt={track.title}
+                  sx={{ width: 48, height: 48, borderRadius: 1, objectFit: 'cover' }}
+                />
+              )}
+              <Box sx={{ flexGrow: 1, minWidth: 0, ...(isFullscreenLayout && { display: 'none' }) }}>
                 <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600 }}>
                   {track.title}
                 </Typography>
@@ -1024,8 +1033,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             </Box>
           )}
 
-          {/* 歌詞微調控制（僅在歌詞模式顯示） */}
-          {viewMode === 'lyrics' && currentLyrics?.isSynced && (
+          {/* 歌詞微調控制（僅在歌詞模式 + 非全螢幕顯示） */}
+          {viewMode === 'lyrics' && currentLyrics?.isSynced && !isFullscreenLayout && (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: 1 }}>
               {isFineTuning ? (
                 <>
@@ -1080,6 +1089,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             overflow: 'auto',
             position: 'relative',
             minHeight: 0,
+            // 捲軸樣式 - 確保可見
+            '&::-webkit-scrollbar': { width: '6px' },
+            '&::-webkit-scrollbar-track': { backgroundColor: 'transparent' },
+            '&::-webkit-scrollbar-thumb': {
+              backgroundColor: 'rgba(255,255,255,0.3)',
+              borderRadius: '3px',
+              '&:hover': { backgroundColor: 'rgba(255,255,255,0.5)' },
+            },
             ...(viewMode === 'lyrics' && isFineTuning && {
               '&::before': {
                 content: '""',
