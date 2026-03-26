@@ -68,6 +68,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 顯示模式
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
   const [isFullscreenLayout, setIsFullscreenLayout] = useState(false);
+  const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
 
   // 影片快取狀態
   const [videoCached, setVideoCached] = useState(false);
@@ -856,23 +857,23 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 160px)',
-            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 160px)',
-            borderTopLeftRadius: isFullscreenLayout ? 0 : 16,
-            borderTopRightRadius: isFullscreenLayout ? 0 : 16,
-            bottom: isFullscreenLayout ? 0 : 160,
+            height: (isFullscreenLayout || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px)',
+            maxHeight: (isFullscreenLayout || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px)',
+            borderTopLeftRadius: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 16,
+            borderTopRightRadius: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 16,
+            bottom: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 160,
             display: 'flex',
             flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
-            pb: isFullscreenLayout ? 0 : 3,
+            pb: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 3,
           },
         }}
         ModalProps={{
           keepMounted: true,
           sx: {
-            bottom: isFullscreenLayout ? 0 : 160,
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 160px)',
+            bottom: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 160,
+            height: (isFullscreenLayout || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px)',
             '& .MuiBackdrop-root': {
-              bottom: isFullscreenLayout ? 0 : 160,
+              bottom: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 160,
             },
           },
         }}
@@ -905,8 +906,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             position: 'relative',
           }}
         >
-          {/* 頂部操作列 */}
-          <Box
+          {/* 頂部操作列 — 沉浸全螢幕時隱藏 */}
+          {!isMorrorFullscreen && <Box
             sx={{
               position: 'sticky',
               top: 0,
@@ -984,7 +985,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               <ToggleButtonGroup
                 value={viewMode}
                 exclusive
-                onChange={(_, newMode) => newMode && setViewMode(newMode)}
+                onChange={(_, newMode) => { if (newMode) { setViewMode(newMode); setIsMorrorFullscreen(false); } }}
                 size="small"
               >
                 <ToggleButton value="lyrics">
@@ -1052,7 +1053,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               )}
             </Box>
           )}
-        </Box>
+        </Box>}
 
         {/* 主內容區域 */}
         <Box
@@ -1098,14 +1099,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   currentLineIndex={currentLineIndex}
                   track={track}
                   timeOffset={timeOffset}
+                  onFullscreenChange={setIsMorrorFullscreen}
                 />
               )}
             </>
           )}
         </Box>
 
-        {/* 待播清單 - 僅在非全螢幕或橫式裝置顯示 */}
-        {!isFullscreenLayout && (
+        {/* 待播清單 - 非全螢幕且非沉浸全螢幕時顯示 */}
+        {!isFullscreenLayout && !isMorrorFullscreen && (
           <Box
             sx={{
               borderTop: 1,
