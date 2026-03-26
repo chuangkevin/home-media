@@ -527,6 +527,15 @@ class ApiService {
     const res = await this.api.post(`/tracks/${videoId}/style`, { title, channel, tags });
     return res.data;
   }
+
+  async getTrackStyle(videoId: string): Promise<any> {
+    try {
+      const res = await this.api.get(`/tracks/${videoId}/style`);
+      return res.data?.style || null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 // 播放清單型別

@@ -33,8 +33,10 @@ import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
 import AudioPlayer from './AudioPlayer';
 import PlayerControls from './PlayerControls';
+import MorrorLyrics from './MorrorLyrics';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 
-type ViewMode = 'lyrics' | 'video' | 'cover';
+type ViewMode = 'lyrics' | 'video' | 'cover' | 'morror';
 
 // 擴展 Window 介面以支援 YouTube API
 declare global {
@@ -1027,6 +1029,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   <AlbumIcon sx={{ mr: 0.5, fontSize: 18 }} />
                   封面
                 </ToggleButton>
+                <ToggleButton value="morror" disabled={!currentLyrics?.isSynced}>
+                  <AutoAwesomeIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                  沉浸
+                </ToggleButton>
               </ToggleButtonGroup>
             </Box>
           )}
@@ -1116,6 +1122,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               {viewMode === 'lyrics' && renderLyrics()}
               {viewMode === 'video' && renderVideo()}
               {viewMode === 'cover' && renderCover()}
+              {viewMode === 'morror' && currentLyrics?.isSynced && (
+                <MorrorLyrics
+                  lines={currentLyrics.lines}
+                  currentLineIndex={currentLineIndex}
+                  track={track}
+                  timeOffset={timeOffset}
+                />
+              )}
             </>
           )}
         </Box>
