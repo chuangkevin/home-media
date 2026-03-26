@@ -73,6 +73,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 影片快取狀態
   const [videoCached, setVideoCached] = useState(false);
   const [videoDownloading, setVideoDownloading] = useState(false);
+  const [videoDownloadProgress, setVideoDownloadProgress] = useState('');
 
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
@@ -106,23 +107,27 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       // 觸發下載
       setVideoDownloading(true);
       setVideoCached(false);
+      setVideoDownloadProgress('');
       apiService.downloadVideo(track.videoId).catch(() => {});
 
       // 輪詢等待下載完成
       for (let i = 0; i < 60; i++) {
         await new Promise(r => setTimeout(r, 3000));
         if (cancelled) return;
+        setVideoDownloadProgress(`下載中 ${(i + 1) * 3}s`);
         try {
           const status = await apiService.getVideoCacheStatus(track.videoId);
           if (status.cached) {
             setVideoCached(true);
             setVideoDownloading(false);
+            setVideoDownloadProgress('');
             console.log(`🎬 影片下載完成: ${track.title}`);
             return;
           }
         } catch { /* continue */ }
       }
       setVideoDownloading(false);
+      setVideoDownloadProgress('');
     })();
 
     return () => {
@@ -994,7 +999,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 </ToggleButton>
                 <ToggleButton value="video" disabled={!videoCached}>
                   <OndemandVideoIcon sx={{ mr: 0.5, fontSize: 18 }} />
-                  {videoDownloading ? '下載中...' : videoCached ? '影片' : '影片'}
+                  {videoDownloading ? videoDownloadProgress || '下載中...' : '影片'}
                 </ToggleButton>
                 <ToggleButton value="cover">
                   <AlbumIcon sx={{ mr: 0.5, fontSize: 18 }} />

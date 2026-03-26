@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton, Snackbar } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
@@ -44,6 +44,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 快取狀態
   const [isCached, setIsCached] = useState(false);
+  const [cacheToast, setCacheToast] = useState(false);
 
   // 播放清單選單狀態
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<null | HTMLElement>(null);
@@ -283,6 +284,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 try { audio.currentTime = curTime; } catch {}
                 if (wasPlaying) audio.play().catch(() => {});
                 setIsCached(true);
+                setCacheToast(true);
                 return;
               }
               await new Promise(r => setTimeout(r, 3000));
@@ -1126,6 +1128,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           onClose={() => setPlaylistMenuAnchor(null)}
         />
       )}
+      <Snackbar
+        open={cacheToast}
+        autoHideDuration={2000}
+        onClose={() => setCacheToast(false)}
+        message="✅ 已切換到快取播放"
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      />
     </Card>
   );
 }
