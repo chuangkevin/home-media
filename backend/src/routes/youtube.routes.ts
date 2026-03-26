@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import youtubeController from '../controllers/youtube.controller';
 import videoCacheService from '../services/video-cache.service';
+import sponsorBlockService from '../services/sponsorblock.service';
 
 const router = Router();
 
@@ -65,6 +66,16 @@ router.delete('/video-cache/:videoId', (req, res) => {
 router.post('/video-cache/cleanup', (_req, res) => {
   videoCacheService.smartCleanup();
   res.json({ message: 'Smart cleanup completed' });
+});
+
+// ===== SponsorBlock =====
+
+// 獲取跳過片段
+router.get('/sponsorblock/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  if (!videoId) { res.status(400).json({ error: 'videoId required' }); return; }
+  const segments = await sponsorBlockService.getSegments(videoId);
+  res.json({ videoId, segments });
 });
 
 export default router;

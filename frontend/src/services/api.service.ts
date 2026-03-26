@@ -559,6 +559,17 @@ class ApiService {
   async videoCacheCleanup(): Promise<void> {
     await this.api.post('/video-cache/cleanup');
   }
+
+  // ==================== SponsorBlock ====================
+
+  async getSponsorBlockSegments(videoId: string): Promise<Array<{ start: number; end: number; category: string }>> {
+    try {
+      const res = await this.api.get(`/sponsorblock/${videoId}`, { timeout: 8000 });
+      return res.data?.segments || [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 // 播放清單型別

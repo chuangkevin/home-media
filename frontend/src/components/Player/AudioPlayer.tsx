@@ -46,6 +46,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const [isCached, setIsCached] = useState(false);
   const [cacheToast, setCacheToast] = useState(false);
 
+  // SponsorBlock 跳過片段
+  const [skipToast, setSkipToast] = useState('');
+  const skipSegmentsRef = useRef<Array<{ start: number; end: number; category: string }>>([]);
+  const lastSkipRef = useRef(0); // 防止重複跳過同一段
+
   // 播放清單選單狀態
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<null | HTMLElement>(null);
 
@@ -58,6 +63,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   useEffect(() => {
     displayModeRef.current = displayMode;
   }, [displayMode]);
+
+  // SponsorBlock: 載入跳過片段
+  useEffect(() => {
+    if (!currentTrack?.videoId) return;
+    skipSegmentsRef.current = [];
+    lastSkipRef.current = 0;
+    apiService.getSponsorBlockSegments(currentTrack.videoId).then(segments => {
+      if (segments.length > 0) {
+        skipSegmentsRef.current = segments;
+        console.log(`🚫 [SponsorBlock] ${segments.length} skip segments for ${currentTrack.videoId}`);
+      }
+    });
+  }, [currentTrack?.videoId]);
 
   // 當有 pendingTrack 時，預載音訊（不切換 UI）
   useEffect(() => {
@@ -733,6 +751,23 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
         }
       }
+      // SponsorBlock: 自動跳過片段
+      const t = audio.currentTime;
+      for (const seg of skipSegmentsRef.current) {
+        if (t >= seg.start && t < seg.end && t !== lastSkipRef.current) {
+          const skipDuration = Math.round(seg.end - seg.start);
+          const labels: Record<string, string> = {
+            music_offtopic: '非音樂段落', sponsor: '工商廣告',
+            intro: '片頭', outro: '片尾',
+            selfpromo: '自我推廣', interaction: '訂閱提醒',
+          };
+          console.log(`🚫 [SponsorBlock] Skipping ${seg.category}: ${seg.start.toFixed(1)}→${seg.end.toFixed(1)}`);
+          audio.currentTime = seg.end;
+          lastSkipRef.current = seg.end;
+          setSkipToast(`已跳過${labels[seg.category] || seg.category} ${skipDuration}s`);
+          break;
+        }
+      }
       // 追蹤時間更新，用於偵測假播放
       lastTimeUpdate = Date.now();
       lastCurrentTime = audio.currentTime;
@@ -1133,6 +1168,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         autoHideDuration={2000}
         onClose={() => setCacheToast(false)}
         message="✅ 已切換到快取播放"
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      />
+      <Snackbar
+        open={!!skipToast}
+        autoHideDuration={2000}
+        onClose={() => setSkipToast('')}
+        message={`🚫 ${skipToast}`}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       />
     </Card>
