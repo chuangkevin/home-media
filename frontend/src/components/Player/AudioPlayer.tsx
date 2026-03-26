@@ -283,6 +283,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 const blobUrl = URL.createObjectURL(blob);
 
                 console.log(`🔄 切換到本地 Blob URL (${curTime.toFixed(1)}s): ${pendingTrack.title}`);
+
+                // 暫時移除 ended/error listener，防止 src 切換觸發 playNext
+                const preventEnded = (e: Event) => { e.stopImmediatePropagation(); };
+                audio.addEventListener('ended', preventEnded, { capture: true });
+                audio.addEventListener('error', preventEnded, { capture: true });
+
                 audio.src = blobUrl;
                 audio.load();
 
@@ -290,6 +296,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                   audio.addEventListener('canplay', () => resolve(), { once: true });
                   setTimeout(resolve, 5000);
                 });
+
+                // 恢復 listener
+                audio.removeEventListener('ended', preventEnded, { capture: true });
+                audio.removeEventListener('error', preventEnded, { capture: true });
 
                 if (currentVideoIdRef.current !== pollVideoId) {
                   URL.revokeObjectURL(blobUrl);
