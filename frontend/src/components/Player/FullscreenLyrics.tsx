@@ -867,6 +867,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             borderTopLeftRadius: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 16,
             borderTopRightRadius: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 16,
             bottom: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 160,
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             display: 'flex',
             flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
             pb: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 3,

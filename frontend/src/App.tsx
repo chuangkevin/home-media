@@ -130,6 +130,7 @@ function BottomNav() {
         zIndex: 1200, // 高於播放器
         borderTop: '1px solid',
         borderColor: 'divider',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
       elevation={8}
     >
