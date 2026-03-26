@@ -70,6 +70,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [isFullscreenLayout, setIsFullscreenLayout] = useState(false);
   const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
 
+  // 歌詞翻譯
+  const [translations, setTranslations] = useState<string[]>([]);
+
   // 影片快取狀態
   const [videoCached, setVideoCached] = useState(false);
   const [videoDownloading, setVideoDownloading] = useState(false);
@@ -90,6 +93,26 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // YouTube CC 載入狀態
   const [isLoadingYouTubeCC, setIsLoadingYouTubeCC] = useState(false);
+
+  // 歌詞翻譯：載入歌詞後自動翻譯（非中文才翻）
+  useEffect(() => {
+    if (!currentLyrics || currentLyrics.lines.length === 0 || !track?.videoId) {
+      setTranslations([]);
+      return;
+    }
+    let cancelled = false;
+    const lines = currentLyrics.lines.map(l => l.text);
+    apiService.translateLyrics(track.videoId, lines).then(result => {
+      if (cancelled || !result) return;
+      // zh-TW 不需要翻譯顯示（原文就是繁體中文）
+      if (result.detected_language === 'zh-TW') {
+        setTranslations([]);
+      } else {
+        setTranslations(result.translations);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [currentLyrics, track?.videoId]);
 
   // 影片快取：開啟 Drawer 時自動開始下載，輪詢狀態
   useEffect(() => {
@@ -712,6 +735,23 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               >
                 {toTraditional(line.text)}
               </Typography>
+              {/* 翻譯行 */}
+              {translations[index] && translations[index] !== toTraditional(line.text) && (
+                <Typography
+                  sx={{
+                    fontSize: isLandscapeFullscreen
+                      ? (isActive ? '1.4rem' : '1rem')
+                      : (isActive ? '0.95rem' : '0.8rem'),
+                    color: isActive ? 'primary.light' : 'text.disabled',
+                    opacity: isPassed ? 0.4 : 0.7,
+                    mt: 0.3,
+                    lineHeight: 1.3,
+                    fontStyle: 'italic',
+                  }}
+                >
+                  {translations[index]}
+                </Typography>
+              )}
             </Box>
           );
         })}
@@ -1107,6 +1147,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   track={track}
                   timeOffset={timeOffset}
                   onFullscreenChange={setIsMorrorFullscreen}
+                  translations={translations}
                 />
               )}
             </>

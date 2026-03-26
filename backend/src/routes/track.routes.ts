@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../config/database';
 import { analyzeAndCache, getStyle } from '../services/style-cache.service';
+import { translateLyrics } from '../services/gemini.service';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -57,6 +58,69 @@ router.get('/:videoId/style', (req: Request, res: Response): void => {
     res.json(style);
   } else {
     res.status(404).json({ error: 'No style data for this track' });
+  }
+});
+
+// POST /api/tracks/:videoId/translate - Translate lyrics to Traditional Chinese
+router.post('/:videoId/translate', async (req: Request, res: Response): Promise<void> => {
+  const { videoId } = req.params;
+  const { lines } = req.body;
+
+  if (!Array.isArray(lines) || lines.length === 0) {
+    res.status(400).json({ error: 'lines array is required' });
+    return;
+  }
+
+  try {
+    const db = getDatabase();
+
+    // 建立快取表（如果不存在）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS lyrics_translations (
+        video_id TEXT PRIMARY KEY,
+        translations_json TEXT NOT NULL,
+        detected_language TEXT,
+        cached_at INTEGER NOT NULL
+      )
+    `);
+
+    // 檢查快取
+    const cached = db.prepare(
+      'SELECT translations_json, detected_language FROM lyrics_translations WHERE video_id = ?'
+    ).get(videoId) as { translations_json: string; detected_language: string } | undefined;
+
+    if (cached) {
+      res.json({
+        translations: JSON.parse(cached.translations_json),
+        detected_language: cached.detected_language,
+        cached: true,
+      });
+      return;
+    }
+
+    // 呼叫 Gemini 翻譯
+    const result = await translateLyrics(lines);
+    if (!result) {
+      res.status(503).json({ error: 'Translation failed (Gemini not configured or unavailable)' });
+      return;
+    }
+
+    // 中文不翻（zh-TW 原樣返回，zh-CN 已轉繁體）
+    // 快取結果
+    db.prepare(
+      `INSERT INTO lyrics_translations (video_id, translations_json, detected_language, cached_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(video_id) DO UPDATE SET translations_json = excluded.translations_json, detected_language = excluded.detected_language, cached_at = excluded.cached_at`
+    ).run(videoId, JSON.stringify(result.translations), result.detected_language, Date.now());
+
+    res.json({
+      translations: result.translations,
+      detected_language: result.detected_language,
+      cached: false,
+    });
+  } catch (err) {
+    logger.error(`Failed to translate lyrics for ${videoId}:`, err);
+    res.status(500).json({ error: 'Translation failed' });
   }
 });
 

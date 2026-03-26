@@ -415,3 +415,78 @@ Reply with ONLY a JSON array of strings, no other text:
   }
   return [];
 }
+
+/**
+ * 用 Gemini 翻譯歌詞為繁體中文
+ * - 偵測語言：中文不翻，簡體轉繁體
+ * - 韓文/日文/英文/其他 → 翻譯成繁體中文
+ * - 批量翻譯（一次送所有歌詞行）
+ */
+export async function translateLyrics(
+  lines: string[]
+): Promise<{ translations: string[]; detected_language: string } | null> {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+  if (lines.length === 0) return { translations: [], detected_language: 'unknown' };
+
+  const prompt = `You are a lyrics translator. Analyze and translate song lyrics to Traditional Chinese (繁體中文).
+
+Rules:
+1. First detect the language of the lyrics
+2. If already Traditional Chinese (繁體中文): return each line unchanged, detected_language="zh-TW"
+3. If Simplified Chinese (简体中文): convert to Traditional Chinese, detected_language="zh-CN"
+4. If any other language (English, Japanese, Korean, etc.): translate to natural Traditional Chinese, detected_language="<iso code>"
+5. Keep the same number of lines. Each translated line corresponds to the original line.
+6. For mixed language lines, translate the non-Chinese parts.
+7. Keep proper nouns, names in original form.
+
+Lyrics (${lines.length} lines):
+${lines.map((l, i) => `${i}: ${l}`).join('\n')}
+
+Reply with ONLY a JSON object:
+{"detected_language": "en", "translations": ["翻譯第一行", "翻譯第二行", ...]}`;
+
+  let currentKey = apiKey;
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      const genai = new GoogleGenerativeAI(currentKey);
+      const model = genai.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.3 },
+      });
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.warn(`⚠️ [Gemini] Translation: invalid response`);
+        return null;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(parsed.translations)) return null;
+
+      // 確保行數匹配
+      while (parsed.translations.length < lines.length) {
+        parsed.translations.push('');
+      }
+      parsed.translations = parsed.translations.slice(0, lines.length);
+
+      console.log(`🌐 [Gemini] Translated ${lines.length} lines (${parsed.detected_language}→zh-TW)`);
+      return parsed;
+    } catch (err: any) {
+      const msg = err?.message || '';
+      const is429 = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
+      const is403 = msg.includes('403') || msg.includes('PERMISSION_DENIED');
+      if (is403 || is429) markKeyBad(currentKey);
+      if ((is429 || is403) && attempt < 1) {
+        const altKey = getApiKeyExcluding(currentKey);
+        if (altKey) { currentKey = altKey; continue; }
+      }
+      console.error(`❌ [Gemini] translateLyrics failed:`, msg);
+      return null;
+    }
+  }
+  return null;
+}

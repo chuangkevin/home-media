@@ -45,6 +45,7 @@ interface MorrorLyricsProps {
   track: Track;
   timeOffset: number;
   onFullscreenChange?: (isFullscreen: boolean) => void;
+  translations?: string[];
 }
 
 // Split text into characters for per-char animation
@@ -250,7 +251,7 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
   );
 }
 
-export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange }: MorrorLyricsProps) {
+export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange, translations = [] }: MorrorLyricsProps) {
   const [accentColor, setAccentColor] = useState(DEFAULT_COLOR);
   const [effect, setEffect] = useState<LyricsEffect>(() => {
     const saved = localStorage.getItem('morror-effect');
@@ -447,6 +448,17 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
           }),
         }}>
           {renderCurrentLine()}
+          {/* 當前行翻譯 */}
+          {currentLineIndex >= 0 && translations[currentLineIndex] && (
+            <Typography sx={{
+              fontSize: { xs: '0.9rem', sm: '1.1rem', md: '1.3rem' },
+              color: `${accentColor}99`,
+              fontWeight: 400, fontStyle: 'italic',
+              mt: 0.5, lineHeight: 1.3,
+            }}>
+              {translations[currentLineIndex]}
+            </Typography>
+          )}
         </Box>
 
         {/* Next line */}

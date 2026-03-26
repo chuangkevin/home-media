@@ -562,6 +562,15 @@ class ApiService {
 
   // ==================== SponsorBlock ====================
 
+  async translateLyrics(videoId: string, lines: string[]): Promise<{ translations: string[]; detected_language: string } | null> {
+    try {
+      const res = await this.api.post(`/tracks/${videoId}/translate`, { lines }, { timeout: 60000 });
+      return res.data;
+    } catch {
+      return null;
+    }
+  }
+
   async getSponsorBlockSegments(videoId: string): Promise<Array<{ start: number; end: number; category: string }>> {
     try {
       const res = await this.api.get(`/sponsorblock/${videoId}`, { timeout: 8000 });
