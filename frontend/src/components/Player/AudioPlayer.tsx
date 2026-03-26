@@ -694,35 +694,70 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }
   }, [seekTarget, displayMode, isLoadingTrack, dispatch]);
 
-  // 預加載下一首歌曲到前端快取（減少並發壓力）
+  // 預加載下一首：先 backend 下載，再前端 IndexedDB 快取
   useEffect(() => {
-    if (currentTrack && playlist.length > 0 && currentIndex >= 0) {
-      const preloadIndices = [currentIndex + 1];
+    if (!currentTrack || playlist.length === 0 || currentIndex < 0) return;
+    const nextIdx = currentIndex + 1;
+    if (nextIdx >= playlist.length) return;
 
-      console.log(`🔄 預載下 1 首歌曲...`);
+    const nextTrack = playlist[nextIdx];
+    let cancelled = false;
 
-      preloadIndices.forEach(async (idx) => {
-        if (idx < playlist.length) {
-          const track = playlist[idx];
-          const streamUrl = apiService.getStreamUrl(track.videoId);
+    (async () => {
+      // 已在前端快取？跳過
+      const cached = await audioCacheService.get(nextTrack.videoId);
+      if (cached || cancelled) return;
 
-          // 背景預載（不阻塞主流程）
-          audioCacheService.preload(track.videoId, streamUrl, {
-            title: track.title,
-            channel: track.channel,
-            thumbnail: track.thumbnail,
-            duration: track.duration,
-          })
-            .then(() => {
-              console.log(`✅ 預載完成 (#${idx + 1}): ${track.title}`);
-            })
-            .catch(err => {
-              console.warn(`⚠️ 預載失敗 (#${idx + 1}): ${track.title}`, err);
-            });
+      // 檢查 backend 是否已快取
+      const status = await apiService.getCacheStatus(nextTrack.videoId).catch(() => ({ cached: false }));
+      if (cancelled) return;
+
+      if (!status.cached) {
+        // 觸發 backend 下載（等當前歌播到 50% 再觸發，避免搶資源）
+        const waitForProgress = () => new Promise<void>(resolve => {
+          const check = setInterval(() => {
+            if (cancelled) { clearInterval(check); resolve(); return; }
+            const audio = audioRef.current;
+            if (audio && audio.duration > 0 && audio.currentTime / audio.duration > 0.5) {
+              clearInterval(check);
+              resolve();
+            }
+          }, 3000);
+        });
+        await waitForProgress();
+        if (cancelled) return;
+
+        console.log(`🔄 預載下一首 (backend): ${nextTrack.title}`);
+        apiService.preloadAudio(nextTrack.videoId).catch(() => {});
+
+        // 等 backend 快取完成
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 3000));
+          if (cancelled) return;
+          const s = await apiService.getCacheStatus(nextTrack.videoId).catch(() => ({ cached: false }));
+          if (s.cached) break;
         }
+      }
+
+      if (cancelled) return;
+
+      // 下載到前端 IndexedDB
+      console.log(`⏬ 預載下一首 (前端): ${nextTrack.title}`);
+      const streamUrl = apiService.getStreamUrl(nextTrack.videoId);
+      audioCacheService.fetchAndCache(nextTrack.videoId, streamUrl, {
+        title: nextTrack.title,
+        channel: nextTrack.channel,
+        thumbnail: nextTrack.thumbnail,
+        duration: nextTrack.duration,
+      }).then(() => {
+        console.log(`✅ 下一首預載完成: ${nextTrack.title}`);
+      }).catch(err => {
+        console.warn(`⚠️ 下一首預載失敗: ${nextTrack.title}`, err);
       });
-    }
-  }, [currentTrack, playlist, currentIndex]);
+    })();
+
+    return () => { cancelled = true; };
+  }, [currentTrack?.videoId, currentIndex, playlist]);
 
   // 音訊事件處理（在有曲目時添加）
   useEffect(() => {
