@@ -539,10 +539,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       lastAudioTimeRef.current = audio.currentTime || 0;
       lastAudioMutedRef.current = audio.muted;
 
-      // 靜音音訊，讓影片的聲音為主
+      // 靜音音訊，讓影片的聲音為主，但保持播放（Media Session 需要）
       audio.muted = true;
       audio.volume = 0;
-      console.log('🔇 影片模式：音訊靜音（保留 Media Session 用於鎖屏控制）');
+      // 確保 audio 持續播放，否則 iOS 鎖屏時 Media Session 失效
+      if (audio.paused && audio.src) {
+        audio.play().catch(() => {});
+      }
+      console.log('🔇 影片模式：音訊靜音但持續播放（保留 Media Session 用於鎖屏控制）');
     } else {
       // 🎵 返回音訊模式：恢復音訊狀態
       if (!audio.src && lastAudioSrcRef.current) {

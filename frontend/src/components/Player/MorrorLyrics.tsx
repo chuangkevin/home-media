@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { Box, Typography, IconButton } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import type { LyricsLine } from '../../types/lyrics.types';
 import type { Track } from '../../types/track.types';
 import { extractDominantColor } from '../../utils/extractColor';
@@ -255,6 +257,23 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
   });
   const prevLineIndexRef = useRef(-1);
   const [animKey, setAnimKey] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Browser Fullscreen API
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
 
   // Get audio element for Web Audio API analyser
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
@@ -350,7 +369,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
   const isFocusMode = effect === 'focus';
 
   return (
-    <Box sx={{
+    <Box ref={containerRef} sx={{
       position: 'relative', width: '100%', height: '100%', overflow: 'hidden',
       backgroundColor: '#000', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
@@ -369,20 +388,33 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
       {/* Audio-reactive visualizer canvas */}
       <AudioVisualizerCanvas accentColor={accentColor} subscribe={subscribe} />
 
-      {/* Effect selector - top right */}
+      {/* Controls overlay - top right */}
       <Box sx={{
         position: 'absolute', top: 8, right: 8, zIndex: 3,
         display: 'flex', alignItems: 'center', gap: 0.5,
-        backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 2, px: 0.5, py: 0.25,
       }}>
-        <IconButton size="small" onClick={() => cycleEffect(-1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
-          <NavigateBeforeIcon fontSize="small" />
-        </IconButton>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', minWidth: 60, textAlign: 'center', fontSize: '0.7rem' }}>
-          {EFFECT_LABELS[effect]}
-        </Typography>
-        <IconButton size="small" onClick={() => cycleEffect(1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
-          <NavigateNextIcon fontSize="small" />
+        {/* Effect selector */}
+        <Box sx={{
+          display: 'flex', alignItems: 'center', gap: 0.5,
+          backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 2, px: 0.5, py: 0.25,
+        }}>
+          <IconButton size="small" onClick={() => cycleEffect(-1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
+            <NavigateBeforeIcon fontSize="small" />
+          </IconButton>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', minWidth: 60, textAlign: 'center', fontSize: '0.7rem' }}>
+            {EFFECT_LABELS[effect]}
+          </Typography>
+          <IconButton size="small" onClick={() => cycleEffect(1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
+            <NavigateNextIcon fontSize="small" />
+          </IconButton>
+        </Box>
+        {/* Fullscreen button */}
+        <IconButton size="small" onClick={toggleFullscreen} sx={{
+          color: 'rgba(255,255,255,0.7)', backgroundColor: 'rgba(0,0,0,0.5)',
+          borderRadius: 2, p: 0.5,
+          '&:hover': { backgroundColor: 'rgba(0,0,0,0.7)' },
+        }}>
+          {isFullscreen ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
         </IconButton>
       </Box>
 
