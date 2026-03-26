@@ -12,7 +12,7 @@ let cachedKeys: string[] = [];
 let lastLoadTime = 0;
 const CACHE_TTL = 60_000; // 60 秒快取
 const badKeys = new Map<string, number>(); // key -> 失敗時間戳
-const BAD_KEY_COOLDOWN = 10 * 60 * 1000; // 壞 key 冷卻 10 分鐘
+const BAD_KEY_COOLDOWN = 2 * 60 * 1000; // 壞 key 冷卻 2 分鐘
 
 function loadKeys(): string[] {
   const now = Date.now();
@@ -143,17 +143,16 @@ ${channelName ? `頻道: "${channelName}"` : ''}
       const is429 = err?.status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
       const is403 = err?.status === 403 || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID');
 
-      if (is403) {
-        markKeyBad(currentKey); // 無效 key，標記壞掉
+      if (is403 || is429) {
+        markKeyBad(currentKey); // 標記壞掉，2 分鐘冷卻
       }
 
       if ((is429 || is403) && attempt < maxRetries) {
         const altKey = getApiKeyExcluding(currentKey);
         if (altKey) {
-          console.warn(`⚠️ [Gemini] ${is429 ? '429' : '403'} on key ...${currentKey.slice(-4)}, switching to ...${altKey.slice(-4)}`);
+          console.warn(`⚠️ [Gemini] ${is429 ? '429' : '403'} on ...${currentKey.slice(-4)}, immediate switch to ...${altKey.slice(-4)}`);
           currentKey = altKey;
-          await new Promise(r => setTimeout(r, is429 ? 1000 : 100));
-          continue;
+          continue; // 立即重試，不等待
         }
       }
       console.error(`❌ [Gemini] extractTrackInfo failed:`, msg);
@@ -328,14 +327,13 @@ Return exactly this JSON format:
       const is429 = err?.status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
       const is403 = err?.status === 403 || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID');
 
-      if (is403) markKeyBad(currentKey);
+      if (is403 || is429) markKeyBad(currentKey);
 
       if ((is429 || is403) && attempt < maxRetries) {
         const altKey = getApiKeyExcluding(currentKey);
         if (altKey) {
-          console.warn(`⚠️ [Gemini] ${is429 ? '429' : '403'} on style analysis, switching key`);
+          console.warn(`⚠️ [Gemini] ${is429 ? '429' : '403'} on style analysis, immediate switch`);
           currentKey = altKey;
-          await new Promise(r => setTimeout(r, is429 ? 1000 : 100));
           continue;
         }
       }

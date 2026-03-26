@@ -393,43 +393,13 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
   // 打開搜尋對話框時，預設填入歌曲名稱
   const handleOpenSearch = () => {
-    // 嘗試從標題中提取歌名（考慮頻道名稱匹配）
-    const match = track.title.match(/[【《]([^【】《》]+)[】》]/);
-    let songName: string;
-    let artistName = '';
-    if (match) {
-      songName = match[1];
-    } else {
-      // 清理後綴後，根據頻道名判斷 artist-title 分割方向
-      const cleaned = track.title
-        .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p).*?[\)\]】》]/gi, '')
-        .replace(/\s*-\s*(official|mv|music video|lyric|lyrics|audio).*$/gi, '')
-        .replace(/\s*(official|mv|music video|lyrics?|lyric video)$/gi, '')
-        .trim();
-      const dashSplit = cleaned.match(/^(.+?)\s*[-–—]\s*(.+)$/);
-      if (dashSplit && track.channel) {
-        const cleanChannel = track.channel.replace(/\s*-\s*topic$/i, '').replace(/\s*vevo$/i, '').replace(/\s*official$/i, '').trim().toLowerCase();
-        const before = dashSplit[1].trim().toLowerCase();
-        const after = dashSplit[2].trim().toLowerCase();
-        if (before === cleanChannel || cleanChannel.includes(before) || before.includes(cleanChannel)) {
-          songName = dashSplit[2].trim(); // artist before dash → song is after
-          artistName = dashSplit[1].trim();
-        } else if (after === cleanChannel || cleanChannel.includes(after) || after.includes(cleanChannel)) {
-          songName = dashSplit[1].trim(); // artist after dash → song is before
-          artistName = dashSplit[2].trim();
-        } else {
-          songName = cleaned; // no match, use full cleaned title
-        }
-      } else {
-        songName = cleaned;
-      }
-    }
-    // 如果沒有從標題提取到藝人，使用頻道名作為藝人
-    if (!artistName && track.channel) {
-      artistName = track.channel.replace(/\s*-\s*topic$/i, '').replace(/\s*vevo$/i, '').replace(/\s*official$/i, '').trim();
-    }
-    const defaultQuery = artistName ? `${songName} - ${artistName}` : songName;
-    setSearchQuery(defaultQuery);
+    // 簡單清理標題：移除 (Official Video) 等後綴
+    const cleaned = track.title
+      .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p|live).*?[\)\]】》]/gi, '')
+      .replace(/\s*(official|mv|music video|lyrics?|lyric video|audio)$/gi, '')
+      .trim();
+
+    setSearchQuery(cleaned);
     setSearchResults([]);
     setSearchOpen(true);
   };
