@@ -32,6 +32,7 @@ import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
 import AudioPlayer from './AudioPlayer';
+import PlayerControls from './PlayerControls';
 
 type ViewMode = 'lyrics' | 'video' | 'cover';
 
@@ -1139,16 +1140,19 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
         )}
 
-        {/* 直式裝置：頂部播放器（全螢幕模式） */}
+        {/* 直式裝置：底部迷你控制列（全螢幕模式） */}
         {isFullscreenLayout && !isLandscape && (
           <Box
             sx={{
               flexShrink: 0,
               borderTop: 1,
               borderColor: 'divider',
+              px: 1.5,
+              py: 1,
+              backgroundColor: 'background.paper',
             }}
           >
-            <AudioPlayer embedded />
+            <PlayerControls isCompact />
           </Box>
         )}
       </Box>
