@@ -217,40 +217,41 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
         
         if (serverStatus.cached) {
-          // 後端有 cache，直接從快取串流
           audioSrc = streamUrl;
           console.log(`🎵 從後端快取串流: ${pendingTrack.title}`);
           setIsCached(true);
         } else {
-          // 後端沒 cache：先觸發下載，等完成後從快取播放（100% 可靠）
-          console.log(`⏳ 未快取，觸發後端下載: ${pendingTrack.title}`);
-          setIsLoading(true);
+          // 未快取：串流秒播 + 同時背景下載，完成後無縫切換
+          audioSrc = streamUrl;
+          console.log(`🎵 串流播放 + 背景下載: ${pendingTrack.title}`);
+          setIsCached(false);
 
-          // 觸發後端下載（fire-and-forget，不等回應）
+          // 同時觸發背景下載，完成後無縫切換到快取
           apiService.preloadAudio(videoId).catch(() => {});
 
-          // 輪詢等待後端快取完成（最多 60 秒）
-          let cached = false;
-          for (let i = 0; i < 30; i++) {
-            await new Promise(r => setTimeout(r, 2000));
-            const status = await apiService.getCacheStatus(videoId).catch(() => ({ cached: false }));
-            if (status.cached) {
-              cached = true;
-              console.log(`✅ 後端下載完成 (${(i + 1) * 2}秒): ${pendingTrack.title}`);
-              break;
+          // 輪詢等待下載完成，完成後切換音源
+          const pollVideoId = videoId;
+          (async () => {
+            for (let i = 0; i < 30; i++) {
+              await new Promise(r => setTimeout(r, 3000));
+              if (currentVideoIdRef.current !== pollVideoId) return; // 已換歌
+              const s = await apiService.getCacheStatus(pollVideoId).catch(() => ({ cached: false }));
+              if (s.cached) {
+                if (currentVideoIdRef.current !== pollVideoId) return;
+                const audio = audioRef.current;
+                if (!audio || !audio.src) return;
+                const curTime = audio.currentTime;
+                const wasPlaying = !audio.paused;
+                const cachedUrl = `${apiService.getStreamUrl(pollVideoId)}?_cached=1`;
+                console.log(`🔄 背景下載完成，無縫切換到快取 (${curTime.toFixed(1)}s): ${pendingTrack.title}`);
+                audio.src = cachedUrl;
+                audio.currentTime = curTime;
+                if (wasPlaying) audio.play().catch(() => {});
+                setIsCached(true);
+                return;
+              }
             }
-            if (i % 5 === 4) {
-              console.log(`⏳ 仍在下載... (${(i + 1) * 2}秒): ${pendingTrack.title}`);
-            }
-          }
-
-          if (!cached) {
-            // 60 秒仍未完成，嘗試直接串流作為 fallback
-            console.warn(`⚠️ 下載超時，嘗試直接串流: ${pendingTrack.title}`);
-          }
-
-          audioSrc = streamUrl;
-          setIsCached(cached);
+          })();
         }
 
         // 設定 audio src
@@ -719,36 +720,42 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       }
     };
 
-    const handleError = (e: Event) => {
+    const handleError = async (e: Event) => {
       const error = (e.target as HTMLAudioElement).error;
       console.error('Audio error:', error?.code, error?.message);
 
-      // Retry with exponential backoff for uncached stream failures
       const videoId = currentVideoIdRef.current;
-      if (videoId && streamRetryCount < MAX_STREAM_RETRIES && !isCached) {
-        const delay = STREAM_RETRY_DELAYS[streamRetryCount] || 7000;
-        streamRetryCount++;
-        console.log(`🔄 Stream error retry ${streamRetryCount}/${MAX_STREAM_RETRIES} in ${delay}ms for ${videoId}`);
-        setTimeout(() => {
-          if (audio && currentVideoIdRef.current === videoId) {
-            // Set fresh stream URL with cache-busting query param
-            const freshUrl = `${apiService.getStreamUrl(videoId)}?_retry=${streamRetryCount}&_t=${Date.now()}`;
-            console.log(`🔄 Retrying stream: ${freshUrl.substring(0, 80)}...`);
-            audio.src = freshUrl;
-            audio.load();
-            audio.play().catch((err) => {
-              console.error(`Retry ${streamRetryCount} play failed:`, err);
-            });
-          }
-        }, delay);
+      if (!videoId || isCached) {
+        dispatch(setIsPlaying(false));
         return;
       }
 
-      // All retries exhausted or cached track error
-      if (streamRetryCount >= MAX_STREAM_RETRIES) {
-        console.error(`❌ All ${MAX_STREAM_RETRIES} stream retries failed for ${videoId}`);
+      streamRetryCount++;
+      if (streamRetryCount > MAX_STREAM_RETRIES) {
+        console.error(`❌ All ${MAX_STREAM_RETRIES} retries failed for ${videoId}`);
+        dispatch(setIsPlaying(false));
+        return;
       }
-      dispatch(setIsPlaying(false));
+
+      const delay = STREAM_RETRY_DELAYS[streamRetryCount - 1] || 7000;
+      console.log(`🔄 Retry ${streamRetryCount}/${MAX_STREAM_RETRIES}: waiting ${delay}ms, checking cache first...`);
+
+      await new Promise(r => setTimeout(r, delay));
+      if (currentVideoIdRef.current !== videoId) return;
+
+      // 先檢查背景下載是否已完成
+      const status = await apiService.getCacheStatus(videoId).catch(() => ({ cached: false }));
+      if (status.cached) {
+        console.log(`✅ 背景下載已完成，從快取播放: ${videoId}`);
+        setIsCached(true);
+      } else {
+        console.log(`⏳ 快取未完成，重試串流: ${videoId}`);
+      }
+
+      const freshUrl = `${apiService.getStreamUrl(videoId)}?_retry=${streamRetryCount}&_t=${Date.now()}`;
+      audio.src = freshUrl;
+      audio.load();
+      audio.play().catch(() => {});
     };
 
     // 手機端特殊處理：偵測假播放（進度在跑但沒聲音）
