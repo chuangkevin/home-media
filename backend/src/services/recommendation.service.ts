@@ -1,5 +1,5 @@
 import { db } from '../config/database';
-import { ChannelRecommendation, WatchedChannel } from '../types/history.types';
+import { ChannelRecommendation } from '../types/history.types';
 import { YouTubeSearchResult } from '../types/youtube.types';
 import historyService from './history.service';
 import youtubeService from './youtube.service';
@@ -59,16 +59,20 @@ class RecommendationService {
         return [];
       }
 
-      // 3. 計算權重並排序
-      const scoredChannels = channels.map(ch => ({
-        ...ch,
-        score: this.calculateChannelScore(ch)
-      }));
-      logger.info(`[Recommend] Calculated scores for ${scoredChannels.length} channels.`);
+      // 3. 加權隨機排序（不再固定順序）
+      // 結合最近播放時間 + 播放次數 + 隨機因子
+      const scoredChannels = channels.map(ch => {
+        const recency = ch.lastWatchedAt / Date.now(); // 0~1, 越新越高
+        const popularity = Math.min(ch.watchCount / 20, 1); // 0~1, 播放越多越高
+        const random = Math.random() * 0.4; // 0~0.4 隨機擾動
+        return {
+          ...ch,
+          score: recency * 0.4 + popularity * 0.2 + random,
+        };
+      });
 
       scoredChannels.sort((a, b) => b.score - a.score);
-      logger.info('[Recommend] Sorted channels by score.');
-
+      logger.info(`[Recommend] Scored ${scoredChannels.length} channels with randomness.`);
 
       // 4. 分頁
       const pageChannels = scoredChannels.slice(
@@ -130,15 +134,7 @@ class RecommendationService {
     }
   }
 
-  /**
-   * 計算頻道權重分數
-   * 純粹以最後觀看時間排序（最新的在前面）
-   */
-  private calculateChannelScore(channel: WatchedChannel): number {
-    // 直接使用 lastWatchedAt 作為分數
-    // 時間戳越大（越新）分數越高，排序會放在前面
-    return channel.lastWatchedAt;
-  }
+  // calculateChannelScore removed — scoring now inline with randomness
 
   /**
    * 從快取獲取推薦

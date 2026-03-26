@@ -555,6 +555,10 @@ class ApiService {
   async deleteVideoCache(videoId: string): Promise<void> {
     await this.api.delete(`/video-cache/${videoId}`);
   }
+
+  async videoCacheCleanup(): Promise<void> {
+    await this.api.post('/video-cache/cleanup');
+  }
 }
 
 // 播放清單型別

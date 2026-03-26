@@ -61,4 +61,10 @@ router.delete('/video-cache/:videoId', (req, res) => {
   res.json({ message: 'Video deleted', videoId });
 });
 
+// 智慧清理影片快取
+router.post('/video-cache/cleanup', (_req, res) => {
+  videoCacheService.smartCleanup();
+  res.json({ message: 'Smart cleanup completed' });
+});
+
 export default router;

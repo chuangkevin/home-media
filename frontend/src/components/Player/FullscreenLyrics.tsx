@@ -126,8 +126,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     return () => {
       cancelled = true;
-      // 換歌時刪除舊影片快取
-      apiService.deleteVideoCache(track.videoId).catch(() => {});
+      // 換歌時觸發智慧清理（根據 play_count 決定保留）
+      apiService.videoCacheCleanup().catch(() => {});
       setVideoCached(false);
       setVideoDownloading(false);
     };

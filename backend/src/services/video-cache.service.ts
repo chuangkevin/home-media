@@ -3,8 +3,10 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import youtubeService from './youtube.service';
 import logger from '../utils/logger';
+import { getDatabase } from '../config/database';
 
 const VIDEO_CACHE_DIR = path.join(process.cwd(), 'data', 'video-cache');
+const MAX_VIDEO_CACHE_MB = 5000; // 5GB 上限
 
 if (!fs.existsSync(VIDEO_CACHE_DIR)) {
   fs.mkdirSync(VIDEO_CACHE_DIR, { recursive: true });
@@ -109,6 +111,70 @@ class VideoCacheService {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
       console.log(`🗑️ [VideoCache] Deleted: ${videoId}`);
+    }
+  }
+
+  /**
+   * 智慧清理：根據 play_count 決定保留時間
+   * play_count >= 10: 保留 30 天
+   * play_count >= 5:  保留 7 天
+   * play_count < 5:   保留 1 天
+   * 總大小超過 5GB 時，從最舊開始砍
+   */
+  smartCleanup(): void {
+    const files = fs.readdirSync(VIDEO_CACHE_DIR).filter(f => f.endsWith('.mp4'));
+    if (files.length === 0) return;
+
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    let totalSize = 0;
+
+    // 收集檔案資訊
+    const entries: { videoId: string; path: string; size: number; mtime: number; ttl: number }[] = [];
+
+    for (const file of files) {
+      const videoId = file.replace('.mp4', '');
+      const filePath = path.join(VIDEO_CACHE_DIR, file);
+      try {
+        const stat = fs.statSync(filePath);
+        totalSize += stat.size;
+
+        // 查 play_count
+        let playCount = 0;
+        try {
+          const db = getDatabase();
+          const row = db.prepare('SELECT play_count FROM cached_tracks WHERE video_id = ?').get(videoId) as any;
+          if (row) playCount = row.play_count || 0;
+        } catch {}
+
+        const ttl = playCount >= 10 ? 30 * DAY : playCount >= 5 ? 7 * DAY : 1 * DAY;
+        entries.push({ videoId, path: filePath, size: stat.size, mtime: stat.mtimeMs, ttl });
+      } catch {}
+    }
+
+    // 按 mtime 排序（最舊在前）
+    entries.sort((a, b) => a.mtime - b.mtime);
+
+    let deleted = 0;
+    const maxSize = MAX_VIDEO_CACHE_MB * 1024 * 1024;
+
+    for (const entry of entries) {
+      const age = now - entry.mtime;
+      const expired = age > entry.ttl;
+      const overSize = totalSize > maxSize;
+
+      if (expired || overSize) {
+        try {
+          fs.unlinkSync(entry.path);
+          totalSize -= entry.size;
+          deleted++;
+          console.log(`🗑️ [VideoCache] Cleaned: ${entry.videoId} (${expired ? 'expired' : 'over size'})`);
+        } catch {}
+      }
+    }
+
+    if (deleted > 0) {
+      console.log(`🗑️ [VideoCache] Smart cleanup: deleted ${deleted}/${entries.length}, remaining ${(totalSize / 1024 / 1024).toFixed(0)}MB`);
     }
   }
 
