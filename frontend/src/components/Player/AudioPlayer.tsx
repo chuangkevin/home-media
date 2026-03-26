@@ -314,9 +314,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             console.log(`🎬 影片模式下不播放音訊，由 VideoPlayer 控制`);
           }
 
-          // 延後觸發前端背景快取：等 play() 成功且 timeupdate 確認真正有音訊輸出
+          // 延後觸發前端背景快取：等後端快取完成後再下載到前端
           if (!serverStatus.cached) {
-            const startFetchAndCache = () => {
+            const startFetchAndCache = async () => {
+              // 先等 3 秒讓後端快取完成寫入
+              await new Promise(r => setTimeout(r, 3000));
+              // 確認後端已快取再下載
+              const status = await apiService.getCacheStatus(videoId).catch(() => ({ cached: false }));
+              if (!status.cached) {
+                console.log(`⏳ 後端尚未快取完成，再等 5 秒...`);
+                await new Promise(r => setTimeout(r, 5000));
+              }
               audioCacheService.fetchAndCache(videoId, streamUrl, {
                 title: pendingTrack.title,
                 channel: pendingTrack.channel,

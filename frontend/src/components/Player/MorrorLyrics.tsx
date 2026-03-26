@@ -7,6 +7,7 @@ import type { Track } from '../../types/track.types';
 import { extractDominantColor } from '../../utils/extractColor';
 import { toTraditional } from '../../utils/chineseConvert';
 import apiService from '../../services/api.service';
+import useAudioAnalyser from '../../hooks/useAudioAnalyser';
 
 // Mood → accent color
 const moodColors: Record<string, string> = {
@@ -149,6 +150,103 @@ function CharByChar({ text, duration, accentColor, effect }: {
   );
 }
 
+// Audio-reactive canvas visualizer behind lyrics
+function AudioVisualizerCanvas({ accentColor, subscribe }: {
+  accentColor: string;
+  subscribe: (cb: (data: any) => void) => () => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dataRef = useRef({ frequencyData: new Uint8Array(128), bassLevel: 0, averageFrequency: 0 });
+
+  useEffect(() => {
+    const unsub = subscribe((data) => { dataRef.current = data; });
+    return unsub;
+  }, [subscribe]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let raf: number;
+    const draw = () => {
+      const { width, height } = canvas;
+      const { frequencyData, bassLevel } = dataRef.current;
+      ctx.clearRect(0, 0, width, height);
+
+      const binCount = frequencyData.length;
+      if (binCount === 0) { raf = requestAnimationFrame(draw); return; }
+
+      // Parse accent color for alpha blending
+      const r = parseInt(accentColor.slice(1, 3), 16) || 68;
+      const g = parseInt(accentColor.slice(3, 5), 16) || 136;
+      const b = parseInt(accentColor.slice(5, 7), 16) || 255;
+
+      // --- Layer 1: Frequency bars (bottom, mirrored from center) ---
+      const barW = width / binCount;
+      for (let i = 0; i < binCount; i++) {
+        const val = frequencyData[i] / 255;
+        const barH = val * height * 0.4;
+        const alpha = val * 0.35;
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        // Mirror from bottom-center
+        const x = i * barW;
+        ctx.fillRect(x, height - barH, barW - 1, barH);
+      }
+
+      // --- Layer 2: Center waveform glow (reactive to bass) ---
+      const glowRadius = 80 + (bassLevel / 255) * 120;
+      const glowAlpha = 0.05 + (bassLevel / 255) * 0.15;
+      const gradient = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, glowRadius);
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${glowAlpha})`);
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+
+      // --- Layer 3: Floating particles on beat ---
+      if (bassLevel > 180) {
+        for (let p = 0; p < 3; p++) {
+          const px = Math.random() * width;
+          const py = height * 0.3 + Math.random() * height * 0.4;
+          const pr = 1 + Math.random() * 2;
+          ctx.beginPath();
+          ctx.arc(px, py, pr, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${0.3 + Math.random() * 0.4})`;
+          ctx.fill();
+        }
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    // Handle resize
+    const resize = () => {
+      canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
+      canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
+      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    raf = requestAnimationFrame(draw);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', resize);
+    };
+  }, [accentColor]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'absolute', inset: 0, width: '100%', height: '100%',
+        pointerEvents: 'none', zIndex: 1,
+      }}
+    />
+  );
+}
+
 export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorLyricsProps) {
   const [accentColor, setAccentColor] = useState(DEFAULT_COLOR);
   const [effect, setEffect] = useState<LyricsEffect>(() => {
@@ -157,6 +255,14 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
   });
   const prevLineIndexRef = useRef(-1);
   const [animKey, setAnimKey] = useState(0);
+
+  // Get audio element for Web Audio API analyser
+  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    const el = document.querySelector('audio') as HTMLAudioElement | null;
+    if (el) setAudioEl(el);
+  }, []);
+  const { subscribe } = useAudioAnalyser(audioEl, { fftSize: 256, enabled: true });
 
   // Save effect choice
   useEffect(() => {
@@ -260,6 +366,9 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
       {/* Dark overlay */}
       <Box sx={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }} />
 
+      {/* Audio-reactive visualizer canvas */}
+      <AudioVisualizerCanvas accentColor={accentColor} subscribe={subscribe} />
+
       {/* Effect selector - top right */}
       <Box sx={{
         position: 'absolute', top: 8, right: 8, zIndex: 3,
@@ -279,7 +388,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
 
       {/* Lyrics content */}
       <Box sx={{
-        position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column',
+        position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         gap: { xs: 3, sm: 4, md: 5 }, px: { xs: 3, sm: 5, md: 8 },
         maxWidth: 900, width: '100%', textAlign: 'center',
