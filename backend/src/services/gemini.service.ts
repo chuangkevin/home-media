@@ -9,7 +9,6 @@ interface ExtractedTrackInfo {
 
 // Gemini API Key 管理
 let cachedKeys: string[] = [];
-let keyIndex = 0;
 let lastLoadTime = 0;
 const CACHE_TTL = 60_000; // 60 秒快取
 const badKeys = new Map<string, number>(); // key -> 失敗時間戳
@@ -71,11 +70,11 @@ function getApiKey(): string | null {
   const keys = loadKeys();
   if (keys.length === 0) return null;
 
-  // 嘗試找一個非壞的 key（最多繞一圈）
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[keyIndex % keys.length];
-    keyIndex = (keyIndex + 1) % keys.length;
-    if (!isKeyBad(key)) return key;
+  // 過濾掉壞 key，從可用 key 中隨機選一個
+  const goodKeys = keys.filter(k => !isKeyBad(k));
+
+  if (goodKeys.length > 0) {
+    return goodKeys[Math.floor(Math.random() * goodKeys.length)];
   }
 
   // 全部都壞了，清除最舊的壞 key 重試
