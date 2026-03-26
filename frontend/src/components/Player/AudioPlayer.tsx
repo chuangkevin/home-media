@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton, Tooltip, useMediaQuery } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
@@ -25,7 +25,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex, currentTime } = useSelector((state: RootState) => state.player);
-  const isCompactPlayer = useMediaQuery('(max-height: 768px)');
+  // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const currentVideoIdRef = useRef<string | null>(null);
@@ -919,173 +919,99 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       sx={{
         ...(!embedded && {
           position: 'fixed',
-          bottom: 0,
+          bottom: 56, // 在 BottomNav 上方
           left: 0,
           right: 0,
           zIndex: 1000,
-          paddingBottom: '56px', // 為 BottomNav 留空間
         }),
-        borderRadius: embedded ? 0 : 0,
+        borderRadius: 0,
         height: embedded ? '100%' : 'auto',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      <CardContent sx={{ pb: isCompactPlayer && !embedded ? 1 : 2, '&:last-child': { pb: isCompactPlayer && !embedded ? 1 : 2 }, pt: isCompactPlayer && !embedded ? 1 : undefined, flex: embedded ? 1 : 'none', display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ display: 'flex', alignItems: embedded ? 'center' : 'center', gap: isCompactPlayer && !embedded ? 1 : 2, ...(embedded && { flexDirection: 'column', flex: 1, justifyContent: 'flex-start', pt: 2 }) }}>
-          {/* 專輯封面 - 在 compact 模式下隱藏 */}
-          {!(isCompactPlayer && !embedded) && (
+      {embedded ? (
+        /* ===== EMBEDDED 模式（全螢幕歌詞內）===== */
+        <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', pb: 2, '&:last-child': { pb: 2 } }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'flex-start', pt: 2, alignItems: 'center' }}>
             <CardMedia
               component="img"
-              sx={{
-                width: embedded ? '100%' : 80,
-                height: embedded ? 'auto' : 80,
-                aspectRatio: embedded ? '1' : 'auto',
-                maxWidth: embedded ? 280 : 80,
-                borderRadius: 1
-              }}
+              sx={{ width: '100%', height: 'auto', aspectRatio: '1', maxWidth: 280, borderRadius: 1 }}
               image={displayTrack.thumbnail}
               alt={displayTrack.title}
             />
-          )}
-
-          {/* 曲目資訊與控制 */}
-          <Box sx={{ flexGrow: 1, minWidth: 0, ...(embedded && { width: '100%' }) }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, ...(embedded && { flexDirection: 'column', alignItems: 'center' }) }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, ...(embedded ? { width: '100%', textAlign: 'center' } : { flex: '1 1 0', minWidth: 0 }), ...(isCompactPlayer && !embedded && { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) }}>
+            <Box sx={{ width: '100%', mt: 1 }}>
+              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, width: '100%', textAlign: 'center' }}>
                 {displayTrack.title}
               </Typography>
-              {/* 快取狀態標籤 */}
-              {!isLoading && !isLoadingTrack && (
-                <Chip
-                  icon={isCached ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
-                  label={isCached ? '快取' : '網路'}
-                  size="small"
-                  sx={{
-                    height: 20,
-                    fontSize: '0.7rem',
-                    backgroundColor: isCached ? 'success.main' : 'primary.main',
-                    color: 'white',
-                    '& .MuiChip-icon': { color: 'white' },
-                  }}
-                />
-              )}
-              {(isLoading || isLoadingTrack) && <CircularProgress size={16} />}
-            </Box>
-            <Typography variant="body2" color="text.secondary" noWrap sx={embedded ? { textAlign: 'center', mb: 1 } : {}}>
-              {displayTrack.channel}
-            </Typography>
-
-            <PlayerControls embedded={embedded} isCompact={isCompactPlayer && !embedded} />
-
-            {/* embedded 模式下的功能按鈕 */}
-            {embedded && (
+              <Typography variant="body2" color="text.secondary" noWrap sx={{ textAlign: 'center', mb: 1 }}>
+                {displayTrack.channel}
+              </Typography>
+              <PlayerControls embedded />
               <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mt: 2 }}>
-                {/* 點擊播放按鈕 - 當自動播放被阻擋時顯示 */}
                 {autoplayBlocked && (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    size="small"
-                    startIcon={<PlayArrowIcon />}
-                    onClick={() => {
-                      if (audioRef.current) {
-                        audioRef.current.play().then(() => {
-                          setAutoplayBlocked(false);
-                        }).catch(console.error);
-                      }
-                    }}
-                    sx={{
-                      animation: 'pulse 1.5s infinite',
-                      '@keyframes pulse': {
-                        '0%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0.7)' },
-                        '70%': { boxShadow: '0 0 0 10px rgba(25, 118, 210, 0)' },
-                        '100%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0)' },
-                      },
-                    }}
-                  >
-                    點擊播放
-                  </Button>
+                  <Button variant="contained" color="primary" size="small" startIcon={<PlayArrowIcon />}
+                    onClick={() => { audioRef.current?.play().then(() => setAutoplayBlocked(false)).catch(console.error); }}
+                  >點擊播放</Button>
                 )}
-                {/* 歌詞按鈕 */}
                 {!autoplayBlocked && onOpenLyrics && (
-                  <Tooltip title="開啟歌詞">
-                    <IconButton onClick={onOpenLyrics}>
-                      <LyricsIcon />
-                    </IconButton>
-                  </Tooltip>
+                  <IconButton onClick={onOpenLyrics}><LyricsIcon /></IconButton>
                 )}
-                {/* 加到播放清單按鈕 */}
                 {!autoplayBlocked && (
-                  <Tooltip title="加到播放清單">
-                    <IconButton onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}>
-                      <PlaylistAddIcon />
-                    </IconButton>
-                  </Tooltip>
+                  <IconButton onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}><PlaylistAddIcon /></IconButton>
                 )}
               </Box>
+            </Box>
+          </Box>
+        </CardContent>
+      ) : (
+        /* ===== 迷你播放器模式（固定在底部）===== */
+        <CardContent sx={{ py: 1, px: 1.5, '&:last-child': { pb: 1 } }}>
+          {/* 第一行：封面 + 標題/頻道 + 功能按鈕 */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            <CardMedia
+              component="img"
+              sx={{ width: 48, height: 48, borderRadius: 0.5, flexShrink: 0 }}
+              image={displayTrack.thumbnail}
+              alt={displayTrack.title}
+            />
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Typography variant="body2" noWrap sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+                {displayTrack.title}
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>
+                  {displayTrack.channel}
+                </Typography>
+                {!isLoading && !isLoadingTrack && (
+                  <Chip
+                    icon={isCached ? <StorageIcon sx={{ fontSize: 12 }} /> : <CloudIcon sx={{ fontSize: 12 }} />}
+                    label={isCached ? '快取' : '網路'}
+                    size="small"
+                    sx={{ height: 18, fontSize: '0.65rem', backgroundColor: isCached ? 'success.main' : 'primary.main', color: 'white', '& .MuiChip-icon': { color: 'white' } }}
+                  />
+                )}
+                {(isLoading || isLoadingTrack) && <CircularProgress size={14} />}
+              </Box>
+            </Box>
+            {/* 功能按鈕 */}
+            {autoplayBlocked ? (
+              <IconButton size="small" color="primary"
+                onClick={() => { audioRef.current?.play().then(() => setAutoplayBlocked(false)).catch(console.error); }}
+              ><PlayArrowIcon /></IconButton>
+            ) : (
+              <>
+                {onOpenLyrics && <IconButton size="small" onClick={onOpenLyrics}><LyricsIcon fontSize="small" /></IconButton>}
+                <IconButton size="small" onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}><PlaylistAddIcon fontSize="small" /></IconButton>
+              </>
             )}
           </Box>
+          {/* 第二行：進度條 + 控制按鈕 */}
+          <PlayerControls isCompact />
+        </CardContent>
+      )}
 
-          {/* 非 embedded 模式的按鈕 */}
-          {!embedded && (
-            <>
-              {/* 點擊播放按鈕 - 當自動播放被阻擋時顯示 */}
-              {autoplayBlocked && (
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="large"
-                  startIcon={<PlayArrowIcon />}
-                  onClick={() => {
-                    if (audioRef.current) {
-                      audioRef.current.play().then(() => {
-                        setAutoplayBlocked(false);
-                      }).catch(console.error);
-                    }
-                  }}
-                  sx={{
-                    ml: 2,
-                    whiteSpace: 'nowrap',
-                    animation: 'pulse 1.5s infinite',
-                    '@keyframes pulse': {
-                      '0%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0.7)' },
-                      '70%': { boxShadow: '0 0 0 10px rgba(25, 118, 210, 0)' },
-                      '100%': { boxShadow: '0 0 0 0 rgba(25, 118, 210, 0)' },
-                    },
-                  }}
-                >
-                  點擊播放
-                </Button>
-              )}
-
-              {/* 歌詞按鈕 */}
-              {!autoplayBlocked && onOpenLyrics && (
-                <Tooltip title="開啟歌詞">
-                  <IconButton
-                    onClick={onOpenLyrics}
-                    sx={{ ml: 1 }}
-                  >
-                    <LyricsIcon />
-                  </IconButton>
-                </Tooltip>
-              )}
-
-              {/* 加到播放清單按鈕 */}
-              {!autoplayBlocked && (
-                <Tooltip title="加到播放清單">
-                  <IconButton
-                    onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}
-                    sx={{ ml: 1 }}
-                  >
-                    <PlaylistAddIcon />
-                  </IconButton>
-                </Tooltip>
-              )}
-            </>
-          )}
-        </Box>
-      </CardContent>
+      {/* 隱藏的 audio 元素 - 放在 CardContent 外面確保不受條件渲染影響 */}
 
       {/* 隱藏的 audio 元素 */}
       <audio ref={audioRef} preload="auto" />

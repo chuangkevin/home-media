@@ -58,6 +58,32 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
   // 允許在最後一首時也能點下一首（會停止或循環，取決於 repeat 設定）
   const hasNext = playlist.length > 0;
 
+  if (isCompact && !embedded) {
+    // ===== 迷你模式：進度條 + 按鈕在同一行 =====
+    return (
+      <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Typography variant="caption" sx={{ minWidth: 32, textAlign: 'right', fontSize: '0.7rem' }}>
+          {formatDuration(Math.floor(currentTime))}
+        </Typography>
+        <Slider size="small" value={currentTime} max={duration || 100} onChange={onSeek} sx={{ flex: 1, mx: 0.5 }} />
+        <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious} sx={{ p: 0.5 }}>
+          <SkipPreviousIcon fontSize="small" />
+        </IconButton>
+        <IconButton onClick={onPlayPause} color="primary" size="small" sx={{ p: 0.5 }}>
+          {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
+        </IconButton>
+        <IconButton size="small" onClick={handleNext} disabled={!hasNext} sx={{ p: 0.5 }}>
+          <SkipNextIcon fontSize="small" />
+        </IconButton>
+        <IconButton size="small" onClick={toggleMute} sx={{ p: 0.5 }}>
+          <VolumeIcon fontSize="small" />
+        </IconButton>
+        <CastButton />
+      </Box>
+    );
+  }
+
+  // ===== 標準模式（embedded 全螢幕歌詞用）=====
   return (
     <Box sx={{ width: '100%', mt: 1 }}>
       {/* 進度條 */}
@@ -79,37 +105,25 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
 
       {/* 控制按鈕 */}
       <Stack direction="row" spacing={1} alignItems="center">
-        {/* 播放控制 */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious}>
             <SkipPreviousIcon />
           </IconButton>
-          <IconButton onClick={onPlayPause} color="primary" size={isCompact ? 'medium' : 'large'}>
-            {isPlaying ? <PauseIcon fontSize={isCompact ? 'medium' : 'large'} /> : <PlayArrowIcon fontSize={isCompact ? 'medium' : 'large'} />}
+          <IconButton onClick={onPlayPause} color="primary" size="large">
+            {isPlaying ? <PauseIcon fontSize="large" /> : <PlayArrowIcon fontSize="large" />}
           </IconButton>
           <IconButton size="small" onClick={handleNext} disabled={!hasNext}>
             <SkipNextIcon />
           </IconButton>
         </Box>
 
-        {/* 音量控制 + 投射按鈕 */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto' }}>
           <IconButton size="small" onClick={toggleMute}>
             <VolumeIcon />
           </IconButton>
-          {/* 桌面版或 embedded 模式顯示音量滑桿 */}
           {(!isMobile || embedded) && (
-            <Slider
-              size="small"
-              value={volume}
-              min={0}
-              max={1}
-              step={0.01}
-              onChange={onVolumeChange}
-              sx={{ width: embedded ? 100 : 80 }}
-            />
+            <Slider size="small" value={volume} min={0} max={1} step={0.01} onChange={onVolumeChange} sx={{ width: embedded ? 100 : 80 }} />
           )}
-          {/* 投射按鈕 */}
           <CastButton />
         </Box>
       </Stack>

@@ -883,11 +883,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
-            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 160px)',
+            maxHeight: isFullscreenLayout ? '100%' : 'calc(100% - 160px)',
             borderTopLeftRadius: isFullscreenLayout ? 0 : 16,
             borderTopRightRadius: isFullscreenLayout ? 0 : 16,
-            bottom: isFullscreenLayout ? 0 : 250,
+            bottom: isFullscreenLayout ? 0 : 160,
             display: 'flex',
             flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
             pb: isFullscreenLayout ? 0 : 3,
@@ -896,10 +896,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         ModalProps={{
           keepMounted: true,
           sx: {
-            bottom: isFullscreenLayout ? 0 : 250,
-            height: isFullscreenLayout ? '100%' : 'calc(100% - 250px)',
+            bottom: isFullscreenLayout ? 0 : 160,
+            height: isFullscreenLayout ? '100%' : 'calc(100% - 160px)',
             '& .MuiBackdrop-root': {
-              bottom: isFullscreenLayout ? 0 : 250,
+              bottom: isFullscreenLayout ? 0 : 160,
             },
           },
         }}
