@@ -536,6 +536,25 @@ class ApiService {
       return null;
     }
   }
+
+  // ==================== 影片快取 ====================
+
+  async downloadVideo(videoId: string): Promise<void> {
+    await this.api.post(`/video-cache/${videoId}/download`);
+  }
+
+  async getVideoCacheStatus(videoId: string): Promise<{ cached: boolean; downloading: boolean }> {
+    const res = await this.api.get(`/video-cache/${videoId}/status`);
+    return res.data;
+  }
+
+  getVideoCacheStreamUrl(videoId: string): string {
+    return `${this.api.defaults.baseURL}/video-cache/${videoId}/stream`;
+  }
+
+  async deleteVideoCache(videoId: string): Promise<void> {
+    await this.api.delete(`/video-cache/${videoId}`);
+  }
 }
 
 // 播放清單型別

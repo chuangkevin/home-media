@@ -27,7 +27,7 @@ import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying, setCurrentTime, clearSeekTarget } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, setCurrentTime, clearSeekTarget, playNext } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -69,6 +69,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
   const [isFullscreenLayout, setIsFullscreenLayout] = useState(false);
 
+  // 影片快取狀態
+  const [videoCached, setVideoCached] = useState(false);
+  const [videoDownloading, setVideoDownloading] = useState(false);
+
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -85,9 +89,51 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // YouTube CC 載入狀態
   const [isLoadingYouTubeCC, setIsLoadingYouTubeCC] = useState(false);
 
+  // 影片快取：開啟 Drawer 時自動開始下載，輪詢狀態
+  useEffect(() => {
+    if (!open || !track?.videoId) return;
+    let cancelled = false;
+
+    (async () => {
+      // 檢查是否已快取
+      try {
+        const status = await apiService.getVideoCacheStatus(track.videoId);
+        if (cancelled) return;
+        if (status.cached) { setVideoCached(true); setVideoDownloading(false); return; }
+      } catch { /* continue */ }
+
+      // 觸發下載
+      setVideoDownloading(true);
+      setVideoCached(false);
+      apiService.downloadVideo(track.videoId).catch(() => {});
+
+      // 輪詢等待下載完成
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        if (cancelled) return;
+        try {
+          const status = await apiService.getVideoCacheStatus(track.videoId);
+          if (status.cached) {
+            setVideoCached(true);
+            setVideoDownloading(false);
+            console.log(`🎬 影片下載完成: ${track.title}`);
+            return;
+          }
+        } catch { /* continue */ }
+      }
+      setVideoDownloading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+      // 換歌時刪除舊影片快取
+      apiService.deleteVideoCache(track.videoId).catch(() => {});
+      setVideoCached(false);
+      setVideoDownloading(false);
+    };
+  }, [open, track?.videoId]);
+
   // YouTube 播放器狀態
-  const [videoError, setVideoError] = useState<string | null>(null);
-  const [videoErrorCode, setVideoErrorCode] = useState<number | null>(null);
   const [videoReady, setVideoReady] = useState(false);
   const videoTimeSyncRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -146,7 +192,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
 
     let isMounted = true;
-    setVideoError(null);
+    // setVideoError(null);
     setVideoReady(false);
 
     const initPlayer = () => {
@@ -191,7 +237,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               if (!isMounted) return;
               // YouTube 嵌入錯誤
               const errorCode = event.data;
-              setVideoErrorCode(errorCode);
+              // setVideoErrorCode(errorCode);
               
               let errorMsg = '影片載入失敗';
               if (errorCode === 101 || errorCode === 150) {
@@ -205,7 +251,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               }
               
               console.error(`🎬 YouTube 播放錯誤 (${errorCode}): ${errorMsg}`);
-              setVideoError(errorMsg);
+              // setVideoError(errorMsg);
             },
           },
         });
@@ -696,87 +742,38 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     );
   };
 
-  // 渲染影片
+  // 渲染影片（從快取播放 HTML5 video）
   const renderVideo = () => {
-    if (videoError) {
+    if (!videoCached) {
       return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', p: 3, gap: 2 }}>
-          <Alert severity="error" sx={{ width: '100%', maxWidth: 500 }}>
-            {videoError}
-            {videoErrorCode && (
-              <Typography variant="caption" display="block" sx={{ mt: 1, opacity: 0.8 }}>
-                錯誤代碼: {videoErrorCode}
-              </Typography>
-            )}
-          </Alert>
-          
-          <Box sx={{ 
-            p: 2, 
-            backgroundColor: 'rgba(255,255,255,0.05)', 
-            borderRadius: 1, 
-            width: '100%', 
-            maxWidth: 500 
-          }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              診斷資訊：
-            </Typography>
-            <Typography variant="caption" component="pre" sx={{ 
-              color: 'text.primary', 
-              fontFamily: 'monospace',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all'
-            }}>
-              Video ID: {track.videoId}{'\n'}
-              User Agent: {navigator.userAgent.substring(0, 100)}...{'\n'}
-              Platform: {navigator.platform}{'\n'}
-              Touch: {('ontouchstart' in window) ? 'Yes' : 'No'}{'\n'}
-              iOS: {/iPad|iPhone|iPod/.test(navigator.userAgent) ? 'Yes' : 'No'}
-            </Typography>
-          </Box>
-          
-          <Typography variant="body1" color="text.primary" sx={{ textAlign: 'center' }}>
-            此影片無法在應用程式中播放
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={() => {
-                window.open(`https://www.youtube.com/watch?v=${track.videoId}`, '_blank');
-              }}
-              startIcon={<OndemandVideoIcon />}
-            >
-              在 YouTube 上觀看
-            </Button>
-            <Button
-              variant="outlined"
-              onClick={() => setViewMode('lyrics')}
-              startIcon={<LyricsIcon />}
-            >
-              切換到歌詞
-            </Button>
-          </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 2 }}>
+          <CircularProgress />
+          <Typography color="text.secondary">影片下載中...</Typography>
         </Box>
       );
     }
 
     return (
-      <Box
-        sx={{
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: '#000',
-        }}
-      >
-        <Box
-          ref={videoContainerRef}
-          sx={{
-            width: '100%',
-            maxWidth: 640,
-            aspectRatio: '16/9',
+      <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
+        <video
+          src={apiService.getVideoCacheStreamUrl(track.videoId)}
+          controls
+          autoPlay
+          playsInline
+          style={{ width: '100%', maxHeight: '100%', maxWidth: 960 }}
+          onPlay={() => {
+            // 靜音背景 audio，讓影片聲音為主
+            const audio = document.querySelector('audio') as HTMLAudioElement;
+            if (audio) { audio.muted = true; audio.volume = 0; }
+          }}
+          onPause={() => {
+            dispatch(setIsPlaying(false));
+          }}
+          onEnded={() => {
+            // 恢復 audio
+            const audio = document.querySelector('audio') as HTMLAudioElement;
+            if (audio) { audio.muted = false; audio.volume = 0.7; }
+            dispatch(playNext());
           }}
         />
       </Box>
@@ -1021,9 +1018,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   <LyricsIcon sx={{ mr: 0.5, fontSize: 18 }} />
                   歌詞
                 </ToggleButton>
-                <ToggleButton value="video">
+                <ToggleButton value="video" disabled={!videoCached}>
                   <OndemandVideoIcon sx={{ mr: 0.5, fontSize: 18 }} />
-                  影片
+                  {videoDownloading ? '下載中...' : videoCached ? '影片' : '影片'}
                 </ToggleButton>
                 <ToggleButton value="cover">
                   <AlbumIcon sx={{ mr: 0.5, fontSize: 18 }} />

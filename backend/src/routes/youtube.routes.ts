@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import youtubeController from '../controllers/youtube.controller';
+import videoCacheService from '../services/video-cache.service';
 
 const router = Router();
 
@@ -29,5 +30,35 @@ router.get('/cache/status/:videoId', (req, res) => youtubeController.getCacheSta
 
 // 批量檢查快取狀態
 router.post('/cache/status/batch', (req, res) => youtubeController.getCacheStatusBatch(req, res));
+
+// ===== 影片快取 =====
+
+// 觸發影片下載
+router.post('/video-cache/:videoId/download', async (req, res) => {
+  const { videoId } = req.params;
+  if (!videoId) { res.status(400).json({ error: 'videoId required' }); return; }
+  // Fire-and-forget
+  videoCacheService.download(videoId).catch(() => {});
+  res.status(202).json({ message: 'Video download started', videoId });
+});
+
+// 檢查影片快取狀態
+router.get('/video-cache/:videoId/status', (req, res) => {
+  const { videoId } = req.params;
+  res.json(videoCacheService.getStatus(videoId));
+});
+
+// 串流影片
+router.get('/video-cache/:videoId/stream', (req, res) => {
+  const { videoId } = req.params;
+  videoCacheService.streamVideo(videoId, req, res);
+});
+
+// 刪除影片快取
+router.delete('/video-cache/:videoId', (req, res) => {
+  const { videoId } = req.params;
+  videoCacheService.delete(videoId);
+  res.json({ message: 'Video deleted', videoId });
+});
 
 export default router;
