@@ -260,20 +260,29 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Browser Fullscreen API
+  // Fullscreen: real API on desktop/Android, CSS simulated on iPhone
+  const supportsFullscreenAPI = !!document.documentElement.requestFullscreen;
+
   const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen?.().catch(() => {});
+    if (supportsFullscreenAPI) {
+      // Desktop / Android: use native Fullscreen API
+      if (!document.fullscreenElement) {
+        containerRef.current?.requestFullscreen?.().catch(() => {});
+      } else {
+        document.exitFullscreen?.().catch(() => {});
+      }
     } else {
-      document.exitFullscreen?.().catch(() => {});
+      // iPhone: CSS simulated fullscreen (toggle state)
+      setIsFullscreen(prev => !prev);
     }
   };
 
   useEffect(() => {
+    if (!supportsFullscreenAPI) return;
     const onFs = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', onFs);
     return () => document.removeEventListener('fullscreenchange', onFs);
-  }, []);
+  }, [supportsFullscreenAPI]);
 
   // Get audio element for Web Audio API analyser
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
@@ -370,7 +379,18 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
 
   return (
     <Box ref={containerRef} sx={{
-      position: 'relative', width: '100%', height: '100%', overflow: 'hidden',
+      position: isFullscreen && !supportsFullscreenAPI ? 'fixed' : 'relative',
+      ...(isFullscreen && !supportsFullscreenAPI ? {
+        // iPhone CSS 模擬全螢幕
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 9999,
+        width: '100vw',
+        height: '100dvh',
+      } : {
+        width: '100%',
+        height: '100%',
+      }),
+      overflow: 'hidden',
       backgroundColor: '#000', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
     }}>
@@ -388,9 +408,11 @@ export default function MorrorLyrics({ lines, currentLineIndex, track }: MorrorL
       {/* Audio-reactive visualizer canvas */}
       <AudioVisualizerCanvas accentColor={accentColor} subscribe={subscribe} />
 
-      {/* Controls overlay - top right */}
+      {/* Controls overlay - top right (safe area aware for iPhone notch) */}
       <Box sx={{
-        position: 'absolute', top: 8, right: 8, zIndex: 3,
+        position: 'absolute',
+        top: isFullscreen && !supportsFullscreenAPI ? 'max(8px, env(safe-area-inset-top))' : 8,
+        right: 8, zIndex: 3,
         display: 'flex', alignItems: 'center', gap: 0.5,
       }}>
         {/* Effect selector */}
