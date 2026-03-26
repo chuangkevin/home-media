@@ -842,9 +842,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     audio.addEventListener('playing', handlePlaying);
     audio.addEventListener('seeked', handleSeeked);
 
+    // iOS 鎖屏恢復：頁面回到前台時自動恢復播放
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isPlayingRef.current && audio.paused && audio.src) {
+        console.log('📱 頁面回到前台，恢復音訊播放');
+        audio.play().catch((err) => {
+          console.warn('恢復播放失敗:', err);
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       if (stalledTimeout) clearTimeout(stalledTimeout);
       clearInterval(checkFakePlayback);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('durationchange', handleDurationChange);
       audio.removeEventListener('ended', handleEnded);
