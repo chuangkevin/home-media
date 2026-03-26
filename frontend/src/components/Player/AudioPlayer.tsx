@@ -217,15 +217,40 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
         
         if (serverStatus.cached) {
-          // 後端有 cache，使用後端串流
+          // 後端有 cache，直接從快取串流
           audioSrc = streamUrl;
           console.log(`🎵 從後端快取串流: ${pendingTrack.title}`);
           setIsCached(true);
         } else {
-          // 後端沒 cache：立即串流播放（快取延後到音訊開始載入後）
-          console.log(`🎵 立即串流播放，背景下載快取（延後觸發）: ${pendingTrack.title}`);
+          // 後端沒 cache：先觸發下載，等完成後從快取播放（100% 可靠）
+          console.log(`⏳ 未快取，觸發後端下載: ${pendingTrack.title}`);
+          setIsLoading(true);
+
+          // 觸發後端下載（fire-and-forget，不等回應）
+          apiService.preloadAudio(videoId).catch(() => {});
+
+          // 輪詢等待後端快取完成（最多 60 秒）
+          let cached = false;
+          for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            const status = await apiService.getCacheStatus(videoId).catch(() => ({ cached: false }));
+            if (status.cached) {
+              cached = true;
+              console.log(`✅ 後端下載完成 (${(i + 1) * 2}秒): ${pendingTrack.title}`);
+              break;
+            }
+            if (i % 5 === 4) {
+              console.log(`⏳ 仍在下載... (${(i + 1) * 2}秒): ${pendingTrack.title}`);
+            }
+          }
+
+          if (!cached) {
+            // 60 秒仍未完成，嘗試直接串流作為 fallback
+            console.warn(`⚠️ 下載超時，嘗試直接串流: ${pendingTrack.title}`);
+          }
+
           audioSrc = streamUrl;
-          setIsCached(false);
+          setIsCached(cached);
         }
 
         // 設定 audio src

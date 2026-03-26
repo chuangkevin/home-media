@@ -407,15 +407,19 @@ export class YouTubeController {
       console.log(`🔄 開始預加載: ${videoId}`);
       logger.info(`Starting preload for: ${videoId}`);
 
-      // 在背景獲取 URL（會觸發緩存）
-      youtubeService.getAudioStreamUrl(videoId)
-        .then(() => {
-          console.log(`✅ 預加載完成: ${videoId}`);
-        })
-        .catch((error) => {
-          console.error(`❌ 預加載失敗: ${videoId}`, error);
-          logger.error(`Preload failed for ${videoId}:`, error);
-        });
+      // 背景下載完整音訊到快取（不只是 URL）
+      if (!audioCacheService.has(videoId)) {
+        audioCacheService.downloadWithYtDlp(videoId)
+          .then((path) => {
+            console.log(`✅ 預加載下載完成: ${videoId} → ${path}`);
+          })
+          .catch((error) => {
+            console.error(`❌ 預加載下載失敗: ${videoId}`, error);
+            logger.error(`Preload download failed for ${videoId}:`, error);
+          });
+      } else {
+        console.log(`✅ 已快取，跳過預加載: ${videoId}`);
+      }
 
       // 立即返回，不等待完成
       res.status(202).json({
