@@ -479,10 +479,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                     console.warn(`⚠️ Audio started loading after delay, confirming...`);
                     confirmAndPlay('delayed-start-confirm');
                   } else {
-                    console.error(`❌ Audio failed to start loading (readyState: ${audio.readyState}): ${pendingTrack.title}`);
-                    setIsLoading(false);
-                    dispatch(cancelPendingTrack());
-                    dispatch(setIsPlaying(false));
+                    // readyState 仍是 0：觸發重試而不是放棄
+                    console.warn(`⚠️ Audio readyState still 0 after 25s, triggering retry for: ${pendingTrack.title}`);
+                    const vid = currentVideoIdRef.current;
+                    if (vid) {
+                      const freshUrl = `${apiService.getStreamUrl(vid)}?_retry=timeout&_t=${Date.now()}`;
+                      audio.src = freshUrl;
+                      audio.load();
+                      audio.play().catch(() => {});
+                    } else {
+                      setIsLoading(false);
+                      dispatch(cancelPendingTrack());
+                      dispatch(setIsPlaying(false));
+                    }
                   }
                 }
               }, 15000);
