@@ -3,6 +3,9 @@ import recommendationService from '../services/recommendation.service';
 import { db } from '../config/database';
 import logger from '../utils/logger';
 import axios from 'axios';
+import { generateDiscoveryQueries } from '../services/gemini.service';
+import { getUserProfile } from '../services/style-cache.service';
+import youtubeService from '../services/youtube.service';
 
 /**
  * 推薦控制器
@@ -185,6 +188,48 @@ export class RecommendationController {
             });
           }
         }
+      }
+
+      // AI 發現推薦：用 Gemini 根據用戶偏好搜尋新音樂
+      try {
+        const profile = await getUserProfile();
+        if (profile) {
+          const listenedArtists = db.prepare(
+            `SELECT DISTINCT channel_name FROM watched_channels ORDER BY watch_count DESC LIMIT 20`
+          ).all().map((r: any) => r.channel_name);
+
+          const queries = await generateDiscoveryQueries(profile, listenedArtists);
+
+          if (queries.length > 0) {
+            // 用第一個 query 搜尋（不要同時搜太多，免得太慢）
+            const query = queries[Math.floor(Math.random() * queries.length)];
+            const results = await youtubeService.search(query, 6);
+
+            // 過濾掉已聽過的頻道
+            const listenedSet = new Set(listenedArtists.map(a => a.toLowerCase()));
+            const newResults = results.filter(r =>
+              !listenedSet.has((r.channel || '').toLowerCase())
+            ).slice(0, 5);
+
+            if (newResults.length > 0) {
+              mixedRecommendations.splice(1, 0, {
+                type: 'discovery',
+                channelName: `🔮 AI 為你發現`,
+                channelThumbnail: '',
+                videos: newResults.map(r => ({
+                  videoId: r.videoId,
+                  title: r.title,
+                  thumbnail: r.thumbnail,
+                  duration: r.duration || 0,
+                  channel: r.channel,
+                })),
+                watchCount: 0,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn('AI discovery recommendations failed:', err);
       }
 
       res.json({

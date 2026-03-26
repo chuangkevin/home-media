@@ -346,3 +346,75 @@ Return exactly this JSON format:
   }
   return null;
 }
+
+/**
+ * 用 Gemini 根據用戶偏好生成 YouTube 搜尋關鍵字，發現新歌手
+ */
+export async function generateDiscoveryQueries(
+  profile: {
+    preferredMoods?: Record<string, number>;
+    preferredGenres?: Record<string, number>;
+    preferredLanguages?: Record<string, number>;
+    topThemes?: string[];
+  },
+  listenedArtists: string[]
+): Promise<string[]> {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
+
+  const moods = Object.keys(profile.preferredMoods || {}).slice(0, 3).join(', ');
+  const genres = Object.keys(profile.preferredGenres || {}).slice(0, 3).join(', ');
+  const languages = Object.keys(profile.preferredLanguages || {}).slice(0, 2).join(', ');
+  const themes = (profile.topThemes || []).slice(0, 3).join(', ');
+  const excludeArtists = listenedArtists.slice(0, 10).join(', ');
+
+  const prompt = `Based on this music taste profile:
+- Moods: ${moods || 'unknown'}
+- Genres: ${genres || 'unknown'}
+- Languages: ${languages || 'unknown'}
+- Themes: ${themes || 'unknown'}
+- Already listened to: ${excludeArtists || 'unknown'}
+
+Generate 5 YouTube search queries to discover NEW artists/songs this user would love but hasn't heard yet.
+Each query should be a search term that would find good music on YouTube.
+Focus on discovering new artists, not the ones already listened to.
+
+Reply with ONLY a JSON array of strings, no other text:
+["query1", "query2", "query3", "query4", "query5"]`;
+
+  let currentKey = apiKey;
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      const genai = new GoogleGenerativeAI(currentKey);
+      const model = genai.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: { maxOutputTokens: 200, temperature: 0.9 },
+      });
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
+
+      const jsonMatch = text.match(/\[[\s\S]*?\]/);
+      if (!jsonMatch) {
+        console.warn(`⚠️ [Gemini] Discovery: invalid response: ${text}`);
+        return [];
+      }
+
+      const queries = JSON.parse(jsonMatch[0]) as string[];
+      console.log(`🔮 [Gemini] Discovery queries: ${queries.join(' | ')}`);
+      return queries.filter(q => typeof q === 'string' && q.length > 0).slice(0, 5);
+    } catch (err: any) {
+      const msg = err?.message || '';
+      const is429 = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
+      const is403 = msg.includes('403') || msg.includes('PERMISSION_DENIED');
+      if (is403) markKeyBad(currentKey);
+      if ((is429 || is403) && attempt < 1) {
+        const altKey = getApiKeyExcluding(currentKey);
+        if (altKey) { currentKey = altKey; continue; }
+      }
+      console.error(`❌ [Gemini] generateDiscoveryQueries failed:`, msg);
+      return [];
+    }
+  }
+  return [];
+}
