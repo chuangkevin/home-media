@@ -221,20 +221,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           console.log(`🎵 從後端快取串流: ${pendingTrack.title}`);
           setIsCached(true);
         } else {
-          // 未快取：串流秒播 + 同時背景下載，完成後無縫切換
+          // 未快取：串流秒播，串流完成後 backend 自動快取
+          // 不觸發額外 preloadAudio（避免跟串流搶 yt-dlp 資源）
           audioSrc = streamUrl;
-          console.log(`🎵 串流播放 + 背景下載: ${pendingTrack.title}`);
+          console.log(`🎵 串流播放: ${pendingTrack.title}`);
           setIsCached(false);
 
-          // 同時觸發背景下載，完成後無縫切換到快取
-          apiService.preloadAudio(videoId).catch(() => {});
-
-          // 輪詢等待下載完成，完成後切換音源
+          // 輪詢等待串流完成後 backend 快取就緒，無縫切換
           const pollVideoId = videoId;
           (async () => {
-            for (let i = 0; i < 30; i++) {
-              await new Promise(r => setTimeout(r, 3000));
-              if (currentVideoIdRef.current !== pollVideoId) return; // 已換歌
+            // 等 10 秒讓串流開始（串流本身就會寫入快取）
+            await new Promise(r => setTimeout(r, 10000));
+            for (let i = 0; i < 20; i++) {
+              if (currentVideoIdRef.current !== pollVideoId) return;
               const s = await apiService.getCacheStatus(pollVideoId).catch(() => ({ cached: false }));
               if (s.cached) {
                 if (currentVideoIdRef.current !== pollVideoId) return;
@@ -242,14 +241,30 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 if (!audio || !audio.src) return;
                 const curTime = audio.currentTime;
                 const wasPlaying = !audio.paused;
+                console.log(`🔄 快取就緒，無縫切換 (${curTime.toFixed(1)}s): ${pendingTrack.title}`);
+
+                // 正確切換：設 src → load → 等 canplay → seek → play
                 const cachedUrl = `${apiService.getStreamUrl(pollVideoId)}?_cached=1`;
-                console.log(`🔄 背景下載完成，無縫切換到快取 (${curTime.toFixed(1)}s): ${pendingTrack.title}`);
                 audio.src = cachedUrl;
-                audio.currentTime = curTime;
+                audio.load();
+
+                await new Promise<void>((resolve) => {
+                  const onReady = () => {
+                    audio.removeEventListener('canplay', onReady);
+                    resolve();
+                  };
+                  audio.addEventListener('canplay', onReady, { once: true });
+                  // Timeout fallback
+                  setTimeout(resolve, 5000);
+                });
+
+                if (currentVideoIdRef.current !== pollVideoId) return;
+                try { audio.currentTime = curTime; } catch {}
                 if (wasPlaying) audio.play().catch(() => {});
                 setIsCached(true);
                 return;
               }
+              await new Promise(r => setTimeout(r, 3000));
             }
           })();
         }
