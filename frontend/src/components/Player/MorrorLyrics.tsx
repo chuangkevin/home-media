@@ -385,7 +385,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
       {/* Controls overlay - top right (safe area aware for iPhone notch) */}
       <Box sx={{
         position: 'absolute',
-        top: 8,
+        top: 'max(12px, env(safe-area-inset-top, 12px))',
         right: 8, zIndex: 3,
         display: 'flex', alignItems: 'center', gap: 0.5,
       }}>

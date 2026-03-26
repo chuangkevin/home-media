@@ -227,38 +227,59 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           console.log(`🎵 串流播放: ${pendingTrack.title}`);
           setIsCached(false);
 
-          // 輪詢等待串流完成後 backend 快取就緒，無縫切換
+          // 背景：等 backend 快取就緒 → 下載到前端 IndexedDB → 切換到 Blob URL
+          // Blob URL 是本地的，iOS 鎖屏不會中斷
           const pollVideoId = videoId;
           (async () => {
-            // 等 10 秒讓串流開始（串流本身就會寫入快取）
+            // 等 10 秒讓串流完成寫入 backend 快取
             await new Promise(r => setTimeout(r, 10000));
             for (let i = 0; i < 20; i++) {
               if (currentVideoIdRef.current !== pollVideoId) return;
               const s = await apiService.getCacheStatus(pollVideoId).catch(() => ({ cached: false }));
               if (s.cached) {
+                // Backend 快取就緒，下載到前端 IndexedDB
+                console.log(`⏬ 下載到前端快取: ${pendingTrack.title}`);
+                try {
+                  await audioCacheService.fetchAndCache(pollVideoId, streamUrl, {
+                    title: pendingTrack.title,
+                    channel: pendingTrack.channel,
+                    thumbnail: pendingTrack.thumbnail,
+                    duration: pendingTrack.duration,
+                  });
+                } catch (err) {
+                  console.warn('前端快取下載失敗:', err);
+                  break;
+                }
+
                 if (currentVideoIdRef.current !== pollVideoId) return;
+
+                // 從 IndexedDB 拿 Blob URL
+                const blob = await audioCacheService.get(pollVideoId);
+                if (!blob) break;
+
                 const audio = audioRef.current;
-                if (!audio || !audio.src) return;
+                if (!audio || !audio.src) break;
                 const curTime = audio.currentTime;
                 const wasPlaying = !audio.paused;
-                console.log(`🔄 快取就緒，無縫切換 (${curTime.toFixed(1)}s): ${pendingTrack.title}`);
+                const blobUrl = URL.createObjectURL(blob);
 
-                // 正確切換：設 src → load → 等 canplay → seek → play
-                const cachedUrl = `${apiService.getStreamUrl(pollVideoId)}?_cached=1`;
-                audio.src = cachedUrl;
+                console.log(`🔄 切換到本地 Blob URL (${curTime.toFixed(1)}s): ${pendingTrack.title}`);
+                audio.src = blobUrl;
                 audio.load();
 
                 await new Promise<void>((resolve) => {
-                  const onReady = () => {
-                    audio.removeEventListener('canplay', onReady);
-                    resolve();
-                  };
-                  audio.addEventListener('canplay', onReady, { once: true });
-                  // Timeout fallback
+                  audio.addEventListener('canplay', () => resolve(), { once: true });
                   setTimeout(resolve, 5000);
                 });
 
-                if (currentVideoIdRef.current !== pollVideoId) return;
+                if (currentVideoIdRef.current !== pollVideoId) {
+                  URL.revokeObjectURL(blobUrl);
+                  break;
+                }
+                // 釋放舊 blob URL
+                if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
+                currentBlobUrlRef.current = blobUrl;
+
                 try { audio.currentTime = curTime; } catch {}
                 if (wasPlaying) audio.play().catch(() => {});
                 setIsCached(true);
