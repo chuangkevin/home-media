@@ -568,7 +568,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       }
 
       audio.muted = lastAudioMutedRef.current;
-      audio.volume = volume / 100; // 恢復音量
+      audio.volume = volume; // 恢復音量 (volume 已是 0-1)
 
       // 恢復音訊時間（從 Redux 獲取最新時間，已由 VideoPlayer 同步）
       if (currentTime > 0 && audio.readyState >= 1) {
