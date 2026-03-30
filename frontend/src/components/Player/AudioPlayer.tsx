@@ -405,10 +405,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 }
               }
 
-              // 2. 檢查本地快取
+              // 2. 檢查本地快取（只用 AI 生成的快取，跳過傳統來源）
               const cachedLyrics = await lyricsCacheService.get(videoId);
-              if (cachedLyrics) {
-                console.log(`📝 歌詞從本地快取載入: ${pendingTrack.title} (來源: ${cachedLyrics.source})`);
+              if (cachedLyrics && cachedLyrics.source === 'manual') {
+                // AI 生成的快取，直接用
+                console.log(`📝 歌詞從 AI 快取載入: ${pendingTrack.title}`);
                 dispatch(setCurrentLyrics(cachedLyrics));
                 dispatch(setLyricsLoading(false));
                 return;
