@@ -341,7 +341,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
           // Trigger background style analysis for current track
           if (pendingTrack) {
-            apiService.analyzeTrackStyle(videoId, pendingTrack.title, pendingTrack.channel).catch(() => {});
+            // Style analysis 移到背景低優先級，不在播放時消耗 Gemini quota
+            // apiService.analyzeTrackStyle(videoId, pendingTrack.title, pendingTrack.channel).catch(() => {});
           }
 
           // 自動播放（影片模式下由 VideoPlayer 控制，不播放音訊）

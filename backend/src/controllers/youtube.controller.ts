@@ -5,8 +5,7 @@ import { pipeline } from 'stream';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
 import downloadManager from '../services/download-manager.service';
-import { queueForAnalysis, prioritize as prioritizeStyleAnalysis } from '../services/style-cache.service';
-import { getDatabase } from '../config/database';
+// Style analysis disabled to save Gemini quota
 import logger from '../utils/logger';
 
 export class YouTubeController {
@@ -47,14 +46,8 @@ export class YouTubeController {
         console.log(`📦 [Search] Triggering pre-cache for ${videoIds.length} search results`);
         downloadManager.precache(videoIds);
 
-        // Queue style analysis for search results (background, rate-limited)
-        queueForAnalysis(results.map(r => ({
-          videoId: r.videoId,
-          title: r.title,
-          channel: r.channel,
-          tags: r.tags,
-          category: r.categories?.[0],
-        })));
+        // Style analysis disabled to save Gemini quota for translations
+        // queueForAnalysis(...);
       }
     } catch (error) {
       logger.error('Search controller error:', error);
@@ -115,15 +108,6 @@ export class YouTubeController {
         res.status(400).json({ error: 'Invalid video ID' });
         return;
       }
-
-      // Prioritize style analysis for the track being played
-      try {
-        const db = getDatabase();
-        const track = db.prepare('SELECT title, channel_name, tags, category FROM cached_tracks WHERE video_id = ?').get(videoId) as any;
-        if (track) {
-          prioritizeStyleAnalysis(videoId, track.title, track.channel_name, track.tags ? JSON.parse(track.tags) : undefined, track.category);
-        }
-      } catch {}
 
       // 檢查伺服器端快取
       if (audioCacheService.has(videoId)) {

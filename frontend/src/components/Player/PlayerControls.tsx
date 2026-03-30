@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { Box, IconButton, Slider, Typography, Stack, useMediaQuery, useTheme } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -20,6 +21,8 @@ interface PlayerControlsProps {
 export default function PlayerControls({ embedded = false, isCompact = false }: PlayerControlsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekValue, setSeekValue] = useState(0);
 
   const { isPlaying, currentTime, duration, volume, playlist, currentIndex } = useSelector(
     (state: RootState) => state.player
@@ -41,8 +44,14 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
     handlePlayPause(!isPlaying);
   };
 
-  const onSeek = (_event: Event, value: number | number[]) => {
+  const onSeekChange = (_event: Event, value: number | number[]) => {
+    setIsSeeking(true);
+    setSeekValue(value as number);
+  };
+
+  const onSeekCommit = (_event: React.SyntheticEvent | Event, value: number | number[]) => {
     handleSeek(value as number);
+    setIsSeeking(false);
   };
 
   const onVolumeChange = (_event: Event, value: number | number[]) => {
@@ -65,7 +74,7 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
         <Typography variant="caption" sx={{ minWidth: 32, textAlign: 'right', fontSize: '0.7rem' }}>
           {formatDuration(Math.floor(currentTime))}
         </Typography>
-        <Slider size="small" value={currentTime} max={duration || 100} onChange={onSeek} sx={{ flex: 1, mx: 0.5 }} />
+        <Slider size="small" value={isSeeking ? seekValue : currentTime} max={duration || 100} onChange={onSeekChange} onChangeCommitted={onSeekCommit} sx={{ flex: 1, mx: 0.5 }} />
         <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious} sx={{ p: 0.5 }}>
           <SkipPreviousIcon fontSize="small" />
         </IconButton>
@@ -93,9 +102,10 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
         </Typography>
         <Slider
           size="small"
-          value={currentTime}
+          value={isSeeking ? seekValue : currentTime}
           max={duration || 100}
-          onChange={onSeek}
+          onChange={onSeekChange}
+          onChangeCommitted={onSeekCommit}
           sx={{ flexGrow: 1 }}
         />
         <Typography variant="caption" sx={{ minWidth: 40 }}>
