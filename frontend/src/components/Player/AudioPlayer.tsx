@@ -41,6 +41,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const lastAudioMutedRef = useRef<boolean>(false);
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
+  const prevDisplayModeRef = useRef(displayMode);
 
   // 快取狀態
   const [isCached, setIsCached] = useState(false);
@@ -567,15 +568,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audio.play().catch(() => {});
       }
       console.log('🔇 影片模式：音訊靜音但持續播放（保留 Media Session 用於鎖屏控制）');
-    } else {
-      // 🎵 返回音訊模式：恢復音訊狀態
+    } else if (prevDisplayModeRef.current === 'video') {
+      // 🎵 只在真正從影片模式切回時才恢復（不在 isPlaying 變化時觸發）
       if (!audio.src && lastAudioSrcRef.current) {
         audio.src = lastAudioSrcRef.current;
         audio.load();
       }
 
       audio.muted = lastAudioMutedRef.current;
-      audio.volume = volume; // 恢復音量 (volume 已是 0-1)
+      audio.volume = volume;
 
       // 恢復音訊時間（從 Redux 獲取最新時間，已由 VideoPlayer 同步）
       if (currentTime > 0 && audio.readyState >= 1) {
@@ -609,6 +610,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audio.pause();
       }
     }
+
+    // 記錄上一次的 displayMode，下次 effect 用來判斷是否從影片模式切回
+    prevDisplayModeRef.current = displayMode;
 
     return () => {
       if (playWhenReadyHandler && audioRef.current) {

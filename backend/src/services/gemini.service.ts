@@ -426,22 +426,27 @@ export async function translateLyrics(
   lines: string[]
 ): Promise<{ translations: string[]; detected_language: string } | null> {
   const apiKey = getApiKey();
-  if (!apiKey) return null;
+  if (!apiKey) {
+    const keys = loadKeys();
+    console.error(`❌ [Gemini] translateLyrics: no API key available. loadKeys() returned ${keys.length} keys, all bad?`);
+    return null;
+  }
   if (lines.length === 0) return { translations: [], detected_language: 'unknown' };
 
   // 過濾掉純標記行
   const cleanLines = lines.map(l => l.replace(/\[(?:Music|Applause|Laughter|Cheering|Instrumental)\]/gi, '').trim());
 
-  const prompt = `You are a lyrics translator. Analyze and translate song lyrics to Traditional Chinese (繁體中文).
+  const prompt = `You are a lyrics translator. Translate song lyrics to Traditional Chinese (繁體中文).
 
 Rules:
-1. First detect the language of the lyrics
-2. If already Traditional Chinese (繁體中文): return each line unchanged, detected_language="zh-TW"
-3. If Simplified Chinese (简体中文): convert to Traditional Chinese, detected_language="zh-CN"
-4. If any other language (English, Japanese, Korean, etc.): translate to natural Traditional Chinese, detected_language="<iso code>"
-5. Keep the same number of lines. Each translated line corresponds to the original line.
-6. For mixed language lines, translate the non-Chinese parts.
-7. Keep proper nouns, names in original form.
+1. Detect the PRIMARY language of the lyrics (the most common language)
+2. If a line is already in Traditional Chinese: return it unchanged
+3. If a line is in Simplified Chinese: convert to Traditional Chinese
+4. If a line is in English/Japanese/Korean/other: translate to natural Traditional Chinese
+5. IMPORTANT: For mixed-language songs (e.g. English + Chinese), translate EACH line independently based on its own language. Do NOT skip translation just because some lines are Chinese.
+6. Keep the same number of lines. Each translated line corresponds to the original line.
+7. Keep proper nouns and names in original form.
+8. detected_language should reflect the PRIMARY language (e.g. "mixed" for mixed-language songs, "en" for mostly English, "zh-TW" for PURELY Traditional Chinese).
 
 Lyrics (${cleanLines.length} lines):
 ${cleanLines.map((l, i) => `${i}: ${l || '(instrumental)'}`).join('\n')}

@@ -96,7 +96,8 @@ export default function HomeRecommendations() {
             if (!isActive) break;
 
             try {
-              const lyrics = await apiService.getLyrics(video.videoId, video.title, video.channel);
+              // 用 getLyricsForPreload 避免 abort 正在播放的歌詞請求
+              const lyrics = await apiService.getLyricsForPreload(video.videoId, video.title, video.channel);
               if (lyrics) {
                 await lyricsCacheService.set(video.videoId, lyrics);
                 console.log(`✅ 歌詞預載完成: ${video.title}`);

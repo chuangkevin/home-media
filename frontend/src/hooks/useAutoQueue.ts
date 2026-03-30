@@ -31,8 +31,8 @@ export function useAutoQueue() {
       return;
     }
 
-    // 避免重複載入同一首歌的推薦
-    if (lastLoadedVideoIdRef.current === currentTrack.videoId) {
+    // 避免重複載入同一首歌的推薦（但如果是最後一首歌 loop 回來，要重新載入）
+    if (lastLoadedVideoIdRef.current === currentTrack.videoId && remainingSongs > 0) {
       return;
     }
 

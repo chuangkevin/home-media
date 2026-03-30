@@ -138,6 +138,21 @@ class ApiService {
   }
 
   /**
+   * 預載歌詞（不帶 AbortController，不會取消正在播放歌曲的歌詞請求）
+   */
+  async getLyricsForPreload(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
+    try {
+      const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/${videoId}`, {
+        params: { title, artist },
+        timeout: 90000,
+      });
+      return response.data.lyrics;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * 搜尋歌詞（支援多平台：lrclib, netease）
    */
   async searchLyrics(query: string, source: LyricsSource = 'lrclib'): Promise<LyricsSearchResult[]> {

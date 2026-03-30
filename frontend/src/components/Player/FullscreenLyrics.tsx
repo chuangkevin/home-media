@@ -119,11 +119,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const lines = currentLyrics.lines.map(l => l.text);
       apiService.translateLyrics(track.videoId, lines).then(result => {
         if (cancelled || !result) return;
-        if (result.detected_language === 'zh-TW') {
-          setTranslations([]);
-        } else {
-          setTranslations(result.translations);
-        }
+        // 不再整體判斷語言 — 逐行比對，翻譯跟原文相同的行設為空字串
+        // 這樣中英混合歌詞的英文行會有翻譯，中文行不會重複顯示
+        const translations = result.translations.map((t: string, i: number) => {
+          if (!t || t === lines[i]) return ''; // 相同就不顯示
+          return t;
+        });
+        // 如果全部都是空的（純中文歌），就不設翻譯
+        const hasAny = translations.some((t: string) => t.length > 0);
+        setTranslations(hasAny ? translations : []);
       }).catch(() => {
         if (!cancelled && retryCount < maxRetries) {
           retryCount++;
