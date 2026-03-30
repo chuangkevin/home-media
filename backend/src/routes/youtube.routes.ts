@@ -2,6 +2,8 @@ import { Router } from 'express';
 import youtubeController from '../controllers/youtube.controller';
 import videoCacheService from '../services/video-cache.service';
 import sponsorBlockService from '../services/sponsorblock.service';
+import downloadManager from '../services/download-manager.service';
+import audioCacheService from '../services/audio-cache.service';
 
 const router = Router();
 
@@ -66,6 +68,29 @@ router.delete('/video-cache/:videoId', (req, res) => {
 router.post('/video-cache/cleanup', (_req, res) => {
   videoCacheService.smartCleanup();
   res.json({ message: 'Smart cleanup completed' });
+});
+
+// ===== Play (高優先級下載) =====
+
+// 播放歌曲：高優先級下載，abort 其他任務
+router.post('/play/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  if (!videoId) { res.status(400).json({ error: 'videoId required' }); return; }
+
+  try {
+    const path = await downloadManager.playNow(videoId);
+    if (path && audioCacheService.has(videoId)) {
+      res.json({ status: 'ready', cached: true });
+    } else {
+      res.status(500).json({ status: 'failed' });
+    }
+  } catch (err: any) {
+    if (err?.message === 'aborted') {
+      res.status(409).json({ status: 'superseded' });
+    } else {
+      res.status(500).json({ status: 'failed', error: err?.message });
+    }
+  }
 });
 
 // ===== SponsorBlock =====

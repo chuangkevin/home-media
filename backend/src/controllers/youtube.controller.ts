@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import { pipeline } from 'stream';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
+import downloadManager from '../services/download-manager.service';
 import { queueForAnalysis, prioritize as prioritizeStyleAnalysis } from '../services/style-cache.service';
 import { getDatabase } from '../config/database';
 import logger from '../utils/logger';
@@ -44,9 +45,7 @@ export class YouTubeController {
       if (results.length > 0) {
         const videoIds = results.slice(0, 3).map(r => r.videoId);
         console.log(`📦 [Search] Triggering pre-cache for ${videoIds.length} search results`);
-        audioCacheService.precacheVideos(videoIds).catch((err) => {
-          console.warn('⚠️ [Search] Pre-cache batch failed:', err);
-        });
+        downloadManager.precache(videoIds);
 
         // Queue style analysis for search results (background, rate-limited)
         queueForAnalysis(results.map(r => ({
@@ -407,19 +406,8 @@ export class YouTubeController {
       console.log(`🔄 開始預加載: ${videoId}`);
       logger.info(`Starting preload for: ${videoId}`);
 
-      // 背景下載完整音訊到快取（不只是 URL）
-      if (!audioCacheService.has(videoId)) {
-        audioCacheService.downloadWithYtDlp(videoId)
-          .then((path) => {
-            console.log(`✅ 預加載下載完成: ${videoId} → ${path}`);
-          })
-          .catch((error) => {
-            console.error(`❌ 預加載下載失敗: ${videoId}`, error);
-            logger.error(`Preload download failed for ${videoId}:`, error);
-          });
-      } else {
-        console.log(`✅ 已快取，跳過預加載: ${videoId}`);
-      }
+      // 低優先級背景下載
+      downloadManager.precache([videoId]);
 
       // 立即返回，不等待完成
       res.status(202).json({

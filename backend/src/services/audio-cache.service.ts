@@ -99,6 +99,10 @@ class AudioCacheService {
   /**
    * 獲取快取檔案路徑（優先新格式 .m4a，向下相容舊 .webm）
    */
+  getCacheDir(): string {
+    return AUDIO_CACHE_DIR;
+  }
+
   getCachePath(videoId: string): string {
     const newPath = path.join(AUDIO_CACHE_DIR, `${videoId}${CACHE_FILE_EXTENSION}`);
     if (fs.existsSync(newPath)) return newPath;

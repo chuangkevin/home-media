@@ -225,104 +225,75 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           return; // 直接返回，不等後端
         }
 
-        // 沒有前端 cache，檢查後端快取狀態
-        // 注意：不再呼叫 preloadAudio，因為接下來會直接 stream，preload 會多產生一個 yt-dlp 搶資源
-        console.log(`🔄 檢查後端快取: ${pendingTrack.title}`);
+        // 沒有前端 cache，使用 DownloadManager 高優先級下載
+        console.log(`🔴 高優先級下載: ${pendingTrack.title}`);
+        apiService.cancelPlay(); // 取消之前的請求
 
-        const serverStatus = await apiService.getCacheStatus(videoId).catch(() => ({ cached: false }));
+        try {
+          const result = await apiService.requestPlay(videoId);
 
-        const streamUrl = apiService.getStreamUrl(videoId);
-        let audioSrc: string;
+          // 換歌了？放棄
+          if (currentVideoIdRef.current !== videoId) return;
 
-        
-        if (serverStatus.cached) {
-          audioSrc = streamUrl;
-          console.log(`🎵 從後端快取串流: ${pendingTrack.title}`);
-          setIsCached(true);
-        } else {
-          // 未快取：串流秒播，串流完成後 backend 自動快取
-          // 不觸發額外 preloadAudio（避免跟串流搶 yt-dlp 資源）
-          audioSrc = streamUrl;
-          console.log(`🎵 串流播放: ${pendingTrack.title}`);
-          setIsCached(false);
-
-          // 背景：等 backend 快取就緒 → 下載到前端 IndexedDB → 切換到 Blob URL
-          // Blob URL 是本地的，iOS 鎖屏不會中斷
-          const pollVideoId = videoId;
-          (async () => {
-            // 等 10 秒讓串流完成寫入 backend 快取
-            await new Promise(r => setTimeout(r, 10000));
-            for (let i = 0; i < 20; i++) {
-              if (currentVideoIdRef.current !== pollVideoId) return;
-              const s = await apiService.getCacheStatus(pollVideoId).catch(() => ({ cached: false }));
-              if (s.cached) {
-                // Backend 快取就緒，下載到前端 IndexedDB
-                console.log(`⏬ 下載到前端快取: ${pendingTrack.title}`);
-                try {
-                  await audioCacheService.fetchAndCache(pollVideoId, streamUrl, {
-                    title: pendingTrack.title,
-                    channel: pendingTrack.channel,
-                    thumbnail: pendingTrack.thumbnail,
-                    duration: pendingTrack.duration,
-                  });
-                } catch (err) {
-                  console.warn('前端快取下載失敗:', err);
-                  break;
-                }
-
-                if (currentVideoIdRef.current !== pollVideoId) return;
-
-                // 從 IndexedDB 拿 Blob URL
-                const blob = await audioCacheService.get(pollVideoId);
-                if (!blob) break;
-
-                const audio = audioRef.current;
-                if (!audio || !audio.src) break;
-                const curTime = audio.currentTime;
-                const wasPlaying = !audio.paused;
-                const blobUrl = URL.createObjectURL(blob);
-
-                console.log(`🔄 切換到本地 Blob URL (${curTime.toFixed(1)}s): ${pendingTrack.title}`);
-
-                // 暫時移除 ended/error listener，防止 src 切換觸發 playNext
-                const preventEnded = (e: Event) => { e.stopImmediatePropagation(); };
-                audio.addEventListener('ended', preventEnded, { capture: true });
-                audio.addEventListener('error', preventEnded, { capture: true });
-
-                audio.src = blobUrl;
-                audio.load();
-
-                await new Promise<void>((resolve) => {
-                  audio.addEventListener('canplay', () => resolve(), { once: true });
-                  setTimeout(resolve, 5000);
-                });
-
-                // 恢復 listener
-                audio.removeEventListener('ended', preventEnded, { capture: true });
-                audio.removeEventListener('error', preventEnded, { capture: true });
-
-                if (currentVideoIdRef.current !== pollVideoId) {
-                  URL.revokeObjectURL(blobUrl);
-                  break;
-                }
-                // 釋放舊 blob URL
-                if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
-                currentBlobUrlRef.current = blobUrl;
-
-                try { audio.currentTime = curTime; } catch {}
-                if (wasPlaying) audio.play().catch(() => {});
-                setIsCached(true);
-                setCacheToast(true);
-                return;
-              }
-              await new Promise(r => setTimeout(r, 3000));
-            }
-          })();
+          if (result.status !== 'ready') {
+            console.error(`❌ 下載失敗: ${pendingTrack.title}`);
+            dispatch(cancelPendingTrack());
+            dispatch(setIsPlaying(false));
+            return;
+          }
+        } catch (err: any) {
+          if (err?.name === 'AbortError' || err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
+            console.log(`🔄 播放請求被取消（換歌了）: ${pendingTrack.title}`);
+            return;
+          }
+          console.error(`❌ 播放請求失敗: ${pendingTrack.title}`, err);
+          dispatch(cancelPendingTrack());
+          dispatch(setIsPlaying(false));
+          return;
         }
 
-        // 設定 audio src
-        audioRef.current!.src = audioSrc;
+        // Backend 已快取，從快取串流
+        const streamUrl = apiService.getStreamUrl(videoId);
+        audioRef.current!.src = streamUrl;
         audioRef.current!.load();
+        setIsCached(true);
+
+        // 背景：下載到前端 IndexedDB（鎖屏用）
+        const bgVideoId = videoId;
+        audioCacheService.fetchAndCache(bgVideoId, streamUrl, {
+          title: pendingTrack.title,
+          channel: pendingTrack.channel,
+          thumbnail: pendingTrack.thumbnail,
+          duration: pendingTrack.duration,
+        }).then(async () => {
+          if (currentVideoIdRef.current !== bgVideoId) return;
+          // 切換到 Blob URL
+          const blob = await audioCacheService.get(bgVideoId);
+          if (!blob || currentVideoIdRef.current !== bgVideoId) return;
+          const audio = audioRef.current;
+          if (!audio) return;
+          const curTime = audio.currentTime;
+          const wasPlaying = !audio.paused;
+          const blobUrl = URL.createObjectURL(blob);
+
+          const preventEnded = (e: Event) => { e.stopImmediatePropagation(); };
+          audio.addEventListener('ended', preventEnded, { capture: true });
+          audio.addEventListener('error', preventEnded, { capture: true });
+
+          audio.src = blobUrl;
+          audio.load();
+          await new Promise<void>(r => { audio.addEventListener('canplay', () => r(), { once: true }); setTimeout(r, 5000); });
+
+          audio.removeEventListener('ended', preventEnded, { capture: true });
+          audio.removeEventListener('error', preventEnded, { capture: true });
+
+          if (currentVideoIdRef.current !== bgVideoId) { URL.revokeObjectURL(blobUrl); return; }
+          if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
+          currentBlobUrlRef.current = blobUrl;
+          try { audio.currentTime = curTime; } catch {}
+          if (wasPlaying) audio.play().catch(() => {});
+          setCacheToast(true);
+        }).catch(() => {});
 
         // 音訊準備好了，現在確認切換
         console.log(`✅ Pending track ready: ${pendingTrack.title}`);
@@ -341,14 +312,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           currentVideoIdRef.current = videoId;
           currentBlobUrlRef.current = null;
         } else {
-          // 設置新音訊源（如果是 Blob URL，需要更新 ref）
-          console.log(`🎵 Setting audio.src = ${audioSrc.substring(0, 50)}...`);
-          audio.src = audioSrc;
           currentVideoIdRef.current = videoId;
-          
-          // 如果是 Blob URL，儲存 ref 以便後續釋放
-          if (audioSrc.startsWith('blob:')) {
-            currentBlobUrlRef.current = audioSrc;
+          // audio.src 已在上面的流程中設定
+          if (audio.src && audio.src.startsWith('blob:')) {
+            currentBlobUrlRef.current = audio.src;
           } else {
             currentBlobUrlRef.current = null;
           }
@@ -406,53 +373,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             console.log(`🎬 影片模式下不播放音訊，由 VideoPlayer 控制`);
           }
 
-          // 延後觸發前端背景快取：等後端快取完成後再下載到前端
-          if (!serverStatus.cached) {
-            const startFetchAndCache = async () => {
-              // 先等 3 秒讓後端快取完成寫入
-              await new Promise(r => setTimeout(r, 3000));
-              // 確認後端已快取再下載
-              const status = await apiService.getCacheStatus(videoId).catch(() => ({ cached: false }));
-              if (!status.cached) {
-                console.log(`⏳ 後端尚未快取完成，再等 5 秒...`);
-                await new Promise(r => setTimeout(r, 5000));
-              }
-              audioCacheService.fetchAndCache(videoId, streamUrl, {
-                title: pendingTrack.title,
-                channel: pendingTrack.channel,
-                thumbnail: pendingTrack.thumbnail,
-                duration: pendingTrack.duration,
-              })
-                .then(() => {
-                  console.log(`💾 背景快取下載完成: ${pendingTrack.title}`);
-                  setIsCached(true);
-                })
-                .catch(err => console.warn(`背景快取下載失敗: ${pendingTrack.title}`, err));
-            };
-
-            // If playing, wait for first timeupdate to confirm real audio output before caching
-            if (shouldPlay && displayModeRef.current !== 'video') {
-                // Wait for first timeupdate confirming real audio output
-                const onTimeUpdate = () => {
-                  audio.removeEventListener('timeupdate', onTimeUpdate);
-                  console.log(`🎵 Playback confirmed (timeupdate), starting background cache`);
-                  startFetchAndCache();
-                };
-                audio.addEventListener('timeupdate', onTimeUpdate);
-                // Safety timeout: if no timeupdate within 10s, start cache only if actually playing
-                setTimeout(() => {
-                  audio.removeEventListener('timeupdate', onTimeUpdate);
-                  if (audio.readyState >= 2 && !audio.paused) {
-                    startFetchAndCache();
-                  }
-                }, 10000);
-            } else {
-              // Not auto-playing (e.g. paused state or video mode) - defer with timeout
-              setTimeout(startFetchAndCache, 3000);
-            }
-          }
-
-          // 🎵 播放成功後才開始搜尋歌詞（避免與音訊串流搶 yt-dlp 資源）
+          // 🎵 播放成功後才開始搜尋歌詞
           dispatch(setLyricsLoading(true));
           (async () => {
             try {

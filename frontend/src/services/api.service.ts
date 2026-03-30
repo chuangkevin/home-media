@@ -562,6 +562,29 @@ class ApiService {
 
   // ==================== SponsorBlock ====================
 
+  // ==================== 播放（高優先級下載）====================
+
+  private playAbortController: AbortController | null = null;
+
+  async requestPlay(videoId: string): Promise<{ status: string; cached?: boolean }> {
+    // 取消之前的 play 請求
+    this.cancelPlay();
+    this.playAbortController = new AbortController();
+
+    const response = await this.api.post(`/play/${videoId}`, {}, {
+      timeout: 120000,
+      signal: this.playAbortController.signal,
+    });
+    return response.data;
+  }
+
+  cancelPlay(): void {
+    if (this.playAbortController) {
+      this.playAbortController.abort();
+      this.playAbortController = null;
+    }
+  }
+
   async translateLyrics(videoId: string, lines: string[]): Promise<{ translations: string[]; detected_language: string } | null> {
     try {
       const res = await this.api.post(`/tracks/${videoId}/translate`, { lines }, { timeout: 60000 });
