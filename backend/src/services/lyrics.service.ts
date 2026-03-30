@@ -544,9 +544,10 @@ class LyricsService {
         const timeInSeconds = minutes * 60 + seconds + milliseconds / 1000;
 
         if (text) {
-          // 過濾 metadata 行（作詞、作曲、編曲等）
-          const isMetadata = /^(作[词詞词]\s*[：:：]|作曲\s*[：:：]|编曲\s*[：:：]|編曲\s*[：:：]|製作人?\s*[：:：]|制作人?\s*[：:：]|混音\s*[：:：]|Recording|Producer|Lyricist|Composer|Arranger)/i.test(text);
-          if (!isMetadata) {
+          // 過濾 metadata 行和純符號行
+          const isMetadata = /^(作[词詞]\s*[：::]|作曲\s*[：::]|编曲\s*[：::]|編曲\s*[：::]|製作人?\s*[：::]|制作人?\s*[：::]|混音\s*[：::]|Recording|Producer|Lyricist|Composer|Arranger)/i.test(text);
+          const isPureSymbol = /^[♪♫♬\s]+$/.test(text);
+          if (!isMetadata && !isPureSymbol) {
             lines.push({ time: timeInSeconds, text });
           }
         }
