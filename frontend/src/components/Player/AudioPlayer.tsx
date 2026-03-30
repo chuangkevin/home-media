@@ -427,15 +427,34 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 return;
               }
 
-              // 3. 從後端自動搜尋（此時音訊已在播放，不會搶 yt-dlp 資源）
+              // 3. 從後端自動搜尋（LRCLIB/NetEase/YouTube CC）
               const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
               if (lyrics) {
                 console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
                 dispatch(setCurrentLyrics(lyrics));
                 lyricsCacheService.set(videoId, lyrics).catch(err => console.warn('Failed to cache lyrics:', err));
               } else {
-                console.log(`⚠️ 找不到歌詞: ${pendingTrack.title}`);
-                dispatch(setLyricsError('找不到歌詞'));
+                // 4. 所有來源都找不到 → 自動 AI 辨識歌詞
+                console.log(`🤖 傳統來源找不到歌詞，啟動 AI 辨識: ${pendingTrack.title}`);
+                try {
+                  const aiResult = await apiService.generateAILyrics(videoId);
+                  if (aiResult?.lines?.length > 0) {
+                    const aiLyrics = {
+                      videoId,
+                      lines: aiResult.lines,
+                      source: 'manual' as const,
+                      isSynced: true,
+                      language: aiResult.language,
+                    };
+                    console.log(`🤖 AI 歌詞辨識成功: ${aiResult.lines.length} 行 (${aiResult.language})`);
+                    dispatch(setCurrentLyrics(aiLyrics));
+                    lyricsCacheService.set(videoId, aiLyrics).catch(() => {});
+                  } else {
+                    dispatch(setLyricsError('找不到歌詞'));
+                  }
+                } catch {
+                  dispatch(setLyricsError('找不到歌詞'));
+                }
               }
             } catch (error) {
               console.error('獲取歌詞失敗:', error);
