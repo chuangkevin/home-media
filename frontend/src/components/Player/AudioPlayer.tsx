@@ -415,36 +415,41 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 return;
               }
 
-              // 3. AI 優先：音訊辨識字幕（支援歌曲+對話+任何語音）
-              console.log(`🤖 AI 字幕辨識: ${pendingTrack.title}`);
-              try {
-                const aiResult = await apiService.generateAILyrics(videoId);
-                if (aiResult?.lines?.length > 0) {
-                  const aiLyrics = {
-                    videoId,
-                    lines: aiResult.lines,
-                    source: 'manual' as const,
-                    isSynced: true,
-                    language: aiResult.language,
-                  };
-                  console.log(`🤖 AI 字幕成功: ${aiResult.lines.length} 行 (${aiResult.language})`);
-                  dispatch(setCurrentLyrics(aiLyrics));
-                  lyricsCacheService.set(videoId, aiLyrics).catch(() => {});
-                  dispatch(setLyricsLoading(false));
-                  return;
-                }
-              } catch (err) {
-                console.warn(`⚠️ AI 字幕失敗，fallback 到傳統來源:`, err);
+              // 3. 先用傳統來源秒顯示，同時背景 AI 辨識
+              // 傳統來源快（幾秒），AI 慢（10-30秒）但品質好
+              const lyricsVideoId = videoId;
+
+              // 3a. 立即搜尋傳統來源
+              const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
+              if (lyrics && lyrics.lines?.length > 3) {
+                console.log(`📝 傳統歌詞先顯示: ${pendingTrack.title} (${lyrics.source}, ${lyrics.lines.length} 行)`);
+                dispatch(setCurrentLyrics(lyrics));
               }
 
-              // 4. AI 失敗時 fallback：LRCLIB/NetEase/YouTube CC
-              const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
-              if (lyrics) {
-                console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
-                dispatch(setCurrentLyrics(lyrics));
-                lyricsCacheService.set(videoId, lyrics).catch(() => {});
-              } else {
-                dispatch(setLyricsError('找不到歌詞'));
+              // 3b. 背景 AI 辨識（成功就覆蓋傳統歌詞）
+              (async () => {
+                try {
+                  const aiResult = await apiService.generateAILyrics(lyricsVideoId);
+                  if (currentVideoIdRef.current !== lyricsVideoId) return; // 換歌了
+                  if (aiResult?.lines?.length > 0) {
+                    const aiLyrics = {
+                      videoId: lyricsVideoId,
+                      lines: aiResult.lines,
+                      source: 'manual' as const,
+                      isSynced: true,
+                      language: aiResult.language,
+                    };
+                    console.log(`🤖 AI 字幕覆蓋: ${aiResult.lines.length} 行 (${aiResult.language})`);
+                    dispatch(setCurrentLyrics(aiLyrics));
+                    lyricsCacheService.set(lyricsVideoId, aiLyrics).catch(() => {});
+                  }
+                } catch {
+                  // AI 失敗，保持傳統歌詞
+                }
+              })();
+
+              if (!lyrics || lyrics.lines?.length <= 3) {
+                if (!lyrics) dispatch(setLyricsError('搜尋歌詞中...'));
               }
             } catch (error) {
               console.error('獲取歌詞失敗:', error);
