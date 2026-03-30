@@ -61,12 +61,12 @@ function isKeyBad(key: string): boolean {
   return true;
 }
 
-function markKeyBad(key: string): void {
+export function markKeyBad(key: string): void {
   badKeys.set(key, Date.now());
   console.warn(`🚫 [Gemini] Key ...${key.slice(-4)} marked bad, cooldown ${BAD_KEY_COOLDOWN / 1000}s`);
 }
 
-function getApiKey(): string | null {
+export function getApiKey(): string | null {
   const keys = loadKeys();
   if (keys.length === 0) return null;
 
@@ -88,7 +88,7 @@ function getApiKey(): string | null {
   return oldestKey || keys[0];
 }
 
-function getApiKeyExcluding(failedKey: string): string | null {
+export function getApiKeyExcluding(failedKey: string): string | null {
   const keys = loadKeys().filter(k => k !== failedKey && !isKeyBad(k));
   if (keys.length === 0) return null;
   return keys[Math.floor(Math.random() * keys.length)];

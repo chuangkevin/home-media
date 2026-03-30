@@ -571,6 +571,39 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 搜尋歌詞
   const handleSearch = async () => {
+    if (searchSource === 'ai') {
+      // AI 模式：直接從音訊生成歌詞
+      setIsSearching(true);
+      setSearchResults([]);
+      try {
+        const result = await apiService.generateAILyrics(track.videoId);
+        if (result?.lines?.length > 0) {
+          // 直接套用 AI 生成的歌詞
+          const lyrics = {
+            videoId: track.videoId,
+            lines: result.lines,
+            source: 'manual' as const,
+            isSynced: true,
+            language: result.language,
+          };
+          dispatch(setCurrentLyrics(lyrics));
+          // 如果有翻譯，也設定
+          if (result.translation?.length > 0) {
+            setTranslations(result.translation.map((t: any) => t.text));
+          }
+          setSearchOpen(false);
+          console.log(`🤖 AI 歌詞已套用: ${result.lines.length} 行 (${result.language})`);
+        } else {
+          console.warn('AI 歌詞生成失敗');
+        }
+      } catch (error) {
+        console.error('AI lyrics generation failed:', error);
+      } finally {
+        setIsSearching(false);
+      }
+      return;
+    }
+
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
@@ -1226,10 +1259,26 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               onChange={handleSourceChange}
               size="small"
             >
+              <ToggleButton value="ai">🤖 AI</ToggleButton>
               <ToggleButton value="lrclib">LRCLIB</ToggleButton>
               <ToggleButton value="netease">網易雲音樂</ToggleButton>
             </ToggleButtonGroup>
           </Box>
+          {searchSource === 'ai' ? (
+            <Box sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                AI 會分析音訊檔案，自動辨識歌詞並生成時間戳
+              </Typography>
+              <Button
+                variant="contained"
+                onClick={handleSearch}
+                disabled={isSearching}
+                startIcon={isSearching ? <CircularProgress size={16} /> : undefined}
+              >
+                {isSearching ? '辨識中...' : '🤖 開始 AI 辨識歌詞'}
+              </Button>
+            </Box>
+          ) : (<>
           <TextField
             autoFocus
             fullWidth
@@ -1271,6 +1320,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               ))}
             </List>
           )}
+          </>)}
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>

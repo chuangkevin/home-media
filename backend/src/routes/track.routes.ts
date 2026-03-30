@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDatabase } from '../config/database';
 import { analyzeAndCache, getStyle } from '../services/style-cache.service';
 import { translateLyrics } from '../services/gemini.service';
+import { generateAILyrics } from '../services/ai-lyrics.service';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -121,6 +122,23 @@ router.post('/:videoId/translate', async (req: Request, res: Response): Promise<
   } catch (err) {
     logger.error(`Failed to translate lyrics for ${videoId}:`, err);
     res.status(500).json({ error: 'Translation failed' });
+  }
+});
+
+// POST /api/tracks/:videoId/ai-lyrics - AI 音訊辨識生成歌詞
+router.post('/:videoId/ai-lyrics', async (req: Request, res: Response): Promise<void> => {
+  const { videoId } = req.params;
+
+  try {
+    const result = await generateAILyrics(videoId);
+    if (result) {
+      res.json(result);
+    } else {
+      res.status(503).json({ error: 'AI lyrics generation failed (audio not cached or Gemini unavailable)' });
+    }
+  } catch (err) {
+    logger.error(`Failed to generate AI lyrics for ${videoId}:`, err);
+    res.status(500).json({ error: 'AI lyrics generation failed' });
   }
 });
 

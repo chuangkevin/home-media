@@ -585,6 +585,11 @@ class ApiService {
     }
   }
 
+  async generateAILyrics(videoId: string): Promise<any> {
+    const res = await this.api.post(`/tracks/${videoId}/ai-lyrics`, {}, { timeout: 120000 });
+    return res.data;
+  }
+
   async translateLyrics(videoId: string, lines: string[]): Promise<{ translations: string[]; detected_language: string } | null> {
     try {
       const res = await this.api.post(`/tracks/${videoId}/translate`, { lines }, { timeout: 60000 });

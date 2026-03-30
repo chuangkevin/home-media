@@ -27,7 +27,7 @@ export interface LyricsSearchResult {
 export type LRCLIBSearchResult = LyricsSearchResult;
 
 // 歌詞來源類型
-export type LyricsSource = 'lrclib' | 'netease';
+export type LyricsSource = 'ai' | 'lrclib' | 'netease';
 
 // 歌詞偏好設定（跨裝置同步）
 export interface LyricsPreferences {
