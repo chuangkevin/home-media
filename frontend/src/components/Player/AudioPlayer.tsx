@@ -119,14 +119,33 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           const blobUrl = URL.createObjectURL(browserCached);
           console.log(`⚡ 從瀏覽器快取播放（秒開）: ${pendingTrack.title}`);
           setIsCached(true);
-          
-          // 設定 audio src 並立即播放
-          audioRef.current!.src = blobUrl;
-          audioRef.current!.load();
-          
+
+          const audio = audioRef.current!;
+          audio.src = blobUrl;
+          audio.load();
+
+          // 等 audio ready 再播放
+          const playWhenReady = () => {
+            dispatch(setDuration(audio.duration));
+            if (isPlayingRef.current && displayModeRef.current !== 'video') {
+              console.log(`▶️ 快取秒開播放: ${pendingTrack.title}`);
+              audio.play().catch((error) => {
+                if (error.name === 'NotAllowedError') setAutoplayBlocked(true);
+                else dispatch(setIsPlaying(false));
+              });
+            }
+          };
+          if (audio.readyState >= 2) {
+            playWhenReady();
+          } else {
+            audio.addEventListener('canplay', playWhenReady, { once: true });
+            // Fallback: 3 秒後強制嘗試
+            setTimeout(() => { if (audio.paused && isPlayingRef.current) audio.play().catch(() => {}); }, 3000);
+          }
+
           // 背景觸發後端預加載（不等待）
           apiService.preloadAudio(videoId).catch(() => {});
-          
+
           // 確認切換
           dispatch(confirmPendingTrack());
           setIsLoading(false);
