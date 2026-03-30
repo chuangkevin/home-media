@@ -125,6 +125,18 @@ router.post('/:videoId/translate', async (req: Request, res: Response): Promise<
   }
 });
 
+// DELETE /api/tracks/:videoId/ai-lyrics - Clear AI lyrics cache (force re-generate)
+router.delete('/:videoId/ai-lyrics', (req: Request, res: Response): void => {
+  const { videoId } = req.params;
+  try {
+    const db = getDatabase();
+    db.prepare('DELETE FROM ai_lyrics_cache WHERE video_id = ?').run(videoId);
+    res.json({ success: true });
+  } catch {
+    res.json({ success: true }); // Silently succeed even if table doesn't exist
+  }
+});
+
 // POST /api/tracks/:videoId/ai-lyrics - AI 音訊辨識生成歌詞
 router.post('/:videoId/ai-lyrics', async (req: Request, res: Response): Promise<void> => {
   const { videoId } = req.params;

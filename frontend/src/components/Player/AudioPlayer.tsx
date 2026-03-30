@@ -443,34 +443,36 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 return;
               }
 
-              // 3. 從後端自動搜尋（LRCLIB/NetEase/YouTube CC）
+              // 3. AI 優先：音訊辨識字幕（支援歌曲+對話+任何語音）
+              console.log(`🤖 AI 字幕辨識: ${pendingTrack.title}`);
+              try {
+                const aiResult = await apiService.generateAILyrics(videoId);
+                if (aiResult?.lines?.length > 0) {
+                  const aiLyrics = {
+                    videoId,
+                    lines: aiResult.lines,
+                    source: 'manual' as const,
+                    isSynced: true,
+                    language: aiResult.language,
+                  };
+                  console.log(`🤖 AI 字幕成功: ${aiResult.lines.length} 行 (${aiResult.language})`);
+                  dispatch(setCurrentLyrics(aiLyrics));
+                  lyricsCacheService.set(videoId, aiLyrics).catch(() => {});
+                  dispatch(setLyricsLoading(false));
+                  return;
+                }
+              } catch (err) {
+                console.warn(`⚠️ AI 字幕失敗，fallback 到傳統來源:`, err);
+              }
+
+              // 4. AI 失敗時 fallback：LRCLIB/NetEase/YouTube CC
               const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
               if (lyrics) {
                 console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
                 dispatch(setCurrentLyrics(lyrics));
-                lyricsCacheService.set(videoId, lyrics).catch(err => console.warn('Failed to cache lyrics:', err));
+                lyricsCacheService.set(videoId, lyrics).catch(() => {});
               } else {
-                // 4. 所有來源都找不到 → 自動 AI 辨識歌詞
-                console.log(`🤖 傳統來源找不到歌詞，啟動 AI 辨識: ${pendingTrack.title}`);
-                try {
-                  const aiResult = await apiService.generateAILyrics(videoId);
-                  if (aiResult?.lines?.length > 0) {
-                    const aiLyrics = {
-                      videoId,
-                      lines: aiResult.lines,
-                      source: 'manual' as const,
-                      isSynced: true,
-                      language: aiResult.language,
-                    };
-                    console.log(`🤖 AI 歌詞辨識成功: ${aiResult.lines.length} 行 (${aiResult.language})`);
-                    dispatch(setCurrentLyrics(aiLyrics));
-                    lyricsCacheService.set(videoId, aiLyrics).catch(() => {});
-                  } else {
-                    dispatch(setLyricsError('找不到歌詞'));
-                  }
-                } catch {
-                  dispatch(setLyricsError('找不到歌詞'));
-                }
+                dispatch(setLyricsError('找不到歌詞'));
               }
             } catch (error) {
               console.error('獲取歌詞失敗:', error);

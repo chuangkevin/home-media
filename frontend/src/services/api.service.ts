@@ -590,6 +590,10 @@ class ApiService {
     return res.data;
   }
 
+  async deleteAILyricsCache(videoId: string): Promise<void> {
+    await this.api.delete(`/tracks/${videoId}/ai-lyrics`);
+  }
+
   async translateLyrics(videoId: string, lines: string[]): Promise<{ translations: string[]; detected_language: string } | null> {
     try {
       const res = await this.api.post(`/tracks/${videoId}/translate`, { lines }, { timeout: 60000 });

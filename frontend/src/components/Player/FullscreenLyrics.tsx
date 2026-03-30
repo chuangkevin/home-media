@@ -572,10 +572,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 搜尋歌詞
   const handleSearch = async () => {
     if (searchSource === 'ai') {
-      // AI 模式：直接從音訊生成歌詞
+      // AI 模式：清掉快取，強制重新辨識
       setIsSearching(true);
       setSearchResults([]);
       try {
+        // 先刪除舊的 AI 快取，強制重新辨識
+        await apiService.deleteAILyricsCache(track.videoId).catch(() => {});
         const result = await apiService.generateAILyrics(track.videoId);
         if (result?.lines?.length > 0) {
           // 直接套用 AI 生成的歌詞
