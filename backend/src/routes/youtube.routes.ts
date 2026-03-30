@@ -11,6 +11,9 @@ const router = Router();
 // 搜尋 YouTube 影片
 router.get('/search', (req, res) => youtubeController.search(req, res));
 
+// YouTube 搜尋建議（autocomplete）
+router.get('/search/suggestions', (req, res) => youtubeController.searchSuggestions(req, res));
+
 // 獲取影片資訊
 router.get('/video/:videoId', (req, res) => youtubeController.getVideoInfo(req, res));
 

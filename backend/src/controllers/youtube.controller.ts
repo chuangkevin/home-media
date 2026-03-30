@@ -58,6 +58,45 @@ export class YouTubeController {
   }
 
   /**
+   * GET /api/search/suggestions?q=query
+   * YouTube 搜尋建議（autocomplete）
+   */
+  async searchSuggestions(req: Request, res: Response): Promise<void> {
+    const { q } = req.query;
+    if (!q || typeof q !== 'string' || q.trim().length < 1) {
+      res.json([]);
+      return;
+    }
+
+    try {
+      const https = await import('https');
+      const url = `https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&hl=zh-TW&gl=TW&q=${encodeURIComponent(q)}&ds=yt`;
+
+      const data = await new Promise<string>((resolve, reject) => {
+        https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (resp) => {
+          let body = '';
+          resp.on('data', (d: Buffer) => body += d);
+          resp.on('end', () => resolve(body));
+        }).on('error', reject);
+        setTimeout(() => reject(new Error('timeout')), 5000);
+      });
+
+      // Response format: window.google.ac.h(["query",[["suggestion1"],["suggestion2"],...]])
+      const match = data.match(/\[.*\]/s);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        const suggestions: string[] = (parsed[1] || []).map((s: any) => s[0]).filter(Boolean).slice(0, 10);
+        res.json(suggestions);
+      } else {
+        res.json([]);
+      }
+    } catch (error) {
+      logger.error('Search suggestions error:', error);
+      res.json([]);
+    }
+  }
+
+  /**
    * GET /api/video/:videoId
    * 獲取影片資訊
    */

@@ -18,6 +18,16 @@ class ApiService {
   /**
    * 搜尋 YouTube 音樂
    */
+  async getSearchSuggestions(query: string): Promise<string[]> {
+    try {
+      const response = await this.api.get<string[]>('/search/suggestions', {
+        params: { q: query },
+        timeout: 5000,
+      });
+      return response.data;
+    } catch { return []; }
+  }
+
   async searchTracks(query: string, limit: number = 20): Promise<Track[]> {
     const response = await this.api.get<SearchResponse>('/search', {
       params: { q: query, limit },

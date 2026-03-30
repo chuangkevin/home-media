@@ -12,7 +12,7 @@ let cachedKeys: string[] = [];
 let lastLoadTime = 0;
 const CACHE_TTL = 60_000; // 60 秒快取
 const badKeys = new Map<string, number>(); // key -> 失敗時間戳
-const BAD_KEY_COOLDOWN = 2 * 60 * 1000; // 壞 key 冷卻 2 分鐘
+const BAD_KEY_COOLDOWN = 30 * 1000; // 壞 key 冷卻 30 秒（縮短以避免全滅）
 
 function loadKeys(): string[] {
   const now = Date.now();
