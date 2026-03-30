@@ -94,23 +94,25 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // YouTube CC 載入狀態
   const [isLoadingYouTubeCC, setIsLoadingYouTubeCC] = useState(false);
 
-  // 歌詞翻譯：載入歌詞後自動翻譯（非中文才翻）
+  // 歌詞翻譯：AI 辨識已帶翻譯就不重複翻；否則用 translateLyrics
   useEffect(() => {
     if (!currentLyrics || currentLyrics.lines.length === 0 || !track?.videoId) {
       setTranslations([]);
       return;
     }
+
+    // AI 辨識的歌詞 (source='manual') 翻譯已存在 lyrics_translations 表
+    // translateLyrics 會先查快取，有就直接用（不重新翻）
     let cancelled = false;
     const lines = currentLyrics.lines.map(l => l.text);
     apiService.translateLyrics(track.videoId, lines).then(result => {
       if (cancelled || !result) return;
-      // zh-TW 不需要翻譯顯示（原文就是繁體中文）
       if (result.detected_language === 'zh-TW') {
         setTranslations([]);
       } else {
         setTranslations(result.translations);
       }
-    });
+    }).catch(() => setTranslations([]));
     return () => { cancelled = true; };
   }, [currentLyrics, track?.videoId]);
 

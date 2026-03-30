@@ -71,16 +71,23 @@ Output format - MUST be valid JSON:
 
 Rules:
 1. "time" is in seconds (decimal, e.g. 65.3 for 1:05.3)
-2. Each line should be a natural phrase/sentence of the lyrics
-3. Timestamps must be accurate to the audio
+2. CRITICAL: Each line MUST be a COMPLETE sentence or phrase, NOT individual words
+   - WRONG: {"time": 10.0, "text": "going"} — too short, merge with context
+   - WRONG: {"time": 10.5, "text": "and I got to be"} — incomplete, merge with next part
+   - RIGHT: {"time": 10.0, "text": "Keep going and I got to be strong and just keep pushing"} — full sentence
+   - Aim for 1-2 lines per 5-10 seconds of audio
+   - If a sentence spans multiple seconds, use the START time of the first word
+3. Timestamps must be accurate to when the line STARTS being sung
 4. "language" is ISO code of the PRIMARY language (en, ja, ko, zh-CN, zh-TW, etc.)
 5. "translation" array: translate each line to Traditional Chinese (繁體中文)
    - If lyrics are already in Traditional Chinese (zh-TW): omit "translation" field
    - If lyrics are in Simplified Chinese (zh-CN): "translation" should be the Traditional Chinese version
-   - For all other languages: provide natural Traditional Chinese translation
+   - For all other languages: provide natural, fluent Traditional Chinese translation
+   - Translation must match the MEANING, not word-by-word
 6. Keep the same number of entries in "lines" and "translation"
-7. Only include actual sung lyrics, not instrumental sections
-8. Reply with ONLY the JSON, no other text`;
+7. Only include actual sung/spoken content, not instrumental sections
+8. A typical 3-4 minute song should have 30-60 lines, NOT 100+
+9. Reply with ONLY the JSON, no other text`;
 
   let currentKey = apiKey;
   for (let attempt = 0; attempt <= 1; attempt++) {
@@ -133,6 +140,24 @@ Rules:
 
       // 快取結果
       cacheAILyrics(videoId, result);
+
+      // 同時把翻譯存到 lyrics_translations 表（避免 translateLyrics 重複翻譯）
+      if (result.translation && result.translation.length > 0 && result.language !== 'zh-TW') {
+        try {
+          const db = getDatabase();
+          db.exec(`CREATE TABLE IF NOT EXISTS lyrics_translations (
+            video_id TEXT PRIMARY KEY, translations_json TEXT NOT NULL,
+            detected_language TEXT, cached_at INTEGER NOT NULL
+          )`);
+          db.prepare(
+            `INSERT INTO lyrics_translations (video_id, translations_json, detected_language, cached_at)
+             VALUES (?, ?, ?, ?) ON CONFLICT(video_id) DO UPDATE SET
+             translations_json = excluded.translations_json, detected_language = excluded.detected_language, cached_at = excluded.cached_at`
+          ).run(videoId, JSON.stringify(result.translation.map(t => t.text)), result.language, Date.now());
+          console.log(`💾 [AI Lyrics] Translation cached for ${videoId}`);
+        } catch {}
+      }
+
       return result;
 
     } catch (err: any) {
