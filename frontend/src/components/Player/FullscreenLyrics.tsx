@@ -386,28 +386,39 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     loadPreference();
   }, [track.videoId, dispatch, open]);
 
-  // 根據當前時間計算高亮歌詞行
+  // 根據當前時間計算高亮歌詞行 — 用 rAF 直接讀 audio.currentTime（不依賴 Redux）
   useEffect(() => {
-    if (!currentLyrics || !currentLyrics.isSynced || currentLyrics.lines.length === 0) {
+    if (!currentLyrics || !currentLyrics.isSynced || currentLyrics.lines.length === 0 || !open) {
       return;
     }
 
     const lines = currentLyrics.lines;
-    let newLineIndex = -1;
-    const adjustedTime = currentTime + timeOffset;
+    let lastIndex = -1;
+    let rafId: number;
 
-    for (let i = 0; i < lines.length; i++) {
-      if (adjustedTime >= lines[i].time) {
-        newLineIndex = i;
-      } else {
-        break;
+    const tick = () => {
+      const audio = document.querySelector('audio') as HTMLAudioElement;
+      if (audio) {
+        const adjustedTime = audio.currentTime + timeOffset;
+        let newLineIndex = -1;
+        for (let i = 0; i < lines.length; i++) {
+          if (adjustedTime >= lines[i].time) {
+            newLineIndex = i;
+          } else {
+            break;
+          }
+        }
+        if (newLineIndex !== lastIndex) {
+          lastIndex = newLineIndex;
+          dispatch(setCurrentLineIndex(newLineIndex));
+        }
       }
-    }
+      rafId = requestAnimationFrame(tick);
+    };
 
-    if (newLineIndex !== currentLineIndex) {
-      dispatch(setCurrentLineIndex(newLineIndex));
-    }
-  }, [currentTime, timeOffset, currentLyrics, currentLineIndex, dispatch]);
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [currentLyrics, timeOffset, open, dispatch]);
 
   // 自動滾動到當前歌詞行
   useEffect(() => {
