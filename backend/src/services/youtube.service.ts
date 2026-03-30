@@ -238,28 +238,36 @@ class YouTubeService {
     try {
       logger.info(`Getting video info for: ${videoId}`);
 
-      const info = await ytdl.getInfo(videoId);
-      const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+      // 使用 yt-dlp 取得影片資訊（比 ytdl-core 更穩定）
+      const { spawn } = await import('child_process');
+      const ytdlpPath = this.getYtDlpPath();
+      const baseArgs = this.getYtDlpBaseArgs();
 
-      // 獲取最高解析度的縮圖
-      const thumbnails = info.videoDetails.thumbnails || [];
-      const thumbnail = thumbnails.length > 0 
-        ? thumbnails[thumbnails.length - 1].url 
-        : undefined;
+      const info = await new Promise<any>((resolve, reject) => {
+        const args = [...baseArgs, '--dump-json', '--skip-download', `https://www.youtube.com/watch?v=${videoId}`];
+        const proc = spawn(ytdlpPath, args, { timeout: 30000 });
+        let stdout = '', stderr = '';
+        proc.stdout.on('data', (d: Buffer) => { stdout += d; });
+        proc.stderr.on('data', (d: Buffer) => { stderr += d; });
+        proc.on('close', (code) => {
+          if (code === 0 && stdout) {
+            try { resolve(JSON.parse(stdout)); } catch { reject(new Error('Invalid JSON from yt-dlp')); }
+          } else {
+            reject(new Error(stderr || `yt-dlp exit code ${code}`));
+          }
+        });
+        proc.on('error', reject);
+      });
+
+      const thumbnail = info.thumbnail || info.thumbnails?.[info.thumbnails.length - 1]?.url;
 
       return {
         videoId,
-        title: info.videoDetails.title,
-        channel: info.videoDetails.ownerChannelName || info.videoDetails.author?.name || 'Unknown',
+        title: info.title || info.fulltitle || videoId,
+        channel: info.channel || info.uploader || 'Unknown',
         thumbnail,
-        duration: parseInt(info.videoDetails.lengthSeconds, 10),
-        formats: audioFormats.map((format) => ({
-          itag: format.itag,
-          mimeType: format.mimeType || '',
-          bitrate: format.bitrate || 0,
-          audioQuality: format.audioQuality || '',
-          url: format.url,
-        })),
+        duration: info.duration || 0,
+        formats: [],
       };
     } catch (error) {
       logger.error(`Failed to get video info for ${videoId}:`, error);
@@ -394,6 +402,7 @@ class YouTubeService {
     const args: string[] = [
       '--no-check-certificates',
       '--no-warnings',
+      '--js-runtimes', `node:${process.execPath}`,
       '--add-header', 'Accept-Language:zh-TW,zh;q=0.9',
       '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     ];

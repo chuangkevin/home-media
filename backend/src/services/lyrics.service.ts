@@ -1,4 +1,4 @@
-import youtubedl from 'youtube-dl-exec';
+// youtube-dl-exec used for constants.YOUTUBE_DL_PATH in fetchYouTubeCaptions
 import { getSong } from 'genius-lyrics-api';
 import { db } from '../config/database';
 import { Lyrics, LyricsLine, CachedLyrics } from '../types/lyrics.types';
@@ -110,11 +110,13 @@ class LyricsService {
       }
       attemptResults.push({ source: 'cache', success: false, duration: Date.now() - cacheStart });
 
-      // 2. 先嘗試高品質來源（NetEase/LRCLIB），YouTube CC 放最後
-      // YouTube CC 自動字幕品質差（有 [Music]、[Applause] 等標記）
+      // 2. 同時啟動 YouTube CC（yt-dlp 較慢）和傳統來源（API 較快）
+      // 傳統來源找到就優先用，否則等 YouTube CC
+      console.log(`🎵 [LyricsService] Step 2: Starting YouTube CC + traditional sources in parallel...`);
+      const ytCCPromise = this.fetchYouTubeCaptions(videoId).catch(() => null);
 
       // 3. 嘗試從網易雲音樂獲取（華語歌詞最齊全）
-      console.log(`🎵 [LyricsService] Step 3/5: Fetching from NetEase...`);
+      console.log(`🎵 [LyricsService] Step 3: Fetching from NetEase...`);
       const neteaseStart = Date.now();
       try {
         const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist);
@@ -132,7 +134,7 @@ class LyricsService {
       }
 
       // 4. 嘗試從 LRCLIB 獲取（有時間戳的 LRC 格式）
-      console.log(`🎵 [LyricsService] Step 4/5: Fetching from LRCLIB...`);
+      console.log(`🎵 [LyricsService] Step 4: Fetching from LRCLIB...`);
       const lrclibStart = Date.now();
       try {
         const lrclibLyrics = await this.fetchLRCLIB(videoId, title, artist);
@@ -150,7 +152,7 @@ class LyricsService {
       }
 
       // 5. 嘗試從 Genius 獲取（通常沒有時間戳，最後備用）
-      console.log(`🎵 [LyricsService] Step 5/5: Fetching from Genius...`);
+      console.log(`🎵 [LyricsService] Step 5: Fetching from Genius...`);
       const geniusStart = Date.now();
       try {
         const geniusLyrics = await this.fetchGeniusLyrics(videoId, title, artist);
@@ -167,21 +169,20 @@ class LyricsService {
         attemptResults.push({ source: 'genius', success: false, error: geniusErr instanceof Error ? geniusErr.message : String(geniusErr), duration: Date.now() - geniusStart });
       }
 
-      // 6. 最後手段：YouTube CC 自動字幕（品質最差，過濾標記）
-      console.log(`🎵 [LyricsService] Step 6: YouTube CC (last resort)...`);
+      // 6. 傳統來源都沒找到，等待已經在跑的 YouTube CC
+      console.log(`🎵 [LyricsService] Step 6: Waiting for YouTube CC result...`);
       const ytStart = Date.now();
       try {
-        const youtubeLyrics = await this.fetchYouTubeCaptions(videoId);
+        const youtubeLyrics = await ytCCPromise;
         const ytDuration = Date.now() - ytStart;
         if (youtubeLyrics) {
           // 過濾純標記行（[Music]、[Applause] 等）
           youtubeLyrics.lines = youtubeLyrics.lines.filter(line => {
             const text = line.text.trim();
-            // 移除只有 [xxx] 標記的行
             return text && !/^\[[\w\s]+\]$/.test(text);
           });
           if (youtubeLyrics.lines.length > 3) {
-            console.log(`🎵 [LyricsService] ✅ YouTube CC found (filtered)! (${ytDuration}ms)`);
+            console.log(`🎵 [LyricsService] ✅ YouTube CC found (filtered)! waited ${ytDuration}ms`);
             attemptResults.push({ source: 'youtube', success: true, duration: ytDuration });
             this.saveToCache(youtubeLyrics);
             this.logAttemptSummary(attemptResults, startTime);
@@ -230,77 +231,87 @@ class LyricsService {
     const tempDir = os.tmpdir();
     const tempFile = path.join(tempDir, `${videoId}-subtitle`);
 
-    // 設定 yt-dlp 執行超時（30 秒）
     const YT_DLP_TIMEOUT = 30000;
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    // 只抓原始語言字幕（不抓翻譯版，避免 429 + 品質差）
+    // 翻譯交給我們的 Gemini AI 處理
+    const preferredLangs = ['zh', 'en', 'ja', 'ko'];
 
     try {
-      const url = `https://www.youtube.com/watch?v=${videoId}`;
-      const languages = ['zh-Hant', 'zh-TW', 'zh', 'en'];
+      const { spawn } = await import('child_process');
+      const ytdlpConstants = require('youtube-dl-exec').constants;
+      const ytdlpBin = ytdlpConstants?.YOUTUBE_DL_PATH || 'yt-dlp';
 
-      for (const lang of languages) {
-        try {
-          console.log(`🎬 [fetchYouTubeCaptions] Trying language: ${lang}`);
+      // 只下載原始語言的手動/自動字幕
+      // 不加 --write-auto-sub 的翻譯版（如 zh-Hant from en）避免 429
+      const args = [
+        '--skip-download',
+        '--write-auto-sub',
+        '--write-sub',
+        '--sub-lang', preferredLangs.join(','),
+        '--sub-format', 'vtt',
+        '-o', tempFile,
+        '--no-warnings',
+        '--no-check-certificates',
+        '--js-runtimes', `node:${process.execPath}`,
+        url,
+      ];
 
-          // 清理舊的臨時文件
-          const subtitleFile = `${tempFile}.${lang}.vtt`;
-          if (fs.existsSync(subtitleFile)) {
-            fs.unlinkSync(subtitleFile);
+      console.log(`🎬 [fetchYouTubeCaptions] Running: ${ytdlpBin} ${args.join(' ')}`);
+
+      // 不因 exit code 失敗 — yt-dlp 有時 skip-download 回傳 1 但字幕已下載
+      await new Promise<void>((resolve) => {
+        const proc = spawn(ytdlpBin, args, { timeout: YT_DLP_TIMEOUT });
+        let stderr = '';
+        proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+        proc.stdout?.on('data', (d: Buffer) => { console.log(`🎬 [fetchYouTubeCaptions] stdout: ${d.toString().trim()}`); });
+        proc.on('close', (code) => {
+          console.log(`🎬 [fetchYouTubeCaptions] yt-dlp exited with code ${code}`);
+          if (stderr) console.log(`🎬 [fetchYouTubeCaptions] stderr: ${stderr.trim()}`);
+          resolve(); // 永遠 resolve，讓後面的文件掃描來判斷是否成功
+        });
+        proc.on('error', (err) => {
+          console.error(`🎬 [fetchYouTubeCaptions] spawn error: ${err.message}`);
+          resolve(); // 即使 spawn 失敗也 resolve
+        });
+        setTimeout(() => { proc.kill(); resolve(); }, YT_DLP_TIMEOUT);
+      });
+
+      // 掃描所有產生的字幕文件（包括 .vtt 和可能的其他格式）
+      const allTempFiles = fs.readdirSync(tempDir).filter(f => f.startsWith(`${videoId}-subtitle`));
+      console.log(`🎬 [fetchYouTubeCaptions] All matching files in temp: ${allTempFiles.join(', ') || '(none)'}`);
+      const allFiles = allTempFiles.filter(f => f.endsWith('.vtt'));
+      console.log(`🎬 [fetchYouTubeCaptions] Found ${allFiles.length} subtitle files: ${allFiles.join(', ')}`);
+
+      // 按優先順序找最佳字幕
+      for (const lang of preferredLangs) {
+        const langLower = lang.toLowerCase();
+        const matchingFile = allFiles.find(f => f.toLowerCase().includes(`.${langLower}.`));
+        if (matchingFile) {
+          const filePath = path.join(tempDir, matchingFile);
+          const vttContent = fs.readFileSync(filePath, 'utf-8');
+          console.log(`🎬 [fetchYouTubeCaptions] Read ${vttContent.length} bytes from ${matchingFile}`);
+          const lines = this.parseVTT(vttContent);
+          if (lines.length > 0) {
+            console.log(`🎬 [fetchYouTubeCaptions] ✅ ${lines.length} lines from ${matchingFile}`);
+            return { videoId, lines, source: 'youtube', isSynced: true, language: lang };
           }
-
-          // 使用 yt-dlp 下載字幕到臨時文件（加入超時）
-          const ytdlpPromise = youtubedl(url, {
-            skipDownload: true,
-            writeAutoSub: true,
-            writeSub: true,
-            subLang: lang,
-            subFormat: 'vtt',
-            output: tempFile,
-            noWarnings: true,
-            quiet: true,
-            noCheckCertificates: true, // 繞過 SSL 證書驗證（Docker 環境需要）
-          });
-
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error(`yt-dlp timeout after ${YT_DLP_TIMEOUT}ms`)), YT_DLP_TIMEOUT);
-          });
-
-          await Promise.race([ytdlpPromise, timeoutPromise]);
-
-          // 讀取字幕文件
-          if (fs.existsSync(subtitleFile)) {
-            const vttContent = fs.readFileSync(subtitleFile, 'utf-8');
-            console.log(`🎬 [fetchYouTubeCaptions] Read ${vttContent.length} bytes for ${lang}`);
-
-            // 清理臨時文件
-            fs.unlinkSync(subtitleFile);
-
-            // 解析 VTT 格式
-            const lines = this.parseVTT(vttContent);
-
-            if (lines.length > 0) {
-              console.log(`🎬 [fetchYouTubeCaptions] Successfully parsed ${lines.length} lines for ${lang}`);
-              logger.info(`✅ YouTube CC 成功 (${lang}): ${videoId}, ${lines.length} 行`);
-              return {
-                videoId,
-                lines,
-                source: 'youtube',
-                isSynced: true,
-                language: lang,
-              };
-            }
-          } else {
-            console.log(`🎬 [fetchYouTubeCaptions] Subtitle file not found for ${lang}`);
-          }
-        } catch (langError) {
-          const errMsg = langError instanceof Error ? langError.message : String(langError);
-          console.log(`🎬 [fetchYouTubeCaptions] Language ${lang} failed: ${errMsg}`);
-          logger.warn(`[YouTube CC] Language ${lang} failed for ${videoId}: ${errMsg}`);
-          continue;
         }
       }
 
-      console.log(`🎬 [fetchYouTubeCaptions] No subtitles found for any language`);
-      logger.info(`[YouTube CC] No subtitles found for: ${videoId}`);
+      // Fallback: 任何 .vtt 文件
+      const anyVtt = allFiles[0];
+      if (anyVtt) {
+        const vttContent = fs.readFileSync(path.join(tempDir, anyVtt), 'utf-8');
+        const lines = this.parseVTT(vttContent);
+        if (lines.length > 0) {
+          const detectedLang = anyVtt.replace(`${videoId}-subtitle.`, '').replace('.vtt', '');
+          console.log(`🎬 [fetchYouTubeCaptions] ✅ Fallback: ${lines.length} lines from ${anyVtt}`);
+          return { videoId, lines, source: 'youtube', isSynced: true, language: detectedLang };
+        }
+      }
+
+      console.log(`🎬 [fetchYouTubeCaptions] No subtitle files found after yt-dlp run`);
       return null;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
@@ -784,9 +795,11 @@ class LyricsService {
 
           text = text.trim()
             .replace(/<[^>]+>/g, '') // 移除 HTML 標籤
-            .replace(/\{[^}]+\}/g, ''); // 移除 VTT 樣式標籤
+            .replace(/\{[^}]+\}/g, '') // 移除 VTT 樣式標籤
+            .replace(/♪/g, '').trim(); // 移除 ♪ 音樂符號
 
-          if (text) {
+          // 跳過空行和純符號行
+          if (text && !/^[\s♪♫♬\[\]()（）]+$/.test(text)) {
             lines.push({ time: timeInSeconds, text });
           }
         }
@@ -794,7 +807,19 @@ class LyricsService {
       i++;
     }
 
-    return lines;
+    // YouTube 自動字幕去重：每個 cue 是累積式的（前一行 + 新文字）
+    // 例如 cue1="Hello" cue2="Hello world" cue3="world" — 只保留最完整的
+    const deduped: LyricsLine[] = [];
+    for (let j = 0; j < lines.length; j++) {
+      const cur = lines[j].text;
+      const next = j + 1 < lines.length ? lines[j + 1].text : '';
+      // 如果下一行包含當前行的全部文字，跳過當前行
+      if (next && next.startsWith(cur)) continue;
+      // 如果當前行跟前一行完全相同，跳過
+      if (deduped.length > 0 && deduped[deduped.length - 1].text === cur) continue;
+      deduped.push(lines[j]);
+    }
+    return deduped;
   }
 
   /**
@@ -894,6 +919,32 @@ class LyricsService {
   /**
    * 清除過期的快取（可選，例如 30 天）
    */
+  /**
+   * 清除特定來源的所有快取（例如清除所有 YouTube CC 快取）
+   */
+  clearCacheBySource(source: string): number {
+    try {
+      const stmt = db.prepare('DELETE FROM lyrics_cache WHERE source = ?');
+      const result = stmt.run(source);
+      console.log(`🗑️ 清除了 ${result.changes} 個 ${source} 歌詞快取`);
+      return result.changes;
+    } catch (error) {
+      logger.error(`清除 ${source} 歌詞快取失敗:`, error);
+      return 0;
+    }
+  }
+
+  /**
+   * 清除特定影片的快取
+   */
+  clearCacheForVideo(videoId: string): boolean {
+    try {
+      const stmt = db.prepare('DELETE FROM lyrics_cache WHERE video_id = ?');
+      stmt.run(videoId);
+      return true;
+    } catch { return false; }
+  }
+
   clearExpiredCache(daysOld: number = 30): number {
     try {
       const expiryTime = Date.now() - daysOld * 24 * 60 * 60 * 1000;

@@ -94,6 +94,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // YouTube CC 載入狀態
   const [isLoadingYouTubeCC, setIsLoadingYouTubeCC] = useState(false);
 
+  // 換曲目時立即清空翻譯（避免看到上一首的翻譯）
+  useEffect(() => {
+    setTranslations([]);
+  }, [track?.videoId]);
+
   // 歌詞翻譯：AI 辨識已帶翻譯就不重複翻；否則用 translateLyrics
   useEffect(() => {
     if (!currentLyrics || currentLyrics.lines.length === 0 || !track?.videoId) {
@@ -104,21 +109,41 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     // AI 辨識的歌詞 (source='manual') 翻譯已存在 lyrics_translations 表
     // translateLyrics 會先查快取，有就直接用（不重新翻）
     let cancelled = false;
-    const lines = currentLyrics.lines.map(l => l.text);
-    apiService.translateLyrics(track.videoId, lines).then(result => {
-      if (cancelled || !result) return;
-      if (result.detected_language === 'zh-TW') {
-        setTranslations([]);
-      } else {
-        setTranslations(result.translations);
-      }
-    }).catch(() => setTranslations([]));
+    let retryCount = 0;
+    const maxRetries = 2;
+
+    // 開始翻譯前先清空（避免新舊混合）
+    setTranslations([]);
+
+    const doTranslate = () => {
+      const lines = currentLyrics.lines.map(l => l.text);
+      apiService.translateLyrics(track.videoId, lines).then(result => {
+        if (cancelled || !result) return;
+        if (result.detected_language === 'zh-TW') {
+          setTranslations([]);
+        } else {
+          setTranslations(result.translations);
+        }
+      }).catch(() => {
+        if (!cancelled && retryCount < maxRetries) {
+          retryCount++;
+          setTimeout(doTranslate, 3000);
+        } else {
+          setTranslations([]);
+        }
+      });
+    };
+    doTranslate();
     return () => { cancelled = true; };
   }, [currentLyrics, track?.videoId]);
 
   // 影片快取：開啟 Drawer 時自動開始下載，輪詢狀態
+  const videoPollingVideoIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!open || !track?.videoId) return;
+    // 避免同一首歌重複觸發 polling
+    if (videoPollingVideoIdRef.current === track.videoId && (videoCached || videoDownloading)) return;
+    videoPollingVideoIdRef.current = track.videoId;
     let cancelled = false;
 
     (async () => {
@@ -127,7 +152,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         const status = await apiService.getVideoCacheStatus(track.videoId);
         if (cancelled) return;
         if (status.cached) { setVideoCached(true); setVideoDownloading(false); return; }
-      } catch { /* continue */ }
+      } catch {
+        if (cancelled) return;
+      }
 
       // 觸發下載
       setVideoDownloading(true);
@@ -161,6 +188,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       apiService.videoCacheCleanup().catch(() => {});
       setVideoCached(false);
       setVideoDownloading(false);
+      videoPollingVideoIdRef.current = null;
     };
   }, [open, track?.videoId]);
 
@@ -538,8 +566,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const handleReloadOriginalLyrics = async () => {
     setIsReloadingLyrics(true);
     try {
+      // 清除前端+後端快取，確保重新搜尋
       await lyricsCacheService.delete(track.videoId);
       await lyricsCacheService.clearPreference(track.videoId);
+      await apiService.clearServerLyricsCache(track.videoId).catch(() => {});
       apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0, lrclibId: null });
 
       const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel);

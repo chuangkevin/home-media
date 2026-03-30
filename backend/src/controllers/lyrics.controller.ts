@@ -283,6 +283,15 @@ export class LyricsController {
       });
     }
   }
+  /**
+   * DELETE /api/lyrics/cache/:videoId
+   * 清除特定影片的歌詞快取
+   */
+  async clearLyricsCache(req: Request, res: Response): Promise<void> {
+    const { videoId } = req.params;
+    lyricsService.clearCacheForVideo(videoId);
+    res.json({ success: true, videoId });
+  }
 }
 
 export default new LyricsController();

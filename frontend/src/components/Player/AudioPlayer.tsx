@@ -50,6 +50,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const [skipToast, setSkipToast] = useState('');
   const skipSegmentsRef = useRef<Array<{ start: number; end: number; category: string }>>([]);
   const lastSkipRef = useRef(0); // 防止重複跳過同一段
+  const skippedSegmentsRef = useRef<Set<number>>(new Set()); // 已跳過的 segment index
 
   // 播放清單選單狀態
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<null | HTMLElement>(null);
@@ -69,6 +70,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     if (!currentTrack?.videoId) return;
     skipSegmentsRef.current = [];
     lastSkipRef.current = 0;
+    skippedSegmentsRef.current = new Set();
     apiService.getSponsorBlockSegments(currentTrack.videoId).then(segments => {
       if (segments.length > 0) {
         skipSegmentsRef.current = segments;
@@ -724,8 +726,24 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       }
       // SponsorBlock: 自動跳過片段
       const t = audio.currentTime;
-      for (const seg of skipSegmentsRef.current) {
-        if (t >= seg.start && t < seg.end && t !== lastSkipRef.current) {
+      for (let i = 0; i < skipSegmentsRef.current.length; i++) {
+        const seg = skipSegmentsRef.current[i];
+        // 已跳過的 segment 不再處理
+        if (skippedSegmentsRef.current.has(i)) continue;
+        if (t >= seg.start && t < seg.end) {
+          // 檢查 seek 目標是否在已 buffer 範圍內
+          let canSeek = false;
+          for (let b = 0; b < audio.buffered.length; b++) {
+            if (audio.buffered.start(b) <= seg.end && audio.buffered.end(b) >= seg.end) {
+              canSeek = true;
+              break;
+            }
+          }
+          if (!canSeek) {
+            // Buffer 還沒到目標位置，等 buffer 夠了再跳
+            console.log(`⏳ [SponsorBlock] 等待緩衝到 ${seg.end.toFixed(1)}s 再跳過`);
+            break;
+          }
           const skipDuration = Math.round(seg.end - seg.start);
           const labels: Record<string, string> = {
             music_offtopic: '非音樂段落', sponsor: '工商廣告',
@@ -733,6 +751,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             selfpromo: '自我推廣', interaction: '訂閱提醒',
           };
           console.log(`🚫 [SponsorBlock] Skipping ${seg.category}: ${seg.start.toFixed(1)}→${seg.end.toFixed(1)}`);
+          skippedSegmentsRef.current.add(i);
           audio.currentTime = seg.end;
           lastSkipRef.current = seg.end;
           setSkipToast(`已跳過${labels[seg.category] || seg.category} ${skipDuration}s`);
@@ -1013,14 +1032,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
   if (!currentTrack && !pendingTrack) {
-    return <audio ref={audioRef} preload="auto" style={{ display: 'none' }} />;
+    return <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />;
   }
 
   // 有 pendingTrack 但沒有 currentTrack 時，顯示載入狀態
   const displayTrack = currentTrack || pendingTrack;
 
   if (!displayTrack) {
-    return <audio ref={audioRef} preload="auto" style={{ display: 'none' }} />;
+    return <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />;
   }
 
   return (
@@ -1123,7 +1142,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       {/* 隱藏的 audio 元素 - 放在 CardContent 外面確保不受條件渲染影響 */}
 
       {/* 隱藏的 audio 元素 */}
-      <audio ref={audioRef} preload="auto" />
+      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" />
 
       {/* 加入播放清單選單 */}
       {currentTrack && (

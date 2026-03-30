@@ -22,6 +22,9 @@ router.get('/lyrics/netease/:neteaseId', (req, res) => lyricsController.getLyric
 // 手動獲取 YouTube CC 字幕
 router.get('/lyrics/youtube-cc/:videoId', (req, res) => lyricsController.getYouTubeCaptions(req, res));
 
+// 清除特定影片的歌詞快取（讓自動搜尋重新抓取）
+router.delete('/lyrics/cache/:videoId', (req, res) => lyricsController.clearLyricsCache(req, res));
+
 // 獲取歌詞（自動搜尋）
 router.get('/lyrics/:videoId', (req, res) => lyricsController.getLyrics(req, res));
 

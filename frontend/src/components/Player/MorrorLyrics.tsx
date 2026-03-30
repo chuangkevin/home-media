@@ -373,12 +373,12 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
       {track.thumbnail && (
         <Box component="img" src={track.thumbnail} sx={{
           position: 'absolute', top: '-10%', left: '-10%', width: '120%', height: '120%',
-          objectFit: 'cover', filter: 'blur(40px)', opacity: 0.3, pointerEvents: 'none',
+          objectFit: 'cover', filter: 'blur(30px) saturate(1.4)', opacity: 0.55, pointerEvents: 'none',
         }} />
       )}
 
-      {/* Dark overlay */}
-      <Box sx={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', pointerEvents: 'none' }} />
+      {/* Dark overlay - subtle to keep vibrancy */}
+      <Box sx={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', pointerEvents: 'none' }} />
 
       {/* Audio-reactive visualizer canvas */}
       <AudioVisualizerCanvas accentColor={accentColor} subscribe={subscribe} />
@@ -476,7 +476,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
       {/* Bottom glow */}
       <Box sx={{
         position: 'absolute', bottom: 0, left: '10%', right: '10%', height: '30%',
-        background: `radial-gradient(ellipse at bottom, ${accentColor}15, transparent 70%)`,
+        background: `radial-gradient(ellipse at bottom, ${accentColor}30, transparent 70%)`,
         pointerEvents: 'none',
       }} />
     </Box>

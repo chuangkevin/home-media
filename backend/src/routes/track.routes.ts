@@ -81,38 +81,55 @@ router.post('/:videoId/translate', async (req: Request, res: Response): Promise<
         video_id TEXT PRIMARY KEY,
         translations_json TEXT NOT NULL,
         detected_language TEXT,
+        lines_hash TEXT,
         cached_at INTEGER NOT NULL
       )
     `);
 
-    // 檢查快取
-    const cached = db.prepare(
-      'SELECT translations_json, detected_language FROM lyrics_translations WHERE video_id = ?'
-    ).get(videoId) as { translations_json: string; detected_language: string } | undefined;
+    // 加 lines_hash 欄位（如果舊表缺少）
+    try {
+      db.exec('ALTER TABLE lyrics_translations ADD COLUMN lines_hash TEXT');
+    } catch { /* column already exists */ }
 
-    if (cached) {
-      res.json({
-        translations: JSON.parse(cached.translations_json),
-        detected_language: cached.detected_language,
-        cached: true,
-      });
-      return;
+    // 用歌詞內容的 hash 驗證快取有效性（避免換歌詞來源後翻譯錯位）
+    const crypto = await import('crypto');
+    const linesHash = crypto.createHash('md5').update(lines.join('\n')).digest('hex').substring(0, 16);
+
+    // 檢查快取（必須 hash 匹配才用）
+    const cached = db.prepare(
+      'SELECT translations_json, detected_language, lines_hash FROM lyrics_translations WHERE video_id = ?'
+    ).get(videoId) as { translations_json: string; detected_language: string; lines_hash: string | null } | undefined;
+
+    if (cached && cached.lines_hash === linesHash) {
+      const cachedTranslations = JSON.parse(cached.translations_json);
+      // 額外驗證：行數必須匹配
+      if (Array.isArray(cachedTranslations) && cachedTranslations.length === lines.length) {
+        res.json({
+          translations: cachedTranslations,
+          detected_language: cached.detected_language,
+          cached: true,
+        });
+        return;
+      }
     }
 
-    // 呼叫 Gemini 翻譯
+    // 快取不存在或 hash 不匹配 → 重新翻譯
+    if (cached && cached.lines_hash !== linesHash) {
+      console.log(`🔄 [Translate] Cache hash mismatch for ${videoId}, re-translating`);
+    }
+
     const result = await translateLyrics(lines);
     if (!result) {
       res.status(503).json({ error: 'Translation failed (Gemini not configured or unavailable)' });
       return;
     }
 
-    // 中文不翻（zh-TW 原樣返回，zh-CN 已轉繁體）
-    // 快取結果
+    // 快取結果（含 hash）
     db.prepare(
-      `INSERT INTO lyrics_translations (video_id, translations_json, detected_language, cached_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(video_id) DO UPDATE SET translations_json = excluded.translations_json, detected_language = excluded.detected_language, cached_at = excluded.cached_at`
-    ).run(videoId, JSON.stringify(result.translations), result.detected_language, Date.now());
+      `INSERT INTO lyrics_translations (video_id, translations_json, detected_language, lines_hash, cached_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(video_id) DO UPDATE SET translations_json = excluded.translations_json, detected_language = excluded.detected_language, lines_hash = excluded.lines_hash, cached_at = excluded.cached_at`
+    ).run(videoId, JSON.stringify(result.translations), result.detected_language, linesHash, Date.now());
 
     res.json({
       translations: result.translations,

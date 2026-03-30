@@ -202,6 +202,13 @@ class ApiService {
   }
 
   /**
+   * 清除後端歌詞快取（讓自動搜尋重新抓取）
+   */
+  async clearServerLyricsCache(videoId: string): Promise<void> {
+    await this.api.delete(`/lyrics/cache/${videoId}`);
+  }
+
+  /**
    * 手動獲取 YouTube CC 字幕
    */
   async getYouTubeCaptions(videoId: string): Promise<Lyrics | null> {
