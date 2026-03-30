@@ -225,45 +225,16 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           return; // 直接返回，不等後端
         }
 
-        // 沒有前端 cache：快速取得直連 URL 秒播 + 背景下載 + 無痛切換
-        console.log(`⚡ 取得直連 URL: ${pendingTrack.title}`);
-        apiService.cancelPlay();
-
-        let directUrl: string | null = null;
-        try {
-          const result = await apiService.requestPlay(videoId);
-          if (currentVideoIdRef.current !== videoId) return;
-
-          if (result.status === 'ready' && result.cached) {
-            // 已快取，從 server 串流
-            audioRef.current!.src = apiService.getStreamUrl(videoId);
-            audioRef.current!.load();
-            setIsCached(true);
-          } else if (result.status === 'ready' && result.url) {
-            // 拿到直連 URL，秒播！
-            directUrl = result.url!;
-            audioRef.current!.src = directUrl;
-            audioRef.current!.load();
-            setIsCached(false);
-            console.log(`⚡ 直連 URL 秒播: ${pendingTrack.title}`);
-          } else {
-            // Fallback: 從 server 串流
-            audioRef.current!.src = apiService.getStreamUrl(videoId);
-            audioRef.current!.load();
-            setIsCached(false);
-          }
-        } catch (err: any) {
-          if (err?.name === 'AbortError' || err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
-          // Fallback: 直接串流
-          console.warn(`⚠️ requestPlay 失敗，fallback 串流: ${pendingTrack.title}`);
-          audioRef.current!.src = apiService.getStreamUrl(videoId);
-          audioRef.current!.load();
-          setIsCached(false);
-        }
-
-        // 背景：等 DownloadManager 下載完 → 下載到前端 IndexedDB → 無痛切換 Blob URL
-        const bgVideoId = videoId;
+        // 沒有前端 cache：直接從 server 串流（邊播邊快取）
+        console.log(`🎵 串流播放: ${pendingTrack.title}`);
         const streamUrl = apiService.getStreamUrl(videoId);
+        audioRef.current!.src = streamUrl;
+        audioRef.current!.load();
+        setIsCached(false);
+
+        // 背景：等 server 快取完成 → 下載到前端 IndexedDB → 無痛切換 Blob URL
+        const bgVideoId = videoId;
+        const bgStreamUrl = apiService.getStreamUrl(videoId);
         (async () => {
           // 等 backend 快取完成
           for (let i = 0; i < 30; i++) {
@@ -276,7 +247,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
           // 下載到前端 IndexedDB
           try {
-            await audioCacheService.fetchAndCache(bgVideoId, streamUrl, {
+            await audioCacheService.fetchAndCache(bgVideoId, bgStreamUrl, {
               title: pendingTrack.title, channel: pendingTrack.channel,
               thumbnail: pendingTrack.thumbnail, duration: pendingTrack.duration,
             });
