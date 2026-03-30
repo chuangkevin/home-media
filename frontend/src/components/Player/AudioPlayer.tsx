@@ -225,51 +225,67 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           return; // 直接返回，不等後端
         }
 
-        // 沒有前端 cache，使用 DownloadManager 高優先級下載
-        console.log(`🔴 高優先級下載: ${pendingTrack.title}`);
-        apiService.cancelPlay(); // 取消之前的請求
+        // 沒有前端 cache：快速取得直連 URL 秒播 + 背景下載 + 無痛切換
+        console.log(`⚡ 取得直連 URL: ${pendingTrack.title}`);
+        apiService.cancelPlay();
 
+        let directUrl: string | null = null;
         try {
           const result = await apiService.requestPlay(videoId);
-
-          // 換歌了？放棄
           if (currentVideoIdRef.current !== videoId) return;
 
-          if (result.status !== 'ready') {
-            console.error(`❌ 下載失敗: ${pendingTrack.title}`);
-            dispatch(cancelPendingTrack());
-            dispatch(setIsPlaying(false));
-            return;
+          if (result.status === 'ready' && result.cached) {
+            // 已快取，從 server 串流
+            audioRef.current!.src = apiService.getStreamUrl(videoId);
+            audioRef.current!.load();
+            setIsCached(true);
+          } else if (result.status === 'ready' && result.url) {
+            // 拿到直連 URL，秒播！
+            directUrl = result.url!;
+            audioRef.current!.src = directUrl;
+            audioRef.current!.load();
+            setIsCached(false);
+            console.log(`⚡ 直連 URL 秒播: ${pendingTrack.title}`);
+          } else {
+            // Fallback: 從 server 串流
+            audioRef.current!.src = apiService.getStreamUrl(videoId);
+            audioRef.current!.load();
+            setIsCached(false);
           }
         } catch (err: any) {
-          if (err?.name === 'AbortError' || err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
-            console.log(`🔄 播放請求被取消（換歌了）: ${pendingTrack.title}`);
-            return;
-          }
-          console.error(`❌ 播放請求失敗: ${pendingTrack.title}`, err);
-          dispatch(cancelPendingTrack());
-          dispatch(setIsPlaying(false));
-          return;
+          if (err?.name === 'AbortError' || err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
+          // Fallback: 直接串流
+          console.warn(`⚠️ requestPlay 失敗，fallback 串流: ${pendingTrack.title}`);
+          audioRef.current!.src = apiService.getStreamUrl(videoId);
+          audioRef.current!.load();
+          setIsCached(false);
         }
 
-        // Backend 已快取，從快取串流
-        const streamUrl = apiService.getStreamUrl(videoId);
-        audioRef.current!.src = streamUrl;
-        audioRef.current!.load();
-        setIsCached(true);
-
-        // 背景：下載到前端 IndexedDB（鎖屏用）
+        // 背景：等 DownloadManager 下載完 → 下載到前端 IndexedDB → 無痛切換 Blob URL
         const bgVideoId = videoId;
-        audioCacheService.fetchAndCache(bgVideoId, streamUrl, {
-          title: pendingTrack.title,
-          channel: pendingTrack.channel,
-          thumbnail: pendingTrack.thumbnail,
-          duration: pendingTrack.duration,
-        }).then(async () => {
+        const streamUrl = apiService.getStreamUrl(videoId);
+        (async () => {
+          // 等 backend 快取完成
+          for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 3000));
+            if (currentVideoIdRef.current !== bgVideoId) return;
+            const s = await apiService.getCacheStatus(bgVideoId).catch(() => ({ cached: false }));
+            if (s.cached) break;
+          }
           if (currentVideoIdRef.current !== bgVideoId) return;
-          // 切換到 Blob URL
+
+          // 下載到前端 IndexedDB
+          try {
+            await audioCacheService.fetchAndCache(bgVideoId, streamUrl, {
+              title: pendingTrack.title, channel: pendingTrack.channel,
+              thumbnail: pendingTrack.thumbnail, duration: pendingTrack.duration,
+            });
+          } catch { return; }
+
+          if (currentVideoIdRef.current !== bgVideoId) return;
           const blob = await audioCacheService.get(bgVideoId);
           if (!blob || currentVideoIdRef.current !== bgVideoId) return;
+
           const audio = audioRef.current;
           if (!audio) return;
           const curTime = audio.currentTime;
@@ -293,7 +309,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           try { audio.currentTime = curTime; } catch {}
           if (wasPlaying) audio.play().catch(() => {});
           setCacheToast(true);
-        }).catch(() => {});
+        })();
 
         // 音訊準備好了，現在確認切換
         console.log(`✅ Pending track ready: ${pendingTrack.title}`);

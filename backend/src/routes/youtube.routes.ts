@@ -4,6 +4,7 @@ import videoCacheService from '../services/video-cache.service';
 import sponsorBlockService from '../services/sponsorblock.service';
 import downloadManager from '../services/download-manager.service';
 import audioCacheService from '../services/audio-cache.service';
+import youtubeService from '../services/youtube.service';
 
 const router = Router();
 
@@ -70,26 +71,29 @@ router.post('/video-cache/cleanup', (_req, res) => {
   res.json({ message: 'Smart cleanup completed' });
 });
 
-// ===== Play (高優先級下載) =====
+// ===== Play (快速取得直連 URL + 背景下載) =====
 
-// 播放歌曲：高優先級下載，abort 其他任務
+// 播放歌曲：快速回傳直連 URL，同時背景下載到快取
 router.post('/play/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!videoId) { res.status(400).json({ error: 'videoId required' }); return; }
 
   try {
-    const path = await downloadManager.playNow(videoId);
-    if (path && audioCacheService.has(videoId)) {
-      res.json({ status: 'ready', cached: true });
-    } else {
-      res.status(500).json({ status: 'failed' });
+    // 已快取？直接回傳 stream URL
+    if (audioCacheService.has(videoId)) {
+      res.json({ status: 'ready', cached: true, url: null });
+      return;
     }
+
+    // 快速提取 YouTube 直連 URL（2-5 秒）
+    const directUrl = await youtubeService.getAudioStreamUrl(videoId);
+
+    // 背景下載到快取（不阻塞回應）
+    downloadManager.playNow(videoId).catch(() => {});
+
+    res.json({ status: 'ready', cached: false, url: directUrl });
   } catch (err: any) {
-    if (err?.message === 'aborted') {
-      res.status(409).json({ status: 'superseded' });
-    } else {
-      res.status(500).json({ status: 'failed', error: err?.message });
-    }
+    res.status(500).json({ status: 'failed', error: err?.message });
   }
 });
 

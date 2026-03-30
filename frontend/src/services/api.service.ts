@@ -566,7 +566,7 @@ class ApiService {
 
   private playAbortController: AbortController | null = null;
 
-  async requestPlay(videoId: string): Promise<{ status: string; cached?: boolean }> {
+  async requestPlay(videoId: string): Promise<{ status: string; cached?: boolean; url?: string | null }> {
     // 取消之前的 play 請求
     this.cancelPlay();
     this.playAbortController = new AbortController();
