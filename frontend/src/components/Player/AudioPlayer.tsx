@@ -415,14 +415,30 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 return;
               }
 
-              // 3. 傳統來源為主（時間戳準確），AI 只做翻譯
+              // 3. 傳統來源為主（時間戳準確），用 SponsorBlock offset 對齊
               const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
               if (lyrics && lyrics.lines?.length > 3) {
+                // 用 SponsorBlock music_offtopic 計算 offset
+                // 如果影片前面有非音樂段落，歌詞時間戳需要加上 offset
+                const segments = skipSegmentsRef.current;
+                const introSegment = segments.find(s => s.category === 'music_offtopic' && s.start < 5);
+                if (introSegment && lyrics.isSynced) {
+                  const offset = introSegment.end;
+                  // 只在歌詞第一行 time 比 offset 小很多時才 offset（避免誤判）
+                  const firstLineTime = lyrics.lines[0]?.time || 0;
+                  if (firstLineTime < offset * 0.5) {
+                    console.log(`🔧 SponsorBlock offset: +${offset.toFixed(1)}s (非音樂段落 0-${offset.toFixed(1)}s)`);
+                    lyrics.lines = lyrics.lines.map(line => ({
+                      ...line,
+                      time: line.time + offset,
+                    }));
+                  }
+                }
+
                 console.log(`📝 歌詞載入: ${pendingTrack.title} (${lyrics.source}, ${lyrics.lines.length} 行, synced: ${lyrics.isSynced})`);
                 dispatch(setCurrentLyrics(lyrics));
                 lyricsCacheService.set(videoId, lyrics).catch(() => {});
               } else {
-                // 傳統來源找不到好歌詞，顯示提示
                 dispatch(setLyricsError('找不到歌詞'));
               }
             } catch (error) {
