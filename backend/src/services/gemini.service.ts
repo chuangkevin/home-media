@@ -429,6 +429,9 @@ export async function translateLyrics(
   if (!apiKey) return null;
   if (lines.length === 0) return { translations: [], detected_language: 'unknown' };
 
+  // 過濾掉純標記行
+  const cleanLines = lines.map(l => l.replace(/\[(?:Music|Applause|Laughter|Cheering|Instrumental)\]/gi, '').trim());
+
   const prompt = `You are a lyrics translator. Analyze and translate song lyrics to Traditional Chinese (繁體中文).
 
 Rules:
@@ -440,8 +443,8 @@ Rules:
 6. For mixed language lines, translate the non-Chinese parts.
 7. Keep proper nouns, names in original form.
 
-Lyrics (${lines.length} lines):
-${lines.map((l, i) => `${i}: ${l}`).join('\n')}
+Lyrics (${cleanLines.length} lines):
+${cleanLines.map((l, i) => `${i}: ${l || '(instrumental)'}`).join('\n')}
 
 Reply with ONLY a JSON object:
 {"detected_language": "en", "translations": ["翻譯第一行", "翻譯第二行", ...]}`;

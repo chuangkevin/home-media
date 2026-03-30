@@ -110,23 +110,8 @@ class LyricsService {
       }
       attemptResults.push({ source: 'cache', success: false, duration: Date.now() - cacheStart });
 
-      // 2. 嘗試從 YouTube 字幕獲取（通常有時間戳）
-      console.log(`🎵 [LyricsService] Step 2/5: Fetching from YouTube CC...`);
-      const ytStart = Date.now();
-      try {
-        const youtubeLyrics = await this.fetchYouTubeCaptions(videoId);
-        const ytDuration = Date.now() - ytStart;
-        if (youtubeLyrics) {
-          console.log(`🎵 [LyricsService] ✅ YouTube CC found! (${ytDuration}ms)`);
-          attemptResults.push({ source: 'youtube', success: true, duration: ytDuration });
-          this.saveToCache(youtubeLyrics);
-          this.logAttemptSummary(attemptResults, startTime);
-          return youtubeLyrics;
-        }
-        attemptResults.push({ source: 'youtube', success: false, duration: ytDuration });
-      } catch (ytErr) {
-        attemptResults.push({ source: 'youtube', success: false, error: ytErr instanceof Error ? ytErr.message : String(ytErr), duration: Date.now() - ytStart });
-      }
+      // 2. 先嘗試高品質來源（NetEase/LRCLIB），YouTube CC 放最後
+      // YouTube CC 自動字幕品質差（有 [Music]、[Applause] 等標記）
 
       // 3. 嘗試從網易雲音樂獲取（華語歌詞最齊全）
       console.log(`🎵 [LyricsService] Step 3/5: Fetching from NetEase...`);
@@ -180,6 +165,32 @@ class LyricsService {
         attemptResults.push({ source: 'genius', success: false, duration: geniusDuration });
       } catch (geniusErr) {
         attemptResults.push({ source: 'genius', success: false, error: geniusErr instanceof Error ? geniusErr.message : String(geniusErr), duration: Date.now() - geniusStart });
+      }
+
+      // 6. 最後手段：YouTube CC 自動字幕（品質最差，過濾標記）
+      console.log(`🎵 [LyricsService] Step 6: YouTube CC (last resort)...`);
+      const ytStart = Date.now();
+      try {
+        const youtubeLyrics = await this.fetchYouTubeCaptions(videoId);
+        const ytDuration = Date.now() - ytStart;
+        if (youtubeLyrics) {
+          // 過濾純標記行（[Music]、[Applause] 等）
+          youtubeLyrics.lines = youtubeLyrics.lines.filter(line => {
+            const text = line.text.trim();
+            // 移除只有 [xxx] 標記的行
+            return text && !/^\[[\w\s]+\]$/.test(text);
+          });
+          if (youtubeLyrics.lines.length > 3) {
+            console.log(`🎵 [LyricsService] ✅ YouTube CC found (filtered)! (${ytDuration}ms)`);
+            attemptResults.push({ source: 'youtube', success: true, duration: ytDuration });
+            this.saveToCache(youtubeLyrics);
+            this.logAttemptSummary(attemptResults, startTime);
+            return youtubeLyrics;
+          }
+        }
+        attemptResults.push({ source: 'youtube', success: false, duration: ytDuration });
+      } catch (ytErr) {
+        attemptResults.push({ source: 'youtube', success: false, error: ytErr instanceof Error ? ytErr.message : String(ytErr), duration: Date.now() - ytStart });
       }
 
       // 所有來源都失敗
