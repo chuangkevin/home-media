@@ -138,7 +138,7 @@ function BottomNav() {
         value={getNavValue()}
         showLabels
         sx={{
-          height: 56, // 固定高度
+          minHeight: 56,
         }}
       >
         <BottomNavigationAction
@@ -294,7 +294,7 @@ function AppContent() {
 
   return (
     <Box sx={{ minHeight: '100vh' }}>
-      <Container maxWidth="lg" sx={{ py: 4, pb: '180px' }}> {/* 100px 迷你播放器 + 56px 導航欄 + 24px 間距 */}
+      <Container maxWidth="lg" sx={{ py: 4, pb: 'calc(180px + env(safe-area-inset-bottom, 0px))' }}> {/* 播放器 + 導航欄 + safe area */}
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>

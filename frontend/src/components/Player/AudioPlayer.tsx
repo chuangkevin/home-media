@@ -1102,7 +1102,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       sx={{
         ...(!embedded && {
           position: 'fixed',
-          bottom: 56, // 在 BottomNav 上方
+          bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))', // BottomNav 高度 + safe area
           left: 0,
           right: 0,
           zIndex: 1000,
