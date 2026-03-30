@@ -415,41 +415,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 return;
               }
 
-              // 3. 先用傳統來源秒顯示，同時背景 AI 辨識
-              // 傳統來源快（幾秒），AI 慢（10-30秒）但品質好
-              const lyricsVideoId = videoId;
-
-              // 3a. 立即搜尋傳統來源
+              // 3. 傳統來源為主（時間戳準確），AI 只做翻譯
               const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
               if (lyrics && lyrics.lines?.length > 3) {
-                console.log(`📝 傳統歌詞先顯示: ${pendingTrack.title} (${lyrics.source}, ${lyrics.lines.length} 行)`);
+                console.log(`📝 歌詞載入: ${pendingTrack.title} (${lyrics.source}, ${lyrics.lines.length} 行, synced: ${lyrics.isSynced})`);
                 dispatch(setCurrentLyrics(lyrics));
-              }
-
-              // 3b. 背景 AI 辨識（成功就覆蓋傳統歌詞）
-              (async () => {
-                try {
-                  const aiResult = await apiService.generateAILyrics(lyricsVideoId);
-                  if (currentVideoIdRef.current !== lyricsVideoId) return; // 換歌了
-                  if (aiResult?.lines?.length > 0) {
-                    const aiLyrics = {
-                      videoId: lyricsVideoId,
-                      lines: aiResult.lines,
-                      source: 'manual' as const,
-                      isSynced: true,
-                      language: aiResult.language,
-                    };
-                    console.log(`🤖 AI 字幕覆蓋: ${aiResult.lines.length} 行 (${aiResult.language})`);
-                    dispatch(setCurrentLyrics(aiLyrics));
-                    lyricsCacheService.set(lyricsVideoId, aiLyrics).catch(() => {});
-                  }
-                } catch {
-                  // AI 失敗，保持傳統歌詞
-                }
-              })();
-
-              if (!lyrics || lyrics.lines?.length <= 3) {
-                if (!lyrics) dispatch(setLyricsError('搜尋歌詞中...'));
+                lyricsCacheService.set(videoId, lyrics).catch(() => {});
+              } else {
+                // 傳統來源找不到好歌詞，顯示提示
+                dispatch(setLyricsError('找不到歌詞'));
               }
             } catch (error) {
               console.error('獲取歌詞失敗:', error);
