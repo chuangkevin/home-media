@@ -650,26 +650,28 @@ class LyricsService {
       .replace(/\s+/g, ' ')                       // 統一空白
       .trim();
 
-    // 1. 優先提取中文括號【】或《》內的歌名
-    const chineseBracketMatch = normalized.match(/[【《]([^【】《》]+)[】》]/);
+    // 1. 先移除常見後綴（日文動漫標記、Official 等），再做歌名提取
+    let cleaned = normalized
+      // 移除方括號內容（通常是附加資訊、動漫標記等）
+      .replace(/\s*\[.*?\]/g, '')
+      // 移除圓括號內含 official/mv 等關鍵字的內容
+      .replace(/\s*\(.*?(?:official|video|mv|audio|ver\.|version|feat\.|ft\.)[^)]*\)/gi, '')
+      // 移除日文括號及其內容（「」『』）
+      .replace(/\s*[「『].*?[」』]/g, '')
+      // 移除中文括號含 official/mv 等的內容（【official music video】）
+      .replace(/\s*【.*?(?:official|mv|music video|完整版|官方)[^】]*】/gi, '')
+      .replace(/\s*-\s*(official|mv|music video|lyric|lyrics|audio).*$/gi, '')
+      .replace(/\s*(official|mv|music video|lyrics?|lyric video)$/gi, '')
+      .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫]/g, '')
+      .trim();
+
+    // 2. 清理後再檢查中文括號【】或《》內的歌名
+    const chineseBracketMatch = cleaned.match(/[【《]([^【】《》]+)[】》]/);
     if (chineseBracketMatch) {
       const extracted = chineseBracketMatch[1].trim();
       console.log(`🎵 [cleanSongTitle] 從中文括號提取: "${extracted}" (原始: "${title}")`);
       return extracted;
     }
-
-    // 2. 移除常見後綴（包含中文、英文、日文）
-    let cleaned = normalized
-      // 移除括號內含關鍵字的內容
-      .replace(/\s*[\(\[【《「『].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p|官方|完整版|高音質|歌詞|TVアニメ|アニメ|テーマ|ドラマ|主題歌|エンディング|オープニング|挿入歌).*?[\)\]】》」』]/gi, '')
-      // 移除所有剩餘的方括號內容（通常是附加資訊）
-      .replace(/\s*\[[^\]]*\]/g, '')
-      // 移除所有剩餘的圓括號內容（如果裡面不是歌名）
-      .replace(/\s*\([^)]*(?:official|video|mv|audio|ver\.|version|feat\.|ft\.)[^)]*\)/gi, '')
-      .replace(/\s*-\s*(official|mv|music video|lyric|lyrics|audio).*$/gi, '')
-      .replace(/\s*(official|mv|music video|lyrics?|lyric video)$/gi, '')
-      .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫]/g, '')
-      .trim();
 
     // 3a. 如果有頻道名稱，利用它來判斷 artist/title 分割
     if (channelName) {
