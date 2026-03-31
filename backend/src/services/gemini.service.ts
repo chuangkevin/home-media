@@ -14,6 +14,11 @@ const CACHE_TTL = 60_000; // 60 秒快取
 const badKeys = new Map<string, number>(); // key -> 失敗時間戳
 const BAD_KEY_COOLDOWN = 30 * 1000; // 壞 key 冷卻 30 秒（縮短以避免全滅）
 
+/** 根據可用 key 數量決定最大重試次數（最多 5 次） */
+function getMaxRetries(): number {
+  return Math.min(loadKeys().length, 5);
+}
+
 function loadKeys(): string[] {
   const now = Date.now();
   if (cachedKeys.length > 0 && now - lastLoadTime < CACHE_TTL) {
@@ -104,7 +109,7 @@ ${channelName ? `頻道: "${channelName}"` : ''}
 {"title": "歌曲名稱", "artist": "藝人名稱"}`;
 
   let currentKey = apiKey;
-  const maxRetries = 2;
+  const maxRetries = getMaxRetries();
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -282,7 +287,7 @@ Return exactly this JSON format:
 {"mood":"one of: energetic/chill/melancholic/upbeat/dark/dreamy/aggressive/romantic","genre":"primary genre in English","subgenre":"specific subgenre","energy":"one of: very-low/low/medium/high/very-high","language":"ISO 639-1 code like en/ja/zh/ko","themes":["max 3 keywords"]}`;
 
   let currentKey = apiKey;
-  const maxRetries = 2;
+  const maxRetries = getMaxRetries();
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -375,7 +380,8 @@ Reply with ONLY a JSON array of strings, no other text:
 ["query1", "query2", "query3", "query4", "query5"]`;
 
   let currentKey = apiKey;
-  for (let attempt = 0; attempt <= 1; attempt++) {
+  const maxRetries = getMaxRetries();
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const genai = new GoogleGenerativeAI(currentKey);
       const model = genai.getGenerativeModel({
@@ -464,7 +470,8 @@ Reply with ONLY a JSON object:
 {"detected_language": "en", "translations": ["翻譯第一行", "翻譯第二行", ...]}`;
 
   let currentKey = apiKey;
-  for (let attempt = 0; attempt <= 1; attempt++) {
+  const maxRetries = getMaxRetries();
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const genai = new GoogleGenerativeAI(currentKey);
       const model = genai.getGenerativeModel({
