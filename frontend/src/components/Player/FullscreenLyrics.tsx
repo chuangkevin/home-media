@@ -184,13 +184,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     return () => {
       cancelled = true;
-      // 換歌時觸發智慧清理（根據 play_count 決定保留）
-      apiService.videoCacheCleanup().catch(() => {});
-      setVideoCached(false);
-      setVideoDownloading(false);
-      videoPollingVideoIdRef.current = null;
     };
   }, [open, track?.videoId]);
+
+  // 換歌時才重設影片快取狀態（不在 drawer 開關時重設）
+  useEffect(() => {
+    setVideoCached(false);
+    setVideoDownloading(false);
+    videoPollingVideoIdRef.current = null;
+    apiService.videoCacheCleanup().catch(() => {});
+  }, [track?.videoId]);
 
   // YouTube 播放器狀態
   const [videoReady, setVideoReady] = useState(false);
