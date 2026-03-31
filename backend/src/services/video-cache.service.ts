@@ -63,18 +63,40 @@ class VideoCacheService {
 
       const args = [
         ...baseArgs,
-        '-f', 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]',
+        // 寬鬆格式：接受任何 720p 以下的影片，讓 yt-dlp 自動選最佳組合
+        '-f', 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b',
         '--merge-output-format', 'mp4',
+        '--no-part',  // 不用 .part 檔，直接寫入 .tmp
         '-o', tempPath,
         `https://www.youtube.com/watch?v=${videoId}`,
       ];
 
       console.log(`🎬 [VideoCache] Downloading: ${videoId}`);
+      console.log(`🎬 [VideoCache] Command: ${ytdlpPath} ${args.slice(-3).join(' ')}`);
       const proc = spawn(ytdlpPath, args, { timeout: 300000 });
 
+      let lastProgress = '';
       proc.stderr.on('data', (data: Buffer) => {
         const msg = data.toString().trim();
-        if (msg) console.log(`🎬 [VideoCache] ${msg}`);
+        if (!msg) return;
+        // 只 log 進度變化（避免刷屏）
+        const pctMatch = msg.match(/(\d+\.\d+%)/);
+        if (pctMatch) {
+          const pct = pctMatch[1];
+          if (pct !== lastProgress) {
+            lastProgress = pct;
+            if (pct === '100.0%' || parseFloat(pct) % 10 < 1) {
+              console.log(`🎬 [VideoCache] ${videoId}: ${pct}`);
+            }
+          }
+        } else if (msg.includes('ERROR') || msg.includes('Merging')) {
+          console.log(`🎬 [VideoCache] ${msg}`);
+        }
+      });
+
+      proc.stdout.on('data', (data: Buffer) => {
+        const msg = data.toString().trim();
+        if (msg) console.log(`🎬 [VideoCache] stdout: ${msg}`);
       });
 
       proc.on('close', (code) => {
