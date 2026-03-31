@@ -658,12 +658,17 @@ class LyricsService {
       return extracted;
     }
 
-    // 2. 移除常見後綴（包含中文和英文）
+    // 2. 移除常見後綴（包含中文、英文、日文）
     let cleaned = normalized
-      .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p|官方|完整版|高音質|歌詞).*?[\)\]】》]/gi, '')
+      // 移除括號內含關鍵字的內容
+      .replace(/\s*[\(\[【《「『].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p|官方|完整版|高音質|歌詞|TVアニメ|アニメ|テーマ|ドラマ|主題歌|エンディング|オープニング|挿入歌).*?[\)\]】》」』]/gi, '')
+      // 移除所有剩餘的方括號內容（通常是附加資訊）
+      .replace(/\s*\[[^\]]*\]/g, '')
+      // 移除所有剩餘的圓括號內容（如果裡面不是歌名）
+      .replace(/\s*\([^)]*(?:official|video|mv|audio|ver\.|version|feat\.|ft\.)[^)]*\)/gi, '')
       .replace(/\s*-\s*(official|mv|music video|lyric|lyrics|audio).*$/gi, '')
       .replace(/\s*(official|mv|music video|lyrics?|lyric video)$/gi, '')
-      .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫]/g, '') // 移除常見表情符號
+      .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫]/g, '')
       .trim();
 
     // 3a. 如果有頻道名稱，利用它來判斷 artist/title 分割
