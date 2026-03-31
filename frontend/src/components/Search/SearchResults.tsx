@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -8,6 +8,7 @@ import {
   IconButton,
   Grid,
   Chip,
+  CircularProgress,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AddIcon from '@mui/icons-material/Add';
@@ -18,6 +19,8 @@ import type { Track } from '../../types/track.types';
 import { formatDuration, formatNumber } from '../../utils/formatTime';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
 import apiService from '../../services/api.service';
+
+const PAGE_SIZE = 12;
 
 interface SearchResultsProps {
   results: Track[];
@@ -35,24 +38,45 @@ export default function SearchResults({
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
   const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({});
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  // 當搜尋結果變更時，檢查伺服器端快取狀態
+  // Reset visible count when results change
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [results]);
+
+  // 當搜尋結果變更時，檢查伺服器端快取狀態（只查可見的）
   useEffect(() => {
     if (results.length === 0) return;
+    const visible = results.slice(0, visibleCount);
+    const unchecked = visible.filter(r => !(r.videoId in cacheStatus));
+    if (unchecked.length === 0) return;
 
-    const videoIds = results.map(r => r.videoId);
+    const videoIds = unchecked.map(r => r.videoId);
     apiService.getCacheStatusBatch(videoIds)
       .then(status => {
-        const cached: Record<string, boolean> = {};
+        const newCached: Record<string, boolean> = {};
         for (const [videoId, s] of Object.entries(status)) {
-          cached[videoId] = s.cached;
+          newCached[videoId] = s.cached;
         }
-        setCacheStatus(cached);
+        setCacheStatus(prev => ({ ...prev, ...newCached }));
       })
-      .catch(err => {
-        console.warn('Failed to fetch cache status:', err);
-      });
-  }, [results]);
+      .catch(() => {});
+  }, [results, visibleCount]);
+
+  // Infinite scroll: observe sentinel element
+  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
+    if (entries[0].isIntersecting) {
+      setVisibleCount(prev => Math.min(prev + PAGE_SIZE, results.length));
+    }
+  }, [results.length]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(handleObserver, { rootMargin: '200px' });
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [handleObserver]);
 
   const handleOpenPlaylistMenu = (event: React.MouseEvent<HTMLElement>, track: Track) => {
     setPlaylistMenuAnchor(event.currentTarget);
@@ -77,118 +101,131 @@ export default function SearchResults({
     );
   }
 
+  const visibleResults = results.slice(0, visibleCount);
+  const hasMore = visibleCount < results.length;
+
   return (
-    <Grid container spacing={2}>
-      {results.map((track) => (
-        <Grid item xs={12} sm={6} md={4} lg={3} key={track.id}>
-          <Card
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: '100%',
-              transition: 'transform 0.2s, box-shadow 0.2s',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: 6,
-              },
-              border: currentTrackId === track.videoId ? '2px solid' : 'none',
-              borderColor: 'primary.main',
-            }}
-          >
-            <Box sx={{ position: 'relative' }}>
-              <CardMedia
-                component="img"
-                height="180"
-                image={track.thumbnail}
-                alt={track.title}
-                sx={{ objectFit: 'cover' }}
-              />
-              {/* 快取狀態標籤 */}
-              <Chip
-                icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
-                label={cacheStatus[track.videoId] ? '快取' : '網路'}
-                size="small"
-                sx={{
-                  position: 'absolute',
-                  top: 8,
-                  left: 8,
-                  backgroundColor: cacheStatus[track.videoId] ? 'rgba(46, 125, 50, 0.9)' : 'rgba(25, 118, 210, 0.9)',
-                  color: 'white',
-                  '& .MuiChip-icon': { color: 'white' },
-                }}
-              />
-              {/* 時長標籤 */}
-              <Chip
-                label={formatDuration(track.duration)}
-                size="small"
-                sx={{
-                  position: 'absolute',
-                  bottom: 8,
-                  right: 8,
-                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                  color: 'white',
-                }}
-              />
-            </Box>
+    <>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        找到 {results.length} 筆結果
+      </Typography>
 
-            <CardContent sx={{ flexGrow: 1, pb: 1 }}>
-              <Typography
-                variant="subtitle1"
-                component="div"
-                sx={{
-                  fontWeight: 600,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  mb: 1,
-                }}
-              >
-                {track.title}
-              </Typography>
+      <Grid container spacing={2}>
+        {visibleResults.map((track) => (
+          <Grid item xs={12} sm={6} md={4} lg={3} key={track.id}>
+            <Card
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: 6,
+                },
+                border: currentTrackId === track.videoId ? '2px solid' : 'none',
+                borderColor: 'primary.main',
+              }}
+            >
+              <Box sx={{ position: 'relative' }}>
+                <CardMedia
+                  component="img"
+                  height="180"
+                  image={track.thumbnail}
+                  alt={track.title}
+                  sx={{ objectFit: 'cover' }}
+                />
+                <Chip
+                  icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
+                  label={cacheStatus[track.videoId] ? '快取' : '網路'}
+                  size="small"
+                  sx={{
+                    position: 'absolute',
+                    top: 8,
+                    left: 8,
+                    backgroundColor: cacheStatus[track.videoId] ? 'rgba(46, 125, 50, 0.9)' : 'rgba(25, 118, 210, 0.9)',
+                    color: 'white',
+                    '& .MuiChip-icon': { color: 'white' },
+                  }}
+                />
+                <Chip
+                  label={formatDuration(track.duration)}
+                  size="small"
+                  sx={{
+                    position: 'absolute',
+                    bottom: 8,
+                    right: 8,
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                    color: 'white',
+                  }}
+                />
+              </Box>
 
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                {track.channel}
-              </Typography>
-
-              {track.views && (
-                <Typography variant="caption" color="text.secondary">
-                  {formatNumber(track.views)} 次觀看
+              <CardContent sx={{ flexGrow: 1, pb: 1 }}>
+                <Typography
+                  variant="subtitle1"
+                  component="div"
+                  sx={{
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    mb: 1,
+                  }}
+                >
+                  {track.title}
                 </Typography>
-              )}
-            </CardContent>
 
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, pt: 0 }}>
-              <IconButton
-                color="primary"
-                onClick={() => onPlay(track)}
-                sx={{ flexGrow: 1 }}
-              >
-                <PlayArrowIcon />
-              </IconButton>
-              {onAddToQueue && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  {track.channel}
+                </Typography>
+
+                {track.views && (
+                  <Typography variant="caption" color="text.secondary">
+                    {formatNumber(track.views)} 次觀看
+                  </Typography>
+                )}
+              </CardContent>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, pt: 0 }}>
+                <IconButton
+                  color="primary"
+                  onClick={() => onPlay(track)}
+                  sx={{ flexGrow: 1 }}
+                >
+                  <PlayArrowIcon />
+                </IconButton>
+                {onAddToQueue && (
+                  <IconButton
+                    color="default"
+                    onClick={() => onAddToQueue(track)}
+                    title="加入佇列"
+                  >
+                    <AddIcon />
+                  </IconButton>
+                )}
                 <IconButton
                   color="default"
-                  onClick={() => onAddToQueue(track)}
-                  title="加入佇列"
+                  onClick={(e) => handleOpenPlaylistMenu(e, track)}
+                  title="加入播放清單"
                 >
-                  <AddIcon />
+                  <PlaylistAddIcon />
                 </IconButton>
-              )}
-              <IconButton
-                color="default"
-                onClick={(e) => handleOpenPlaylistMenu(e, track)}
-                title="加入播放清單"
-              >
-                <PlaylistAddIcon />
-              </IconButton>
-            </Box>
-          </Card>
-        </Grid>
-      ))}
+              </Box>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
 
-      {/* 加入播放清單選單 */}
+      {/* Infinite scroll sentinel */}
+      {hasMore && (
+        <Box ref={loadMoreRef} sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+          <CircularProgress size={28} />
+        </Box>
+      )}
+
       {selectedTrack && (
         <AddToPlaylistMenu
           anchorEl={playlistMenuAnchor}
@@ -197,6 +234,6 @@ export default function SearchResults({
           onClose={handleClosePlaylistMenu}
         />
       )}
-    </Grid>
+    </>
   );
 }

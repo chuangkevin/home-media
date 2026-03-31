@@ -262,7 +262,7 @@ function AppContent() {
     setHasSearched(true);
 
     try {
-      const results = await apiService.searchTracks(query, 20);
+      const results = await apiService.searchTracks(query, 50);
 
       // 記錄搜尋歷史（fire-and-forget）
       apiService.recordSearch(query, results.length);
