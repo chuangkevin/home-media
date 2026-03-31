@@ -77,15 +77,10 @@ export function getApiKey(): string | null {
     return goodKeys[Math.floor(Math.random() * goodKeys.length)];
   }
 
-  // 全部都壞了，清除最舊的壞 key 重試
-  console.warn(`⚠️ [Gemini] All ${keys.length} keys are bad, clearing oldest`);
-  let oldestKey = '';
-  let oldestTime = Infinity;
-  for (const [k, t] of badKeys) {
-    if (t < oldestTime) { oldestTime = t; oldestKey = k; }
-  }
-  if (oldestKey) badKeys.delete(oldestKey);
-  return oldestKey || keys[0];
+  // 全部都壞了，清除所有 bad marks 重新嘗試
+  console.warn(`⚠️ [Gemini] All ${keys.length} keys marked bad, clearing ALL bad marks`);
+  badKeys.clear();
+  return keys[Math.floor(Math.random() * keys.length)];
 }
 
 export function getApiKeyExcluding(failedKey: string): string | null {
@@ -432,6 +427,20 @@ export async function translateLyrics(
     return null;
   }
   if (lines.length === 0) return { translations: [], detected_language: 'unknown' };
+
+  // 超過 200 行的歌詞分批處理（避免 Gemini token 限制）
+  if (lines.length > 200) {
+    console.log(`🌐 [Gemini] 歌詞 ${lines.length} 行太多，只翻譯前 200 行`);
+    const truncated = lines.slice(0, 200);
+    const result = await translateLyrics(truncated);
+    if (result) {
+      // 補齊剩餘行為空字串
+      while (result.translations.length < lines.length) {
+        result.translations.push('');
+      }
+    }
+    return result;
+  }
 
   // 過濾掉純標記行
   const cleanLines = lines.map(l => l.replace(/\[(?:Music|Applause|Laughter|Cheering|Instrumental)\]/gi, '').trim());
