@@ -14,9 +14,7 @@ export function useAutoQueue() {
   const { currentTrack, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const isLoadingRef = useRef(false);
   const lastLoadedVideoIdRef = useRef<string | null>(null);
-  const lastPlaylistLengthRef = useRef(0);
 
-  // 只在 currentTrack 的 videoId 變化時觸發（不在 playlist/currentIndex 變化時觸發）
   const currentVideoId = currentTrack?.videoId;
   const remainingSongs = playlist.length - currentIndex - 1;
 
@@ -26,15 +24,13 @@ export function useAutoQueue() {
     const shouldLoadMore = remainingSongs <= 2;
     if (!shouldLoadMore || isLoadingRef.current) return;
 
-    // 避免重複：同一首歌且 playlist 長度沒變就跳過
-    if (lastLoadedVideoIdRef.current === currentVideoId && lastPlaylistLengthRef.current === playlist.length) {
-      return;
-    }
+    // 防止同一首歌在同一個 playlist 長度下重複載入
+    const key = `${currentVideoId}:${playlist.length}`;
+    if (lastLoadedVideoIdRef.current === key) return;
 
     console.log(`🎵 自動佇列：剩餘 ${remainingSongs} 首，載入推薦...`);
     isLoadingRef.current = true;
-    lastLoadedVideoIdRef.current = currentVideoId;
-    lastPlaylistLengthRef.current = playlist.length;
+    lastLoadedVideoIdRef.current = key;
 
     // 載入推薦歌曲
     const loadRecommendations = async () => {
@@ -91,5 +87,5 @@ export function useAutoQueue() {
 
     loadRecommendations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentVideoId, remainingSongs]);
+  }, [currentVideoId, currentIndex, playlist.length]);
 }

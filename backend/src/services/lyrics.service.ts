@@ -176,11 +176,14 @@ class LyricsService {
         const youtubeLyrics = await ytCCPromise;
         const ytDuration = Date.now() - ytStart;
         if (youtubeLyrics) {
-          // 過濾純標記行（[Music]、[Applause] 等）
-          youtubeLyrics.lines = youtubeLyrics.lines.filter(line => {
-            const text = line.text.trim();
-            return text && !/^\[[\w\s]+\]$/.test(text);
-          });
+          // 清理 YouTube CC 標記
+          youtubeLyrics.lines = youtubeLyrics.lines
+            .map(line => ({
+              ...line,
+              // 移除行首 [Music] [Applause] 等標記
+              text: line.text.replace(/\[(?:Music|Applause|Laughter|Cheering|Instrumental)\]\s*/gi, '').trim(),
+            }))
+            .filter(line => line.text.length > 0);
           if (youtubeLyrics.lines.length > 3) {
             console.log(`🎵 [LyricsService] ✅ YouTube CC found (filtered)! waited ${ytDuration}ms`);
             attemptResults.push({ source: 'youtube', success: true, duration: ytDuration });
@@ -814,16 +817,22 @@ class LyricsService {
       i++;
     }
 
-    // YouTube 自動字幕去重：每個 cue 是累積式的（前一行 + 新文字）
-    // 例如 cue1="Hello" cue2="Hello world" cue3="world" — 只保留最完整的
+    // YouTube 自動字幕去重：累積式 cue + 重複行
     const deduped: LyricsLine[] = [];
     for (let j = 0; j < lines.length; j++) {
       const cur = lines[j].text;
       const next = j + 1 < lines.length ? lines[j + 1].text : '';
-      // 如果下一行包含當前行的全部文字，跳過當前行
+      // 跳過：下一行包含當前行（累積式）
       if (next && next.startsWith(cur)) continue;
-      // 如果當前行跟前一行完全相同，跳過
+      // 跳過：當前行是下一行的子字串（部分重疊）
+      if (next && next.includes(cur) && cur.length < next.length * 0.8) continue;
+      // 跳過：跟上一個結果相同
       if (deduped.length > 0 && deduped[deduped.length - 1].text === cur) continue;
+      // 跳過：跟上一個結果大量重疊（>70% 文字相同）
+      if (deduped.length > 0) {
+        const prev = deduped[deduped.length - 1].text;
+        if (cur.startsWith(prev) || prev.startsWith(cur)) continue;
+      }
       deduped.push(lines[j]);
     }
     return deduped;
