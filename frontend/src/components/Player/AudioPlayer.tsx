@@ -664,6 +664,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       } else if (!isPlaying && !audio.paused) {
         audio.pause();
       }
+    } else {
+      // 普通 play/pause toggle（非影片模式切換）
+      if (isPlaying && audio.paused && audio.readyState >= 2 && audio.src && !isLoadingTrack) {
+        audio.play().catch(() => {});
+      } else if (!isPlaying && !audio.paused) {
+        audio.pause();
+      }
     }
 
     // 記錄上一次的 displayMode，下次 effect 用來判斷是否從影片模式切回

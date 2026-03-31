@@ -14,37 +14,33 @@ export function useAutoQueue() {
   const { currentTrack, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const isLoadingRef = useRef(false);
   const lastLoadedVideoIdRef = useRef<string | null>(null);
+  const lastPlaylistLengthRef = useRef(0);
+
+  // 只在 currentTrack 的 videoId 變化時觸發（不在 playlist/currentIndex 變化時觸發）
+  const currentVideoId = currentTrack?.videoId;
+  const remainingSongs = playlist.length - currentIndex - 1;
 
   useEffect(() => {
-    // 沒有當前歌曲或播放清單，不執行
-    if (!currentTrack || playlist.length === 0) {
-      return;
-    }
+    if (!currentVideoId || playlist.length === 0) return;
 
-    // 計算剩餘歌曲數量
-    const remainingSongs = playlist.length - currentIndex - 1;
-
-    // 當剩餘歌曲少於 3 首時，自動加載推薦
     const shouldLoadMore = remainingSongs <= 2;
+    if (!shouldLoadMore || isLoadingRef.current) return;
 
-    if (!shouldLoadMore || isLoadingRef.current) {
-      return;
-    }
-
-    // 避免重複載入同一首歌的推薦（但如果是最後一首歌 loop 回來，要重新載入）
-    if (lastLoadedVideoIdRef.current === currentTrack.videoId && remainingSongs > 0) {
+    // 避免重複：同一首歌且 playlist 長度沒變就跳過
+    if (lastLoadedVideoIdRef.current === currentVideoId && lastPlaylistLengthRef.current === playlist.length) {
       return;
     }
 
     console.log(`🎵 自動佇列：剩餘 ${remainingSongs} 首，載入推薦...`);
     isLoadingRef.current = true;
-    lastLoadedVideoIdRef.current = currentTrack.videoId;
+    lastLoadedVideoIdRef.current = currentVideoId;
+    lastPlaylistLengthRef.current = playlist.length;
 
     // 載入推薦歌曲
     const loadRecommendations = async () => {
       try {
         // 先嘗試載入 20 首推薦
-        let recommendations = await apiService.getSimilarTracks(currentTrack.videoId, 20);
+        let recommendations = await apiService.getSimilarTracks(currentVideoId, 20);
         
         console.log(`📥 收到推薦:`, recommendations);
         console.log(`推薦數量: ${recommendations?.length || 0}`);
@@ -94,5 +90,6 @@ export function useAutoQueue() {
     };
 
     loadRecommendations();
-  }, [currentTrack, playlist, currentIndex, dispatch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentVideoId, remainingSongs]);
 }
