@@ -112,12 +112,11 @@ jobs:
         run: |
           echo "🏥 Performing health check via SSH..."
 
-          # 透過 SSH 在 server 上執行 health check（port 3001 沒對外暴露）
-          # Container 首次啟動可能需要 60-90 秒（Node.js + DB 初始化）
+          # 用 docker exec 在 container 內部做 health check（port 3001 沒暴露到 host）
           for i in $(seq 1 24); do
             echo "  Attempt $i/24..."
             if ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} \
-              'curl -sf http://localhost:3001/health > /dev/null 2>&1'; then
+              'docker exec home-media-backend node -e "require(\"http\").get(\"http://localhost:3001/health\",(r)=>{process.exit(r.statusCode===200?0:1)}).on(\"error\",()=>process.exit(1))"' 2>/dev/null; then
               echo "✅ Health check passed!"
               exit 0
             fi
