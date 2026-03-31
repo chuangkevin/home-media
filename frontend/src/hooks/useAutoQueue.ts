@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../store';
-import { setPlaylist } from '../store/playerSlice';
+import { appendToPlaylist } from '../store/playerSlice';
 import apiService from '../services/api.service';
 import type { Track } from '../types/track.types';
 
@@ -77,8 +77,8 @@ export function useAutoQueue() {
             // 只取前 10 首加入播放清單
             const tracksToAdd = newTracks.slice(0, 10);
             console.log(`✅ 自動佇列：加入 ${tracksToAdd.length} 首推薦歌曲`);
-            // 將推薦歌曲加入播放清單末尾
-            dispatch(setPlaylist([...playlist, ...tracksToAdd]));
+            // 將推薦歌曲加入播放清單末尾（不打斷現有順序）
+            dispatch(appendToPlaylist(tracksToAdd));
           } else {
             console.warn(`⚠️ 自動佇列：所有 ${recommendations.length} 首推薦都被過濾（直播流或重複）`);
             console.log(`💡 建議：嘗試播放不同類型的歌曲以獲得更多元的推薦`);

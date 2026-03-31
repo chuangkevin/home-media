@@ -4,7 +4,7 @@ import { Box, Typography, CircularProgress, Button } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { RootState, AppDispatch } from '../../store';
 import { fetchChannelRecommendations, loadMoreRecommendations, refreshRecommendations } from '../../store/recommendationSlice';
-import { setPendingTrack, setIsPlaying, setQueue, setPlaylist } from '../../store/playerSlice';
+import { playNow } from '../../store/playerSlice';
 import ChannelSection from './ChannelSection';
 import type { Track } from '../../types/track.types';
 import apiService from '../../services/api.service';
@@ -16,7 +16,7 @@ export default function HomeRecommendations() {
   const { channelRecommendations, loading, hasMore } = useSelector(
     (state: RootState) => state.recommendation
   );
-  const { playlist } = useSelector((state: RootState) => state.player);
+  // playlist selector removed - playNow handles insertion
 
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [cacheStatus, setCacheStatus] = useState<Map<string, boolean>>(new Map());
@@ -159,51 +159,9 @@ export default function HomeRecommendations() {
       apiService.recordChannelWatch(track.channel, track.thumbnail);
     }
 
-    // 找出該頻道的所有歌曲
-    const channelData = channelRecommendations.find(ch =>
-      ch.videos.some(v => v.videoId === track.videoId)
-    );
-
-    if (channelData) {
-      // 將該頻道的所有歌曲轉換為 Track 格式，過濾掉直播流
-      const channelTracks: Track[] = channelData.videos
-        .filter(v => {
-          const duration = v.duration || 0;
-          // 過濾掉直播流（duration 為 0 或超過 2 小時）
-          if (duration === 0 || duration > 7200) {
-            console.log(`⏭️ 跳過直播流: ${v.title} (${duration}s)`);
-            return false;
-          }
-          return true;
-        })
-        .map(v => ({
-          id: v.videoId,
-          videoId: v.videoId,
-          title: v.title,
-          thumbnail: v.thumbnail,
-          channel: channelData.channelName,
-          duration: v.duration,
-        }));
-
-      // 過濾掉已經在播放清單中的歌曲
-      const existingVideoIds = new Set(playlist.map(t => t.videoId));
-      const newTracks = channelTracks.filter(t => !existingVideoIds.has(t.videoId));
-
-      // Append 到現有播放清單
-      const updatedPlaylist = [...playlist, ...newTracks];
-      dispatch(setPlaylist(updatedPlaylist));
-      dispatch(setQueue(updatedPlaylist.slice(playlist.length))); // Queue 從新加入的開始
-    } else {
-      // 單首歌曲，檢查是否已存在
-      const existingVideoIds = new Set(playlist.map(t => t.videoId));
-      if (!existingVideoIds.has(track.videoId)) {
-        dispatch(setPlaylist([...playlist, track]));
-        dispatch(setQueue([track]));
-      }
-    }
-
-    dispatch(setPendingTrack(track)); // 使用 pending，等載入完成才切換 UI
-    dispatch(setIsPlaying(true));
+    // YouTube 風格：點歌 → 插入到下一首位置並立即播放
+    // 不再把整個頻道的歌都加進去
+    dispatch(playNow(track));
   };
 
   const handleRefresh = () => {

@@ -24,7 +24,7 @@ import PlaylistSection from './components/Playlist/PlaylistSection';
 import AdminSettings from './components/Admin/AdminSettings';
 import RadioButton from './components/Radio/RadioButton';
 import RadioIndicator from './components/Radio/RadioIndicator';
-import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist } from './store/playerSlice';
+import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist, playNow } from './store/playerSlice';
 import { RootState } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
@@ -284,8 +284,8 @@ function AppContent() {
     // 記錄頻道觀看（fire-and-forget）
     apiService.recordChannelWatch(track.channel, track.thumbnail);
 
-    dispatch(setPendingTrack(track)); // 使用 pending，等載入完成才切換 UI
-    dispatch(setIsPlaying(true));
+    // YouTube 風格：插入到下一首位置並立即播放
+    dispatch(playNow(track));
   };
 
   const handleAddToQueue = (track: Track) => {

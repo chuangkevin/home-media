@@ -125,6 +125,25 @@ const playerSlice = createSlice({
     setPlaylist(state, action: PayloadAction<Track[]>) {
       state.playlist = action.payload;
     },
+    // YouTube 風格：插入到當前歌曲的下一首位置並立即播放
+    playNow(state, action: PayloadAction<Track>) {
+      const track = action.payload;
+      // 移除重複
+      state.playlist = state.playlist.filter(t => t.videoId !== track.videoId);
+      // 插入到 currentIndex 後面
+      const insertAt = state.currentIndex + 1;
+      state.playlist.splice(insertAt, 0, track);
+      // 設為 pending
+      state.pendingTrack = track;
+      state.isLoadingTrack = true;
+      state.isPlaying = true;
+    },
+    // 加到播放清單尾端（不打斷當前播放）
+    appendToPlaylist(state, action: PayloadAction<Track[]>) {
+      const existingIds = new Set(state.playlist.map(t => t.videoId));
+      const newTracks = action.payload.filter(t => !existingIds.has(t.videoId));
+      state.playlist.push(...newTracks);
+    },
     playNext(state) {
       if (state.playlist.length === 0) return;
 
@@ -199,6 +218,8 @@ export const {
   seekTo,
   clearSeekTarget,
   setPlaylist,
+  playNow,
+  appendToPlaylist,
   playNext,
   playPrevious,
 } = playerSlice.actions;
