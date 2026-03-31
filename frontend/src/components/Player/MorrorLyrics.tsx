@@ -70,10 +70,10 @@ function CharByChar({ text, duration, accentColor, effect }: {
               key={i}
               sx={{
                 display: 'inline',
-                color: 'rgba(255,255,255,0.35)',
+                color: 'var(--lyrics-dim-color, rgba(255,255,255,0.35))',
                 animation: `charFill ${charDelay * 1.2}s ease ${delay}s forwards`,
                 '@keyframes charFill': {
-                  '0%': { color: 'rgba(255,255,255,0.35)' },
+                  '0%': { color: 'var(--lyrics-dim-color, rgba(255,255,255,0.35))' },
                   '100%': { color: accentColor },
                 },
               }}
@@ -90,11 +90,11 @@ function CharByChar({ text, duration, accentColor, effect }: {
               key={i}
               sx={{
                 display: 'inline-block',
-                color: 'rgba(255,255,255,0.35)',
+                color: 'var(--lyrics-dim-color, rgba(255,255,255,0.35))',
                 transform: 'scale(1)',
                 animation: `charScale ${charDelay * 1.5}s ease ${delay}s forwards`,
                 '@keyframes charScale': {
-                  '0%': { color: 'rgba(255,255,255,0.35)', transform: 'scale(1)' },
+                  '0%': { color: 'var(--lyrics-dim-color, rgba(255,255,255,0.35))', transform: 'scale(1)' },
                   '50%': { color: accentColor, transform: 'scale(1.3)' },
                   '100%': { color: accentColor, transform: 'scale(1)', textShadow: `0 0 12px ${accentColor}80` },
                 },
@@ -134,10 +134,10 @@ function CharByChar({ text, duration, accentColor, effect }: {
               key={i}
               sx={{
                 display: 'inline',
-                color: 'rgba(255,255,255,0.35)',
+                color: 'var(--lyrics-dim-color, rgba(255,255,255,0.35))',
                 animation: `charWave ${charDelay * 1.2}s ease ${delay}s forwards`,
                 '@keyframes charWave': {
-                  '0%': { color: 'rgba(255,255,255,0.35)' },
+                  '0%': { color: 'var(--lyrics-dim-color, rgba(255,255,255,0.35))' },
                   '100%': { color: `hsl(${parseInt(accentColor.slice(1), 16) % 360 + hueShift}, 80%, 65%)` },
                 },
               }}
@@ -251,6 +251,15 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
   );
 }
 
+// 計算顏色亮度 (0-255)，用於決定文字顏色
+function getLuminance(hex: string): number {
+  const c = hex.replace('#', '');
+  const r = parseInt(c.substring(0, 2), 16) || 0;
+  const g = parseInt(c.substring(2, 4), 16) || 0;
+  const b = parseInt(c.substring(4, 6), 16) || 0;
+  return (r * 299 + g * 587 + b * 114) / 1000;
+}
+
 export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange, translations = [] }: MorrorLyricsProps) {
   const [accentColor, setAccentColor] = useState(DEFAULT_COLOR);
   const [effect, setEffect] = useState<LyricsEffect>(() => {
@@ -358,6 +367,18 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
     return text;
   };
 
+  // 根據背景色亮度決定文字顏色
+  const bgLuminance = getLuminance(accentColor);
+  const isLightBg = bgLuminance > 140;
+  const textColorDim = isLightBg ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.3)';
+  const textColorMid = isLightBg ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.5)';
+  const textShadowStrong = isLightBg
+    ? '0 1px 4px rgba(255,255,255,0.6), 0 0 20px rgba(255,255,255,0.3)'
+    : '0 2px 8px rgba(0,0,0,0.8), 0 0 30px rgba(0,0,0,0.5)';
+  const textShadowLight = isLightBg
+    ? '0 1px 3px rgba(255,255,255,0.4)'
+    : '0 1px 6px rgba(0,0,0,0.6)';
+
   // Focus effect: blur prev/next more
   const isFocusMode = effect === 'focus';
 
@@ -421,11 +442,12 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
         alignItems: 'center', justifyContent: 'center',
         gap: { xs: 3, sm: 4, md: 5 }, px: { xs: 3, sm: 5, md: 8 },
         maxWidth: 900, width: '100%', textAlign: 'center',
-      }}>
+        '--lyrics-dim-color': textColorDim,
+      } as any}>
         {/* Previous line */}
         <Typography sx={{
           fontSize: { xs: '1rem', sm: '1.2rem', md: '1.4rem' },
-          color: 'rgba(255,255,255,0.3)', fontWeight: 300, lineHeight: 1.4,
+          color: textColorDim, fontWeight: 300, lineHeight: 1.4, textShadow: textShadowLight,
           minHeight: { xs: '1.5rem', sm: '1.8rem' },
           transition: 'all 0.5s ease',
           filter: isFocusMode ? 'blur(3px)' : 'none',
@@ -438,13 +460,13 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
           fontSize: { xs: '1.8rem', sm: '2.4rem', md: '3rem' },
           fontWeight: 700, lineHeight: 1.3,
           minHeight: { xs: '2.5rem', sm: '3.2rem' },
+          textShadow: textShadowStrong,
           filter: isFocusMode ? 'none' : `drop-shadow(0 0 20px ${accentColor}40)`,
           transition: 'filter 0.5s ease',
-          // Focus mode: scale up slightly
           ...(isFocusMode && {
             color: accentColor,
             transform: 'scale(1.05)',
-            textShadow: `0 0 30px ${accentColor}50`,
+            textShadow: `${textShadowStrong}, 0 0 30px ${accentColor}50`,
           }),
         }}>
           {renderCurrentLine()}
@@ -464,7 +486,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
         {/* Next line */}
         <Typography sx={{
           fontSize: { xs: '1.1rem', sm: '1.3rem', md: '1.5rem' },
-          color: 'rgba(255,255,255,0.5)', fontWeight: 400, lineHeight: 1.4,
+          color: textColorMid, fontWeight: 400, lineHeight: 1.4, textShadow: textShadowLight,
           minHeight: { xs: '1.6rem', sm: '2rem' },
           transition: 'all 0.5s ease',
           filter: isFocusMode ? 'blur(2px)' : 'none',
