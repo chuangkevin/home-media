@@ -59,66 +59,64 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
       )
       .get(videoId) as any;
 
-    // 檢查資料庫中有多少 cached tracks
-    const cachedCount = (db.prepare(`SELECT COUNT(*) as count FROM cached_tracks`).get() as any).count;
-    
-    // 如果資料庫資料不足（少於 20 首），使用 YouTube 搜尋作為後備
-    if (cachedCount < 20) {
-      logger.info(`Insufficient cached tracks (${cachedCount}), using YouTube search fallback`);
-      
+    // 用 YouTube 相關影片推薦（基於 seed track 的標題/頻道）
+    // 比搜 "music" 好太多 — YouTube 自己的推薦演算法會根據影片內容推薦
+    {
       try {
-        // 使用 seed track 的頻道和標題關鍵字搜尋
         let searchQuery = '';
         if (seedTrack) {
-          // 如果有 seed track，基於它搜尋相似內容
-          const genres = seedTrack.genres ? JSON.parse(seedTrack.genres) : [];
-          const tags = seedTrack.tags ? JSON.parse(seedTrack.tags) : [];
-          searchQuery = genres.length > 0 
-            ? `${genres[0]} music` 
-            : tags.length > 0 
-            ? `${tags[0]} music`
-            : `${seedTrack.channel_name} music`;
+          // 用頻道名 + 標題關鍵字搜尋相似內容
+          const titleWords = (seedTrack.title || '')
+            .replace(/[\(\[【《「『].*?[\)\]】》」』]/g, '') // 移除括號
+            .replace(/(official|music video|mv|lyrics?|audio)/gi, '')
+            .trim()
+            .split(/\s*[-–—|｜]\s*/)
+            .filter((w: string) => w.length > 1);
+          // 用歌手名 + 歌名前幾個詞
+          searchQuery = titleWords.slice(0, 2).join(' ');
+          if (seedTrack.channel_name && !searchQuery.toLowerCase().includes(seedTrack.channel_name.toLowerCase())) {
+            searchQuery = `${seedTrack.channel_name} ${searchQuery}`;
+          }
         } else {
-          // 如果沒有 seed track，搜尋通用音樂
-          searchQuery = 'music';
+          // 用 videoId 搜尋 YouTube 相關影片
+          searchQuery = `${videoId}`;
         }
 
-        // 增加搜索數量以確保過濾後有足夠結果（請求 limit * 3）
-        const searchLimit = Math.max(limit * 3, 30);
-        const searchResults = await youtubeService.search(searchQuery, searchLimit);
-        
-        logger.info(`YouTube search returned ${searchResults.length} results, filtering livestreams...`);
-        
-        // 過濾掉 24/7 直播流（duration 為 0 或超過 2 小時）
-        const filteredResults = searchResults.filter(track => {
-          const duration = track.duration || 0;
-          if (duration === 0 || duration > 7200) {
-            logger.info(`Skipping livestream: ${track.title} (${duration}s)`);
-            return false;
-          }
-          return true;
-        });
+        if (!searchQuery || searchQuery.length < 3) searchQuery = 'music trending';
 
-        logger.info(`After filtering: ${filteredResults.length} valid tracks (needed: ${limit})`);
+        console.log(`🎵 [Similar] Searching: "${searchQuery}" for ${videoId}`);
+        const searchResults = await youtubeService.search(searchQuery, Math.max(limit * 2, 20));
 
-        // 只返回需要的數量
-        const recommendations = filteredResults.slice(0, limit).map(track => ({
+        // 過濾掉直播流和自己
+        const filtered = searchResults.filter(t => {
+          if (t.videoId === videoId) return false;
+          const dur = t.duration || 0;
+          return dur > 0 && dur < 7200;
+        }).slice(0, limit);
+
+        const recommendations = filtered.map(track => ({
           videoId: track.videoId,
           title: track.title,
           channelName: track.channel,
           thumbnail: track.thumbnail,
           duration: track.duration,
-          score: 0.5,
-          reasons: [`Based on search: ${searchQuery}`],
+          score: 0.7,
+          reasons: [`Similar to: ${seedTrack?.title || videoId}`],
         }));
 
-        logger.info(`Returned ${recommendations.length} YouTube search recommendations (filtered out livestreams)`);
-        return res.json({ recommendations });
+        console.log(`🎵 [Similar] Found ${recommendations.length} similar tracks`);
+        if (recommendations.length > 0) {
+          return res.json({ recommendations });
+        }
       } catch (searchError) {
-        logger.error('YouTube search fallback failed:', searchError);
-        // 如果搜尋也失敗，返回空陣列
-        return res.json({ recommendations: [] });
+        logger.error('YouTube search for similar failed:', searchError);
       }
+    }
+
+    // Fallback: 資料庫曲風比對（如果有足夠 cached tracks）
+    const cachedCount = (db.prepare(`SELECT COUNT(*) as count FROM cached_tracks`).get() as any).count;
+    if (cachedCount < 5) {
+      return res.json({ recommendations: [] });
     }
 
     // 如果找不到 seed track，使用隨機推薦
