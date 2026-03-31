@@ -1114,11 +1114,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     <Card
       sx={{
         ...(!embedded && {
-          position: 'fixed',
-          bottom: 'calc(56px + env(safe-area-inset-bottom, 0px))', // BottomNav 高度 + safe area
-          left: 0,
-          right: 0,
-          zIndex: 1000,
+          flexShrink: 0, // 不被壓縮
         }),
         borderRadius: 0,
         height: embedded ? '100%' : 'auto',

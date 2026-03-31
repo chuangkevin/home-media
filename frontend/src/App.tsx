@@ -123,11 +123,7 @@ function BottomNav() {
   return (
     <Paper
       sx={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1200, // 高於播放器
+        flexShrink: 0,
         borderTop: '1px solid',
         borderColor: 'divider',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -290,8 +286,14 @@ function AppContent() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh' }}>
-      <Container maxWidth="lg" sx={{ py: 4, pb: 'calc(180px + env(safe-area-inset-bottom, 0px))' }}> {/* 播放器 + 導航欄 + safe area */}
+    <Box sx={{
+      display: 'flex', flexDirection: 'column',
+      height: '100dvh', // dvh 處理 Safari address bar
+      overflow: 'hidden',
+    }}>
+      {/* 可滾動內容區 */}
+      <Box sx={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <Container maxWidth="lg" sx={{ py: 4, pb: 2 }}>
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
@@ -357,14 +359,13 @@ function AppContent() {
           <Route path="/admin" element={<AdminSettings />} />
         </Routes>
       </Container>
+      </Box>{/* end scrollable */}
 
-      {/* 底部導航列 */}
-      <BottomNav />
-
-      {/* 播放器（固定在底部，在導航列下方）*/}
+      {/* 播放器 + 導航（不在 scrollable 內，不會被滾動影響） */}
       <AudioPlayer
         onOpenLyrics={() => setLyricsDrawerOpen(true)}
       />
+      <BottomNav />
 
       {/* 全螢幕歌詞抽屜 */}
       {currentTrack && (
