@@ -267,14 +267,11 @@ function AppContent() {
       // 記錄搜尋歷史（fire-and-forget）
       apiService.recordSearch(query, results.length);
 
-      // 設置播放列表
-      dispatch(setPlaylist(results));
-
+      // 只更新搜尋結果，不替換播放清單（用戶點擊才 playNow）
       setSearchResults(results);
     } catch (err) {
       setError(err instanceof Error ? err.message : '搜尋失敗，請稍後再試');
       setSearchResults([]);
-      dispatch(setPlaylist([]));
     } finally {
       setLoading(false);
     }
