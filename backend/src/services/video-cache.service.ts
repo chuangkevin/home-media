@@ -59,7 +59,9 @@ class VideoCacheService {
       const ytdlpPath = youtubeService.getYtDlpPath();
       const baseArgs = youtubeService.getYtDlpBaseArgs();
       const outputPath = this.getPath(videoId);
-      const tempPath = `${outputPath}.tmp`;
+      // yt-dlp 會自動加 .mp4 副檔名（因為 --merge-output-format mp4）
+      // 所以 temp path 不要包含 .mp4，避免變成 .mp4.tmp.mp4
+      const tempPath = path.join(VIDEO_CACHE_DIR, `${videoId}.tmp`);
 
       const args = [
         ...baseArgs,
@@ -100,11 +102,19 @@ class VideoCacheService {
       });
 
       proc.on('close', (code) => {
-        if (code === 0 && fs.existsSync(tempPath)) {
+        // yt-dlp 可能產生 .tmp.mp4（自動加副檔名）或 .tmp
+        const possiblePaths = [
+          tempPath + '.mp4',  // yt-dlp 自動加 .mp4
+          tempPath,           // 直接用 temp path
+        ];
+
+        const actualFile = possiblePaths.find(p => fs.existsSync(p));
+
+        if (code === 0 && actualFile) {
           try {
-            const stats = fs.statSync(tempPath);
+            const stats = fs.statSync(actualFile);
             if (stats.size > 0) {
-              fs.renameSync(tempPath, outputPath);
+              fs.renameSync(actualFile, outputPath);
               console.log(`✅ [VideoCache] Downloaded: ${videoId} (${(stats.size / 1024 / 1024).toFixed(1)}MB)`);
               resolve(outputPath);
               return;
@@ -113,9 +123,9 @@ class VideoCacheService {
             logger.error(`VideoCache rename error for ${videoId}:`, err);
           }
         }
-        // Cleanup on failure
-        try { fs.unlinkSync(tempPath); } catch {}
-        console.error(`❌ [VideoCache] Download failed: ${videoId} (code: ${code})`);
+        // Cleanup
+        possiblePaths.forEach(p => { try { fs.unlinkSync(p); } catch {} });
+        console.error(`❌ [VideoCache] Download failed: ${videoId} (code: ${code}, files checked: ${possiblePaths.join(', ')})`);
         resolve(null);
       });
 
