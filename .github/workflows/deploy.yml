@@ -113,8 +113,9 @@ jobs:
           echo "🏥 Performing health check via SSH..."
 
           # 透過 SSH 在 server 上執行 health check（port 3001 沒對外暴露）
-          for i in $(seq 1 12); do
-            echo "  Attempt $i/12..."
+          # Container 首次啟動可能需要 60-90 秒（Node.js + DB 初始化）
+          for i in $(seq 1 24); do
+            echo "  Attempt $i/24..."
             if ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} \
               'curl -sf http://localhost:3001/health > /dev/null 2>&1'; then
               echo "✅ Health check passed!"
@@ -125,9 +126,9 @@ jobs:
 
           # 失敗時輸出 container 狀態方便 debug
           ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} \
-            'docker compose ps; docker logs home-media-backend --tail 20' || true
+            'docker compose ps; docker logs home-media-backend --tail 30' || true
 
-          echo "❌ Health check failed after 60 seconds"
+          echo "❌ Health check failed after 120 seconds"
           exit 1
 
       - name: Deployment Summary
