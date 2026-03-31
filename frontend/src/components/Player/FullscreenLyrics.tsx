@@ -110,7 +110,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     // translateLyrics 會先查快取，有就直接用（不重新翻）
     let cancelled = false;
     let retryCount = 0;
-    const maxRetries = 2;
 
     // 開始翻譯前先清空（避免新舊混合）
     setTranslations([]);
@@ -119,21 +118,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const lines = currentLyrics.lines.map(l => l.text);
       apiService.translateLyrics(track.videoId, lines).then(result => {
         if (cancelled || !result) return;
-        // 不再整體判斷語言 — 逐行比對，翻譯跟原文相同的行設為空字串
-        // 這樣中英混合歌詞的英文行會有翻譯，中文行不會重複顯示
         const translations = result.translations.map((t: string, i: number) => {
-          if (!t || t === lines[i]) return ''; // 相同就不顯示
+          if (!t || t === lines[i]) return '';
           return t;
         });
-        // 如果全部都是空的（純中文歌），就不設翻譯
         const hasAny = translations.some((t: string) => t.length > 0);
         setTranslations(hasAny ? translations : []);
       }).catch(() => {
-        if (!cancelled && retryCount < maxRetries) {
+        // Gemini key cooldown 30 秒，間隔 15 秒重試最多 4 次（共 60 秒）
+        if (!cancelled && retryCount < 4) {
           retryCount++;
-          setTimeout(doTranslate, 3000);
-        } else {
-          setTranslations([]);
+          console.log(`🔄 翻譯重試 ${retryCount}/4（${retryCount * 15}s 後）`);
+          setTimeout(doTranslate, 15000);
         }
       });
     };
