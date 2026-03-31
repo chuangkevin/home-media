@@ -121,6 +121,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           setIsCached(true);
 
           const audio = audioRef.current!;
+          // 重要：更新 currentVideoIdRef，否則下一首歌會判斷錯誤
+          currentVideoIdRef.current = videoId;
+          if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
+          currentBlobUrlRef.current = blobUrl;
           audio.src = blobUrl;
           audio.load();
 
