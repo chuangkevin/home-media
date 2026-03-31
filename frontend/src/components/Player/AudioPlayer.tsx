@@ -1165,6 +1165,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         <CardContent sx={{ py: 1, px: 1.5, '&:last-child': { pb: 1 } }}>
           {/* 第一行：封面 + 標題/頻道 + 功能按鈕 */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            {/* 點擊封面/標題展開歌詞（像 Spotify/YouTube Music） */}
+            <Box
+              onClick={onOpenLyrics}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1, minWidth: 0, cursor: 'pointer' }}
+            >
             <CardMedia
               component="img"
               sx={{ width: 48, height: 48, borderRadius: 0.5, flexShrink: 0 }}
@@ -1190,6 +1195,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 {(isLoading || isLoadingTrack) && <CircularProgress size={14} />}
               </Box>
             </Box>
+            </Box>{/* end clickable area */}
             {/* 功能按鈕 */}
             {autoplayBlocked ? (
               <IconButton size="small" color="primary"
