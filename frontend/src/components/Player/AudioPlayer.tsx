@@ -280,26 +280,36 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audioRef.current!.load();
         setIsCached(false);
 
-        // 背景：等 server 快取完成 → 下載到前端 IndexedDB → 無痛切換 Blob URL
+        // 背景：立即開始下載到 IndexedDB → 完成後無痛切換 Blob URL
         const bgVideoId = videoId;
         const bgStreamUrl = apiService.getStreamUrl(videoId);
         (async () => {
-          // 等 backend 快取完成
-          for (let i = 0; i < 30; i++) {
-            await new Promise(r => setTimeout(r, 3000));
-            if (currentVideoIdRef.current !== bgVideoId) return;
-            const s = await apiService.getCacheStatus(bgVideoId).catch(() => ({ cached: false }));
-            if (s.cached) break;
-          }
-          if (currentVideoIdRef.current !== bgVideoId) return;
-
-          // 下載到前端 IndexedDB
+          // 直接下載到前端 IndexedDB（不等 backend cache，邊播邊下）
+          console.log(`⏬ 背景下載到 IndexedDB: ${pendingTrack.title}`);
           try {
             await audioCacheService.fetchAndCache(bgVideoId, bgStreamUrl, {
               title: pendingTrack.title, channel: pendingTrack.channel,
               thumbnail: pendingTrack.thumbnail, duration: pendingTrack.duration,
             });
-          } catch { return; }
+            console.log(`✅ 背景下載完成: ${pendingTrack.title}`);
+          } catch (err) {
+            console.warn(`⚠️ 背景下載失敗，嘗試等 backend cache:`, err);
+            // Fallback：等 backend cache 完成再下載
+            for (let i = 0; i < 20; i++) {
+              await new Promise(r => setTimeout(r, 3000));
+              if (currentVideoIdRef.current !== bgVideoId) return;
+              const s = await apiService.getCacheStatus(bgVideoId).catch(() => ({ cached: false }));
+              if (s.cached) {
+                try {
+                  await audioCacheService.fetchAndCache(bgVideoId, bgStreamUrl, {
+                    title: pendingTrack.title, channel: pendingTrack.channel,
+                    thumbnail: pendingTrack.thumbnail, duration: pendingTrack.duration,
+                  });
+                  break;
+                } catch { continue; }
+              }
+            }
+          }
 
           if (currentVideoIdRef.current !== bgVideoId) return;
           const blob = await audioCacheService.get(bgVideoId);
