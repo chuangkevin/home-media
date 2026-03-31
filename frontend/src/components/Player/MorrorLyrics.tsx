@@ -251,15 +251,6 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
   );
 }
 
-// 計算顏色亮度 (0-255)，用於決定文字顏色
-function getLuminance(hex: string): number {
-  const c = hex.replace('#', '');
-  const r = parseInt(c.substring(0, 2), 16) || 0;
-  const g = parseInt(c.substring(2, 4), 16) || 0;
-  const b = parseInt(c.substring(4, 6), 16) || 0;
-  return (r * 299 + g * 587 + b * 114) / 1000;
-}
-
 export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange, translations = [] }: MorrorLyricsProps) {
   const [accentColor, setAccentColor] = useState(DEFAULT_COLOR);
   const [effect, setEffect] = useState<LyricsEffect>(() => {
@@ -367,17 +358,13 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
     return text;
   };
 
-  // 根據背景色亮度決定文字顏色
-  const bgLuminance = getLuminance(accentColor);
-  const isLightBg = bgLuminance > 140;
-  const textColorDim = isLightBg ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.3)';
-  const textColorMid = isLightBg ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.5)';
-  const textShadowStrong = isLightBg
-    ? '0 1px 4px rgba(255,255,255,0.6), 0 0 20px rgba(255,255,255,0.3)'
-    : '0 2px 8px rgba(0,0,0,0.8), 0 0 30px rgba(0,0,0,0.5)';
-  const textShadowLight = isLightBg
-    ? '0 1px 3px rgba(255,255,255,0.4)'
-    : '0 1px 6px rgba(0,0,0,0.6)';
+  // 字幕風格：白字黑邊，任何背景都可讀
+  const textColorDim = 'rgba(255,255,255,0.4)';
+  const textColorMid = 'rgba(255,255,255,0.6)';
+  // 黑色描邊 + 陰影 = 任何背景都看得到
+  const textStroke = '-1px -1px 0 rgba(0,0,0,0.7), 1px -1px 0 rgba(0,0,0,0.7), -1px 1px 0 rgba(0,0,0,0.7), 1px 1px 0 rgba(0,0,0,0.7)';
+  const textShadowStrong = `${textStroke}, 0 2px 10px rgba(0,0,0,0.8), 0 0 30px rgba(0,0,0,0.5)`;
+  const textShadowLight = `${textStroke}, 0 1px 4px rgba(0,0,0,0.5)`;
 
   // Focus effect: blur prev/next more
   const isFocusMode = effect === 'focus';
