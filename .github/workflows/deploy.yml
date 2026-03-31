@@ -108,12 +108,19 @@ jobs:
       - name: Health Check
         run: |
           echo "🏥 Performing health check..."
-          sleep 10
 
-          # 檢查 backend health
-          curl -f http://${{ secrets.DEPLOY_SERVER_IP }}:3001/health || exit 1
+          # 等待容器啟動（最多 60 秒，每 5 秒重試）
+          for i in $(seq 1 12); do
+            echo "  Attempt $i/12..."
+            if curl -sf http://${{ secrets.DEPLOY_SERVER_IP }}:3001/health > /dev/null 2>&1; then
+              echo "✅ Health check passed!"
+              exit 0
+            fi
+            sleep 5
+          done
 
-          echo "✅ Health check passed!"
+          echo "❌ Health check failed after 60 seconds"
+          exit 1
 
       - name: Deployment Summary
         if: always()
