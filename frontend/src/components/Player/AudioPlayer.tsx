@@ -128,9 +128,31 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           audio.src = blobUrl;
           audio.load();
 
+          // 預載 SponsorBlock segments（在播放前就準備好）
+          const sbPromise = apiService.getSponsorBlockSegments(videoId).then(segments => {
+            if (segments.length > 0) {
+              skipSegmentsRef.current = segments;
+              skippedSegmentsRef.current = new Set();
+              console.log(`🚫 [SponsorBlock] Pre-loaded ${segments.length} segments for cached track`);
+            }
+            return segments;
+          }).catch(() => []);
+
           // 等 audio ready 再播放
-          const playWhenReady = () => {
+          const playWhenReady = async () => {
             dispatch(setDuration(audio.duration));
+
+            // 等 SponsorBlock 載入完再播放（最多等 2 秒）
+            const segments = await Promise.race([sbPromise, new Promise<any[]>(r => setTimeout(() => r([]), 2000))]);
+
+            // 如果開頭有非音樂段落，先 seek 到音樂開始處
+            const introSeg = segments.find((s: any) => s.category === 'music_offtopic' && s.start < 5);
+            if (introSeg) {
+              audio.currentTime = introSeg.end;
+              skippedSegmentsRef.current.add(skipSegmentsRef.current.indexOf(introSeg));
+              console.log(`🚫 [SponsorBlock] 快取秒開跳過: 0→${introSeg.end.toFixed(1)}s`);
+            }
+
             if (isPlayingRef.current && displayModeRef.current !== 'video') {
               console.log(`▶️ 快取秒開播放: ${pendingTrack.title}`);
               audio.play().catch((error) => {
@@ -142,7 +164,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           if (audio.readyState >= 2) {
             playWhenReady();
           } else {
-            audio.addEventListener('canplay', playWhenReady, { once: true });
+            audio.addEventListener('canplay', () => playWhenReady(), { once: true });
             // Fallback: 3 秒後強制嘗試
             setTimeout(() => { if (audio.paused && isPlayingRef.current) audio.play().catch(() => {}); }, 3000);
           }
@@ -758,18 +780,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         // 已跳過的 segment 不再處理
         if (skippedSegmentsRef.current.has(i)) continue;
         if (t >= seg.start && t < seg.end) {
-          // 檢查 seek 目標是否在已 buffer 範圍內
-          let canSeek = false;
-          for (let b = 0; b < audio.buffered.length; b++) {
-            if (audio.buffered.start(b) <= seg.end && audio.buffered.end(b) >= seg.end) {
-              canSeek = true;
+          // 快取模式跳過 buffer 檢查（整首歌都在記憶體中）
+          if (!isCached) {
+            // 串流模式：檢查 seek 目標是否在已 buffer 範圍內
+            let canSeek = false;
+            for (let b = 0; b < audio.buffered.length; b++) {
+              if (audio.buffered.start(b) <= seg.end && audio.buffered.end(b) >= seg.end) {
+                canSeek = true;
+                break;
+              }
+            }
+            if (!canSeek) {
+              console.log(`⏳ [SponsorBlock] 等待緩衝到 ${seg.end.toFixed(1)}s 再跳過`);
               break;
             }
-          }
-          if (!canSeek) {
-            // Buffer 還沒到目標位置，等 buffer 夠了再跳
-            console.log(`⏳ [SponsorBlock] 等待緩衝到 ${seg.end.toFixed(1)}s 再跳過`);
-            break;
           }
           const skipDuration = Math.round(seg.end - seg.start);
           const labels: Record<string, string> = {
