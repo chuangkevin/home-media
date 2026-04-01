@@ -265,12 +265,16 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
     };
 
     // Handle resize
+    const dpr = window.devicePixelRatio || 1;
     const resize = () => {
-      canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1);
-      canvas.height = canvas.offsetHeight * (window.devicePixelRatio || 1);
-      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+      const w = canvas.offsetWidth || canvas.parentElement?.offsetWidth || 300;
+      const h = canvas.offsetHeight || canvas.parentElement?.offsetHeight || 150;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
-    resize();
+    // 延遲 resize 確保 layout 完成
+    requestAnimationFrame(() => { resize(); });
     window.addEventListener('resize', resize);
     raf = requestAnimationFrame(draw);
 
@@ -399,12 +403,12 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
   };
 
   // 字幕風格：白字黑邊，任何背景都可讀
-  const textColorDim = 'rgba(255,255,255,0.4)';
-  const textColorMid = 'rgba(255,255,255,0.6)';
-  // 黑色描邊 + 陰影 = 任何背景都看得到
-  const textStroke = '-1px -1px 0 rgba(0,0,0,0.7), 1px -1px 0 rgba(0,0,0,0.7), -1px 1px 0 rgba(0,0,0,0.7), 1px 1px 0 rgba(0,0,0,0.7)';
-  const textShadowStrong = `${textStroke}, 0 2px 10px rgba(0,0,0,0.8), 0 0 30px rgba(0,0,0,0.5)`;
-  const textShadowLight = `${textStroke}, 0 1px 4px rgba(0,0,0,0.5)`;
+  const textColorDim = 'rgba(255,255,255,0.5)';
+  const textColorMid = 'rgba(255,255,255,0.7)';
+  // 粗黑色描邊（2px）+ 陰影 = 任何背景都清晰可讀
+  const textStroke = '-2px -2px 0 rgba(0,0,0,0.8), 2px -2px 0 rgba(0,0,0,0.8), -2px 2px 0 rgba(0,0,0,0.8), 2px 2px 0 rgba(0,0,0,0.8), 0 -2px 0 rgba(0,0,0,0.8), 0 2px 0 rgba(0,0,0,0.8), -2px 0 0 rgba(0,0,0,0.8), 2px 0 0 rgba(0,0,0,0.8)';
+  const textShadowStrong = `${textStroke}, 0 3px 12px rgba(0,0,0,0.9)`;
+  const textShadowLight = `${textStroke}, 0 1px 6px rgba(0,0,0,0.6)`;
 
   // Focus effect: blur prev/next more
   const isFocusMode = effect === 'focus';
@@ -477,7 +481,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
           color: textColorDim, fontWeight: 300, lineHeight: 1.4, textShadow: textShadowLight,
           minHeight: { xs: '1.5rem', sm: '1.8rem' },
           transition: 'all 0.5s ease',
-          filter: isFocusMode ? 'blur(3px)' : 'none',
+          filter: isFocusMode ? 'blur(1.5px)' : 'none',
         }}>
           {prevLine ? toTraditional(prevLine.text) : '\u00A0'}
         </Typography>
@@ -516,7 +520,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
           color: textColorMid, fontWeight: 400, lineHeight: 1.4, textShadow: textShadowLight,
           minHeight: { xs: '1.6rem', sm: '2rem' },
           transition: 'all 0.5s ease',
-          filter: isFocusMode ? 'blur(2px)' : 'none',
+          filter: isFocusMode ? 'blur(1px)' : 'none',
         }}>
           {nextLine ? toTraditional(nextLine.text) : '\u00A0'}
         </Typography>
