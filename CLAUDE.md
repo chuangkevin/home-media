@@ -82,6 +82,12 @@ Title cleaning (regex fallback when Gemini unavailable):
 - yt-dlp auto-appends `.mp4` extension — temp path must NOT include `.mp4`
 - Check both `{id}.tmp` and `{id}.tmp.mp4` when renaming
 - Video tab only enables after download complete
+- **Audio architecture**: audio element is the ONLY sound source in ALL modes
+  - YouTube iframe is always muted (`event.target.mute()`) — visual sync only
+  - Audio element must NEVER be paused/muted in video mode (breaks background/lock-screen playback)
+  - iframe syncs to audio position (not the other way around), corrects drift >2s
+  - Seek applies to audio element in all modes; iframe follows
+- Duration: use `track.duration` (YouTube metadata) over `audio.duration` or `iframe.getDuration()` to avoid tail silence
 
 ### Recommendations
 - Similar tracks: search by artist + song name keywords (not generic "music")
@@ -94,9 +100,11 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Two playback paths: **cached** (IndexedDB → Blob URL) and **streaming** (yt-dlp)
 - Cached path MUST: set `currentVideoIdRef`, revoke old blob URL, call `audio.play()`
 - `pendingTrack` → `confirmPendingTrack()` → `currentTrack` lifecycle
-- DisplayMode effect has 3 branches: video mode / returning from video / normal play-pause
+- DisplayMode effect: video mode keeps audio playing normally / returning from video is no-op / else normal play-pause
 - Background Blob switch: download immediately from stream URL, don't wait for backend cache
 - Lock screen: Blob URL required (streaming URL breaks on screen lock)
+- Skip/complete stats use `track.duration` (YouTube metadata), not `audio.duration`
+- `handleTimeUpdate` dispatches `setCurrentTime` in ALL modes (audio is single time source)
 
 ### yt-dlp
 - Requires `--js-runtimes node:{process.execPath}` (API changed)
@@ -165,3 +173,5 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Video download**: yt-dlp adds .mp4 extension automatically — temp path must account for this
 - **Search**: must NOT replace playlist (causes auto-play), only update searchResults
 - **autoQueue dependencies**: must include currentIndex + playlist.length but use composite key to prevent loops
+- **Video mode audio**: NEVER pause/mute audio element in video mode — iframe must be muted instead, audio element is the only sound source
+- **Tail silence**: use `track.duration` (YouTube metadata) everywhere, not `audio.duration` (which includes encoded silence)
