@@ -337,6 +337,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           currentBlobUrlRef.current = blobUrl;
           try { audio.currentTime = curTime; } catch {}
           if (wasPlaying) audio.play().catch(() => {});
+          setIsCached(true);
           setCacheToast(true);
         })();
 
