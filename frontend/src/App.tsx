@@ -24,7 +24,7 @@ import PlaylistSection from './components/Playlist/PlaylistSection';
 import AdminSettings from './components/Admin/AdminSettings';
 import RadioButton from './components/Radio/RadioButton';
 import RadioIndicator from './components/Radio/RadioIndicator';
-import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist, playNow } from './store/playerSlice';
+import { setPendingTrack, setCurrentTrack, setIsPlaying, addToQueue, setPlaylist, playNow } from './store/playerSlice';
 import { RootState } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
@@ -202,29 +202,36 @@ function AppContent() {
     const playingVideoId = searchParams.get('playing');
     if (playingVideoId && !currentTrack) {
       // 載入並播放該歌曲
-      const loadTrack = async () => {
-        try {
-          const videoInfo = await apiService.getVideoInfo(playingVideoId);
-          const track: Track = {
-            id: videoInfo.videoId,
-            videoId: videoInfo.videoId,
-            title: videoInfo.title,
-            channel: videoInfo.channel,
-            thumbnail: videoInfo.thumbnail,
-            duration: videoInfo.duration,
-          };
-          dispatch(setPlaylist([track]));
-          dispatch(setPendingTrack(track));
-          dispatch(setIsPlaying(true));
-        } catch (err) {
-          console.error('恢復播放失敗:', err);
-          // 清除無效的 playing 參數
-          const newParams = new URLSearchParams(searchParams);
-          newParams.delete('playing');
-          setSearchParams(newParams, { replace: true });
-        }
+      // 先用最小資訊建 track，不阻塞首頁（getVideoInfo 用 yt-dlp 要 10 秒+）
+      const minTrack: Track = {
+        id: playingVideoId,
+        videoId: playingVideoId,
+        title: '載入中...',
+        channel: '',
+        thumbnail: `https://i.ytimg.com/vi/${playingVideoId}/hqdefault.jpg`,
+        duration: 0,
       };
-      loadTrack();
+      dispatch(setPlaylist([minTrack]));
+      dispatch(setPendingTrack(minTrack));
+      dispatch(setIsPlaying(true));
+
+      // 背景補全資訊（不阻塞）
+      apiService.getVideoInfo(playingVideoId).then(videoInfo => {
+        const fullTrack: Track = {
+          id: videoInfo.videoId,
+          videoId: videoInfo.videoId,
+          title: videoInfo.title,
+          channel: videoInfo.channel,
+          thumbnail: videoInfo.thumbnail,
+          duration: videoInfo.duration,
+        };
+        dispatch(setCurrentTrack(fullTrack));
+      }).catch(() => {
+        // 清除無效的 playing 參數
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('playing');
+        setSearchParams(newParams, { replace: true });
+      });
     }
   }, []); // 只在頁面初始化時執行一次
 
