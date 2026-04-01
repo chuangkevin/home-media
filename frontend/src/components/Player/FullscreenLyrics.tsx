@@ -89,6 +89,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 微調模式狀態
   const [isFineTuning, setIsFineTuning] = useState(false);
   const [fineTuneOffset, setFineTuneOffset] = useState(0);
+  const fineTuneStartTimeRef = useRef(0); // 進入微調時的播放時間（固定不變）
   const [isReloadingLyrics, setIsReloadingLyrics] = useState(false);
 
   // YouTube CC 載入狀態
@@ -496,19 +497,26 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
   };
 
-  // 時間偏移控制
-  const handleOffsetIncrease = () => {
-    const newOffset = Math.round((timeOffset + 0.1) * 10) / 10;
-    dispatch(adjustTimeOffset(0.1));
+  // 時間偏移控制（短按 ±0.5s，長按持續）
+  const offsetIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const applyOffset = (delta: number) => {
+    const newOffset = Math.round((timeOffset + delta) * 10) / 10;
+    dispatch(adjustTimeOffset(delta));
     apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
   };
 
-  const handleOffsetDecrease = () => {
-    const newOffset = Math.round((timeOffset - 0.1) * 10) / 10;
-    dispatch(adjustTimeOffset(-0.1));
-    apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
-    lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+  const handleOffsetIncrease = () => applyOffset(0.5);
+  const handleOffsetDecrease = () => applyOffset(-0.5);
+
+  // 長按持續調整
+  const startHold = (delta: number) => {
+    applyOffset(delta);
+    offsetIntervalRef.current = setInterval(() => applyOffset(delta), 200);
+  };
+  const stopHold = () => {
+    if (offsetIntervalRef.current) { clearInterval(offsetIntervalRef.current); offsetIntervalRef.current = null; }
   };
 
   const handleOffsetReset = () => {
@@ -519,6 +527,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 微調模式
   const handleEnterFineTune = () => {
+    // 記錄進入微調時的播放時間（之後不變，避免滾動時 offset 跳動）
+    const audio = document.querySelector('audio') as HTMLAudioElement | null;
+    fineTuneStartTimeRef.current = audio?.currentTime || currentTime;
     setFineTuneOffset(timeOffset);
     setIsFineTuning(true);
   };
@@ -560,8 +571,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     if (closestIndex >= 0 && currentLyrics.lines[closestIndex]) {
       const lineTime = currentLyrics.lines[closestIndex].time;
-      const newOffset = lineTime - currentTime;
-      setFineTuneOffset(Math.round(newOffset * 10) / 10);
+      // 用進入微調時的固定時間計算（避免滾動時 offset 因音樂繼續播放而跳動）
+      const refTime = fineTuneStartTimeRef.current;
+      const newOffset = Math.round((lineTime - refTime) * 10) / 10;
+      setFineTuneOffset(newOffset);
     }
   };
 
@@ -1157,16 +1170,21 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 </>
               ) : (
                 <>
-                  <IconButton size="small" onClick={handleOffsetDecrease}>
+                  <IconButton size="small" onClick={handleOffsetDecrease}
+                    onPointerDown={() => startHold(-0.5)} onPointerUp={stopHold} onPointerLeave={stopHold}
+                  >
                     <RemoveIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                   <Chip
                     label={timeOffset === 0 ? '0s' : `${timeOffset > 0 ? '+' : ''}${timeOffset.toFixed(1)}s`}
                     size="small"
+                    onClick={handleOffsetReset}
                     color={timeOffset === 0 ? 'default' : 'primary'}
-                    sx={{ height: 20, minWidth: 50 }}
+                    sx={{ height: 24, minWidth: 55, cursor: 'pointer', fontWeight: 600 }}
                   />
-                  <IconButton size="small" onClick={handleOffsetIncrease}>
+                  <IconButton size="small" onClick={handleOffsetIncrease}
+                    onPointerDown={() => startHold(0.5)} onPointerUp={stopHold} onPointerLeave={stopHold}
+                  >
                     <AddIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                   {timeOffset !== 0 && (
