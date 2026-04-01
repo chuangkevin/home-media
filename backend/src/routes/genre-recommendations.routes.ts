@@ -59,57 +59,81 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
       )
       .get(videoId) as any;
 
-    // 用 YouTube 相關影片推薦（基於 seed track 的標題/頻道）
-    // 比搜 "music" 好太多 — YouTube 自己的推薦演算法會根據影片內容推薦
+    // AI 分析曲風 → 搜尋相似風格的不同歌手/歌曲（像 Spotify/YouTube Music）
     {
       try {
-        let searchQuery = '';
-        if (seedTrack) {
-          // 用頻道名 + 標題關鍵字搜尋相似內容
-          const titleWords = (seedTrack.title || '')
-            .replace(/[\(\[【《「『].*?[\)\]】》」』]/g, '') // 移除括號
-            .replace(/(official|music video|mv|lyrics?|audio)/gi, '')
-            .trim()
-            .split(/\s*[-–—|｜]\s*/)
-            .filter((w: string) => w.length > 1);
-          // 用歌手名 + 歌名前幾個詞
-          searchQuery = titleWords.slice(0, 2).join(' ');
-          if (seedTrack.channel_name && !searchQuery.toLowerCase().includes(seedTrack.channel_name.toLowerCase())) {
-            searchQuery = `${seedTrack.channel_name} ${searchQuery}`;
+        const title = seedTrack?.title || '';
+        const artist = seedTrack?.channel_name || '';
+
+        // 用 Gemini AI 分析曲風，推薦不同歌手的相似風格歌曲
+        let queries: string[] = [];
+        try {
+          const { getApiKey } = await import('../services/gemini.service');
+          const apiKey = getApiKey();
+          if (apiKey) {
+            const { GoogleGenerativeAI } = await import('@google/generative-ai');
+            const genai = new GoogleGenerativeAI(apiKey);
+            const model = genai.getGenerativeModel({
+              model: 'gemini-2.5-flash',
+              generationConfig: { maxOutputTokens: 300, temperature: 0.9 },
+            });
+
+            const result = await model.generateContent(
+              `I'm listening to "${title}" by "${artist}". Suggest 5 songs by DIFFERENT artists with similar style/genre/mood. Format: one per line, "Artist - Song". No numbering, no quotes.`
+            );
+            queries = result.response.text().trim().split('\n')
+              .map(q => q.replace(/^\d+[\.\)]\s*/, '').trim())
+              .filter(q => q.length > 3 && q.length < 80);
+            console.log(`🤖 [Similar] AI queries:`, queries);
           }
-        } else {
-          // 用 videoId 搜尋 YouTube 相關影片
-          searchQuery = `${videoId}`;
+        } catch (aiErr) {
+          console.warn('⚠️ [Similar] AI failed, fallback to artist search');
         }
 
-        if (!searchQuery || searchQuery.length < 3) searchQuery = 'music trending';
+        // Fallback
+        if (queries.length === 0) {
+          queries = [`${artist} popular songs`, `artists like ${artist}`];
+        }
 
-        console.log(`🎵 [Similar] Searching: "${searchQuery}" for ${videoId}`);
-        const searchResults = await youtubeService.search(searchQuery, Math.max(limit * 2, 20));
+        // 搜尋 + 去重
+        const allResults: any[] = [];
+        const seenIds = new Set([videoId]);
+        const seenTitles = new Set<string>();
+        const seedLower = title.toLowerCase().replace(/[\(\[].*/g, '').trim();
 
-        // 過濾掉直播流和自己
-        const filtered = searchResults.filter(t => {
-          if (t.videoId === videoId) return false;
-          const dur = t.duration || 0;
-          return dur > 0 && dur < 7200;
-        }).slice(0, limit);
+        for (const q of queries.slice(0, 4)) {
+          try {
+            const results = await youtubeService.search(q, 8);
+            for (const t of results) {
+              if (seenIds.has(t.videoId)) continue;
+              const dur = t.duration || 0;
+              if (dur <= 0 || dur > 7200) continue;
+              const core = (t.title || '').toLowerCase().replace(/[\(\[].*/g, '').trim();
+              if (seedLower && core.includes(seedLower)) continue;
+              if (seenTitles.has(core)) continue;
+              seenIds.add(t.videoId);
+              seenTitles.add(core);
+              allResults.push(t);
+            }
+          } catch { /* continue */ }
+        }
 
-        const recommendations = filtered.map(track => ({
-          videoId: track.videoId,
-          title: track.title,
-          channelName: track.channel,
-          thumbnail: track.thumbnail,
-          duration: track.duration,
-          score: 0.7,
-          reasons: [`Similar to: ${seedTrack?.title || videoId}`],
+        // 隨機順序
+        for (let i = allResults.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [allResults[i], allResults[j]] = [allResults[j], allResults[i]];
+        }
+
+        const recommendations = allResults.slice(0, limit).map(track => ({
+          videoId: track.videoId, title: track.title, channelName: track.channel,
+          thumbnail: track.thumbnail, duration: track.duration, score: 0.8,
+          reasons: [`AI: similar style to ${artist}`],
         }));
 
-        console.log(`🎵 [Similar] Found ${recommendations.length} similar tracks`);
-        if (recommendations.length > 0) {
-          return res.json({ recommendations });
-        }
+        console.log(`🎵 [Similar] ${recommendations.length} AI-curated tracks`);
+        if (recommendations.length > 0) return res.json({ recommendations });
       } catch (searchError) {
-        logger.error('YouTube search for similar failed:', searchError);
+        logger.error('AI similar search failed:', searchError);
       }
     }
 
