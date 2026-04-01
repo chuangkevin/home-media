@@ -329,6 +329,12 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           events: {
             onReady: (event: any) => {
               dispatch(setDuration(event.target.getDuration()));
+              // 同步到當前音訊位置
+              const syncTime = getAudioTime();
+              if (syncTime > 0) {
+                event.target.seekTo(syncTime, true);
+                console.log(`🎬 影片（fallback path）同步到: ${syncTime.toFixed(1)}s`);
+              }
               event.target.playVideo();
             },
             onStateChange: (event: any) => {
