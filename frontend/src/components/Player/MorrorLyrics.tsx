@@ -175,9 +175,31 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
 
     let raf: number;
     let zeroFrames = 0;
+    let useSimulated = false;
+    const simData = new Uint8Array(128);
+    let simTime = 0;
+
+    // 生成模擬頻譜（sine wave + noise，看起來像真的）
+    const generateSimulated = () => {
+      simTime += 0.03;
+      for (let i = 0; i < simData.length; i++) {
+        const freq = i / simData.length; // 0~1 低到高頻
+        // 低頻強、高頻弱（像真實音樂）
+        const base = (1 - freq * 0.7) * 120;
+        // 多層 sine 波疊加
+        const wave1 = Math.sin(simTime * 2 + i * 0.15) * 40;
+        const wave2 = Math.sin(simTime * 3.7 + i * 0.3) * 25;
+        const wave3 = Math.sin(simTime * 1.3 + i * 0.05) * 30;
+        // 隨機噪音增加有機感
+        const noise = (Math.random() - 0.5) * 20;
+        simData[i] = Math.max(0, Math.min(255, base + wave1 + wave2 + wave3 + noise));
+      }
+      return { frequencyData: simData, bassLevel: simData[2] };
+    };
+
     const draw = () => {
       const { width, height } = canvas;
-      const { frequencyData, bassLevel } = dataRef.current;
+      let { frequencyData, bassLevel } = dataRef.current;
       ctx.clearRect(0, 0, width, height);
 
       const binCount = frequencyData.length;
@@ -187,14 +209,17 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
       const hasData = frequencyData.some((v: number) => v > 2);
       if (!hasData) {
         zeroFrames++;
-        if (zeroFrames > 30) { // 連續 30 幀無數據，隱藏 canvas 避免噪音
-          canvas.style.opacity = '0';
-          raf = requestAnimationFrame(draw);
-          return;
-        }
+        if (zeroFrames > 30) useSimulated = true;
       } else {
         zeroFrames = 0;
-        canvas.style.opacity = '1';
+        useSimulated = false;
+      }
+
+      // 用模擬數據替代（手機 CORS 導致 Web Audio 全零時）
+      if (useSimulated) {
+        const sim = generateSimulated();
+        frequencyData = sim.frequencyData;
+        bassLevel = sim.bassLevel;
       }
 
       // Parse accent color for alpha blending
