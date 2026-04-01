@@ -42,8 +42,12 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { isPlaying, seekTarget, currentTime } = useSelector((state: RootState) => state.player);
   const isSeekingRef = useRef(false);
-  // 記住切換到影片模式時的音訊播放位置
-  const initialTimeRef = useRef<number>(currentTime);
+  // 從 audio element 讀取實際播放位置（比 Redux currentTime 更準確）
+  const getAudioTime = () => {
+    const audio = document.querySelector('audio') as HTMLAudioElement | null;
+    return audio?.currentTime || currentTime;
+  };
+  // initialTimeRef removed — onReady 直接用 getAudioTime()
   // 錯誤狀態
   const [error, setError] = useState<string | null>(null);
   const [showIOSHint, setShowIOSHint] = useState(false);
@@ -132,11 +136,12 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
               console.log(`🎬 YouTube 播放器就緒: ${track.videoId}`);
               dispatch(setDuration(event.target.getDuration()));
 
-              // 同步到切換前的音訊播放位置
-              if (initialTimeRef.current > 0) {
+              // 同步到當前音訊播放位置（直接讀 audio element，最準確）
+              const syncTime = getAudioTime();
+              if (syncTime > 0) {
                 try {
-                  event.target.seekTo(initialTimeRef.current, true);
-                  console.log(`🎬 影片同步到 ${initialTimeRef.current.toFixed(1)}s`);
+                  event.target.seekTo(syncTime, true);
+                  console.log(`🎬 影片同步到音訊位置: ${syncTime.toFixed(1)}s`);
                 } catch (e) {
                   console.warn('🎬 尋找位置失敗:', e);
                 }
