@@ -5,7 +5,7 @@ import MusicVideoIcon from '@mui/icons-material/MusicVideo';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import type { Track } from '../../types/track.types';
-import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
+import { setIsPlaying, setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
 import { RootState } from '../../store';
 
 interface VideoPlayerProps {
@@ -134,7 +134,13 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
 
               setLoading(false);
               console.log(`🎬 YouTube 播放器就緒: ${track.videoId}`);
-              dispatch(setDuration(event.target.getDuration()));
+
+              // 靜音 iframe — audio element 是唯一音源（支援背景播放 + 鎖屏）
+              event.target.mute();
+
+              // 用 YouTube metadata duration（比 iframe getDuration 更一致）
+              const effectiveDuration = track.duration > 0 ? track.duration : event.target.getDuration();
+              dispatch(setDuration(effectiveDuration));
 
               // 同步到當前音訊播放位置（直接讀 audio element，最準確）
               const syncTime = getAudioTime();
@@ -228,15 +234,18 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           clearInterval(intervalRef.current);
         }
 
-        // 定期更新播放時間
+        // 定期同步 iframe 位置到 audio element（audio 是唯一音源）
         intervalRef.current = setInterval(() => {
-          if (playerRef.current && playerRef.current.getCurrentTime && isMounted) {
-            const time = playerRef.current.getCurrentTime();
-            if (!isSeekingRef.current) {
-              dispatch(setCurrentTime(time));
+          if (playerRef.current && playerRef.current.getCurrentTime && playerRef.current.seekTo && isMounted && !isSeekingRef.current) {
+            const videoTime = playerRef.current.getCurrentTime();
+            const audioTime = getAudioTime();
+            // 偏差超過 2 秒才修正，避免頻繁 seek
+            if (Math.abs(videoTime - audioTime) > 2) {
+              playerRef.current.seekTo(audioTime, true);
+              console.log(`🎬 影片同步修正: ${videoTime.toFixed(1)}→${audioTime.toFixed(1)}s`);
             }
           }
-        }, 500); // 更頻繁更新以保持同步
+        }, 1000);
       }
     };
 
@@ -328,7 +337,10 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           },
           events: {
             onReady: (event: any) => {
-              dispatch(setDuration(event.target.getDuration()));
+              // 靜音 iframe — audio element 是唯一音源
+              event.target.mute();
+              const effectiveDuration = track.duration > 0 ? track.duration : event.target.getDuration();
+              dispatch(setDuration(effectiveDuration));
               // 同步到當前音訊位置
               const syncTime = getAudioTime();
               if (syncTime > 0) {

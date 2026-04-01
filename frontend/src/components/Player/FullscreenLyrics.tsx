@@ -27,7 +27,7 @@ import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying, setCurrentTime, clearSeekTarget, playNext } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget, playNext } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -203,29 +203,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 獲取播放狀態
   const { isPlaying: audioIsPlaying } = useSelector((state: RootState) => state.player);
 
-  // 當切換到影片模式時，暫停並靜音 AudioPlayer
-  useEffect(() => {
-    const audioElement = document.querySelector('audio') as HTMLAudioElement | null;
-    if (!audioElement) return;
-
-    if (viewMode === 'video' && open) {
-      // 暫停音訊
-      audioElement.pause();
-      // 靜音音訊（雙重保險）
-      audioElement.muted = true;
-      console.log('🎬 FullscreenLyrics: 切換到影片模式，音訊已暫停並靜音');
-      
-      return () => {
-        // 離開影片模式時，恢復音訊
-        audioElement.muted = false;
-        // 檢查現在的 isPlaying 狀態
-        if (audioIsPlaying) {
-          console.log('🎵 FullscreenLyrics: 離開影片模式，恢復音訊播放');
-          audioElement.play().catch(err => console.warn('恢復音訊播放失敗:', err));
-        }
-      };
-    }
-  }, [viewMode, open, audioIsPlaying]);
+  // 影片模式：audio element 持續播放（背景播放 + 鎖屏需要），YouTube iframe 靜音
+  // AudioPlayer 的 displayMode effect 負責管理，FullscreenLyrics 不碰 audio element
 
   // 載入 YouTube IFrame API
   useEffect(() => {
@@ -275,6 +254,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             onReady: (event: any) => {
               if (!isMounted) return;
               setVideoReady(true);
+              // 靜音 iframe — audio element 是唯一音源（支援背景播放 + 鎖屏）
+              event.target.mute();
               event.target.seekTo(currentTime, true);
               // Try to play - if iOS blocks it, YouTube's built-in play button handles it
               if (audioIsPlaying) {
@@ -337,7 +318,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     };
   }, [open, viewMode, track.videoId]);
 
-  // 同步影片播放時間到 Redux（只在影片模式且實際可見時）
+  // 同步 iframe 位置到 audio element（audio 是唯一音源，iframe 跟隨）
   useEffect(() => {
     if (!videoReady || viewMode !== 'video' || !playerRef.current || !open) {
       if (videoTimeSyncRef.current) {
@@ -347,17 +328,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       return;
     }
 
-    let lastUpdateTime = -1;
     videoTimeSyncRef.current = setInterval(() => {
-      if (playerRef.current && playerRef.current.getCurrentTime) {
+      if (playerRef.current && playerRef.current.getCurrentTime && playerRef.current.seekTo) {
         const videoTime = playerRef.current.getCurrentTime();
-        // 只在時間有實際變化時才更新（避免無意義的 dispatch）
-        if (typeof videoTime === 'number' && !isNaN(videoTime) && Math.abs(videoTime - lastUpdateTime) > 0.2) {
-          lastUpdateTime = videoTime;
-          dispatch(setCurrentTime(videoTime));
+        const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+        const audioTime = audioEl?.currentTime || 0;
+        // 偏差超過 2 秒才修正
+        if (Math.abs(videoTime - audioTime) > 2) {
+          playerRef.current.seekTo(audioTime, true);
         }
       }
-    }, 500);
+    }, 1000);
 
     return () => {
       if (videoTimeSyncRef.current) {
@@ -365,7 +346,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         videoTimeSyncRef.current = null;
       }
     };
-  }, [videoReady, viewMode, open, dispatch]);
+  }, [videoReady, viewMode, open]);
 
   // 同步播放/暫停狀態到影片
   useEffect(() => {

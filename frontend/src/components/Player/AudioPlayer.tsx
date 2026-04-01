@@ -31,14 +31,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const currentVideoIdRef = useRef<string | null>(null);
   const currentBlobUrlRef = useRef<string | null>(null);
   const pendingBlobUrlRef = useRef<string | null>(null);
-  const lastAudioSrcRef = useRef<string | null>(null);
-  const lastAudioTimeRef = useRef<number>(0);
   const wasCompletedRef = useRef(false);
   const completeSentRef = useRef(false);
 
   // 🎵 自動播放佇列 - 當接近播放清單尾端時自動加入推薦歌曲
   useAutoQueue();
-  const lastAudioMutedRef = useRef<boolean>(false);
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
   const prevDisplayModeRef = useRef(displayMode);
@@ -87,7 +84,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // Record skip signal if previous track was not completed and played less than 50%
     if (audioRef.current && currentVideoIdRef.current && !wasCompletedRef.current) {
       const audio = audioRef.current;
-      if (audio.duration > 0 && audio.currentTime < audio.duration * 0.5) {
+      const skipDur = currentTrack?.duration || audio.duration;
+      if (skipDur > 0 && audio.currentTime < skipDur * 0.5) {
         apiService.recordSkip(currentVideoIdRef.current).catch(() => {});
       }
     }
@@ -609,55 +607,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const audio = audioRef.current;
 
     if (displayMode === 'video') {
-      // 🎬 進入影片模式：靜音但保留 audio 元素播放
-      // 重要：不能清空 audio.src，否則 iOS 鎖屏時 Media Session 失效
-      if (audio.src) {
-        lastAudioSrcRef.current = audio.currentSrc || audio.src;
-      }
-      lastAudioTimeRef.current = audio.currentTime || 0;
-      lastAudioMutedRef.current = audio.muted;
-
-      // 靜音音訊，讓影片的聲音為主，但保持播放（Media Session 需要）
-      audio.muted = true;
-      audio.volume = 0;
-      // 確保 audio 持續播放，否則 iOS 鎖屏時 Media Session 失效
-      if (audio.paused && audio.src) {
+      // 🎬 影片模式：audio element 持續正常播放（背景播放 + 鎖屏控制需要）
+      // YouTube iframe 會被靜音（在 VideoPlayer 裡處理），audio element 是唯一音源
+      // 重要：不能 pause/mute audio，否則 iOS 鎖屏或切到背景時音樂會斷
+      console.log('🎬 影片模式：audio element 持續播放，YouTube iframe 靜音');
+      if (isPlaying && audio.paused && audio.src) {
         audio.play().catch(() => {});
       }
-      console.log('🔇 影片模式：音訊靜音但持續播放（保留 Media Session 用於鎖屏控制）');
     } else if (prevDisplayModeRef.current === 'video') {
-      // 🎵 只在真正從影片模式切回時才恢復（不在 isPlaying 變化時觸發）
-      if (!audio.src && lastAudioSrcRef.current) {
-        audio.src = lastAudioSrcRef.current;
-        audio.load();
-      }
-
-      audio.muted = lastAudioMutedRef.current;
-      audio.volume = volume;
-
-      // 音訊在影片模式下靜音但持續播放，currentTime 已同步
-      // 不需要 seek，只需取消靜音即可
+      // 🎵 從影片模式切回：audio 一直在播放，不需要恢復
       console.log(`🔄 從影片模式切回，音訊時間: ${audio.currentTime.toFixed(1)}s`);
-
-      if (isPlaying && !isLoadingTrack) {
-        if (audio.paused && audio.readyState >= 2) {
-          console.log('🔄 從影片模式切回，恢復音訊播放');
-          audio.play().catch((error) => {
-            console.error('Failed to resume playback:', error);
-            dispatch(setIsPlaying(false));
-          });
-        } else if (audio.paused && audio.readyState < 2) {
-          playWhenReadyHandler = () => {
-            if (displayModeRef.current !== 'video') {
-              audio.play().catch((error) => {
-                console.error('Failed to resume after ready:', error);
-                dispatch(setIsPlaying(false));
-              });
-            }
-          };
-          audio.addEventListener('canplay', playWhenReadyHandler, { once: true });
-        }
-      } else if (!isPlaying && !audio.paused) {
+      if (!isPlaying && !audio.paused) {
         audio.pause();
       }
     } else {
@@ -686,9 +646,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }
   }, [volume]);
 
-  // 當需要 seek 時（僅在非影片模式下，且不在載入中）
+  // 當需要 seek 時（所有模式，audio element 是唯一音源）
   useEffect(() => {
-    if (seekTarget !== null && audioRef.current && displayMode !== 'video' && !isLoadingTrack) {
+    if (seekTarget !== null && audioRef.current && !isLoadingTrack) {
       audioRef.current.currentTime = seekTarget;
       dispatch(clearSeekTarget());
     }
@@ -762,12 +722,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const STREAM_RETRY_DELAYS = [1000, 3000, 7000]; // exponential backoff
 
     const handleTimeUpdate = () => {
-      // 影片模式時不更新時間（由 VideoPlayer 負責）
-      if (displayMode !== 'video') {
-        dispatch(setCurrentTime(audio.currentTime));
-      }
-      // Record complete when 90% reached
-      if (!completeSentRef.current && audio.duration > 0 && audio.currentTime >= audio.duration * 0.9) {
+      // audio element 是唯一音源，所有模式都更新時間
+      dispatch(setCurrentTime(audio.currentTime));
+      // Record complete when 90% reached (用 YouTube metadata duration)
+      const completeDur = currentTrack?.duration || audio.duration;
+      if (!completeSentRef.current && completeDur > 0 && audio.currentTime >= completeDur * 0.9) {
         completeSentRef.current = true;
         wasCompletedRef.current = true;
         if (currentVideoIdRef.current) {
