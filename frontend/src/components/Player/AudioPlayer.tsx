@@ -140,7 +140,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
           // 等 audio ready 再播放
           const playWhenReady = async () => {
-            dispatch(setDuration(audio.duration));
+            // 用 YouTube metadata duration（比 audio.duration 精確，沒有尾部靜音）
+            dispatch(setDuration(pendingTrack.duration || audio.duration));
 
             // 等 SponsorBlock 載入完再播放（最多等 2 秒）
             const segments = await Promise.race([sbPromise, new Promise<any[]>(r => setTimeout(() => r([]), 2000))]);
@@ -515,7 +516,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         const handleLoadedData = () => confirmAndPlay('loadeddata');
 
         const handleLoadedMetadata = () => {
-          dispatch(setDuration(audio.duration));
+          dispatch(setDuration(pendingTrack.duration || audio.duration));
           // 在手機端，有時只有 loadedmetadata 會觸發，延遲 500ms 後確認
           setTimeout(() => {
             if (!hasConfirmed && audio.readyState >= 1) {
@@ -809,6 +810,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           break;
         }
       }
+      // 用 YouTube metadata duration 偵測實際結尾（audio 檔案可能有尾部靜音）
+      const trackDuration = currentTrack?.duration;
+      if (trackDuration && trackDuration > 0 && t >= trackDuration - 0.5 && !wasCompletedRef.current) {
+        console.log(`⏭️ 到達 YouTube 原始長度 ${trackDuration}s，跳下一首（audio.duration=${audio.duration.toFixed(1)}s）`);
+        wasCompletedRef.current = true;
+        if (displayMode !== 'video') dispatch(playNext());
+        return;
+      }
+
       // 追蹤時間更新，用於偵測假播放
       lastTimeUpdate = Date.now();
       lastCurrentTime = audio.currentTime;
@@ -817,7 +827,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const handleDurationChange = () => {
       // 影片模式時不更新時長（由 VideoPlayer 負責）
       if (displayMode !== 'video') {
-        dispatch(setDuration(audio.duration));
+        // 用 YouTube metadata duration（沒有尾部靜音）
+        const trackDur = currentTrack?.duration;
+        dispatch(setDuration(trackDur && trackDur > 0 ? trackDur : audio.duration));
       }
     };
 
