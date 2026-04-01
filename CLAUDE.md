@@ -111,10 +111,21 @@ Title cleaning (regex fallback when Gemini unavailable):
 - `getMaxRetries()`: min(keyCount, 5)
 
 ### Immersive Lyrics (MorrorLyrics)
-- White text + black outline (subtitle style) — works on any background
+- White text + black outline (2px 八方向描邊) — works on any background
 - CSS variable `--lyrics-dim-color` for CharByChar animations
 - 6 effects: karaoke, scale, typewriter, neon, wave, focus
-- Audio visualizer canvas with frequency bars
+- Audio visualizer: Web Audio API on desktop, simulated sine wave fallback on mobile (CORS)
+- Canvas resize must defer to `requestAnimationFrame` (layout not ready on mount)
+
+### Preloading
+- Next track: starts immediately when current track plays (not at 50%)
+- Downloads directly to IndexedDB from stream URL (not waiting for backend cache)
+- Background Blob switch: `setIsCached(true)` must be called after switch (updates tag)
+
+### Lyrics Fine-Tune (滑動對準)
+- `fineTuneStartTimeRef` records `currentTime` on enter (fixed, doesn't drift)
+- Offset = lineTime - fixedStartTime (not lineTime - changing currentTime)
+- +/- buttons: ±0.5s per click, long-press for continuous adjustment
 
 ## Database
 
