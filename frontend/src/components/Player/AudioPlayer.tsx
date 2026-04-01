@@ -712,52 +712,30 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       const cached = await audioCacheService.get(nextTrack.videoId);
       if (cached || cancelled) return;
 
-      // 檢查 backend 是否已快取
-      const status = await apiService.getCacheStatus(nextTrack.videoId).catch(() => ({ cached: false }));
-      if (cancelled) return;
-
-      if (!status.cached) {
-        // 觸發 backend 下載（等當前歌播到 50% 再觸發，避免搶資源）
-        const waitForProgress = () => new Promise<void>(resolve => {
-          const check = setInterval(() => {
-            if (cancelled) { clearInterval(check); resolve(); return; }
-            const audio = audioRef.current;
-            if (audio && audio.duration > 0 && audio.currentTime / audio.duration > 0.5) {
-              clearInterval(check);
-              resolve();
-            }
-          }, 3000);
-        });
-        await waitForProgress();
-        if (cancelled) return;
-
-        console.log(`🔄 預載下一首 (backend): ${nextTrack.title}`);
-        apiService.preloadAudio(nextTrack.videoId).catch(() => {});
-
-        // 等 backend 快取完成
-        for (let i = 0; i < 20; i++) {
-          await new Promise(r => setTimeout(r, 3000));
-          if (cancelled) return;
-          const s = await apiService.getCacheStatus(nextTrack.videoId).catch(() => ({ cached: false }));
-          if (s.cached) break;
-        }
+      // 先檢查前端 IndexedDB 是否已有
+      const existing = await audioCacheService.get(nextTrack.videoId);
+      if (existing) {
+        console.log(`✅ 下一首已在 IndexedDB: ${nextTrack.title}`);
+        return;
       }
 
-      if (cancelled) return;
-
-      // 下載到前端 IndexedDB
+      // 直接下載到前端 IndexedDB（不等 backend cache，不等播放進度）
       console.log(`⏬ 預載下一首 (前端): ${nextTrack.title}`);
+      // 同時觸發 backend 預載（背景，不阻塞）
+      apiService.preloadAudio(nextTrack.videoId).catch(() => {});
+
       const streamUrl = apiService.getStreamUrl(nextTrack.videoId);
-      audioCacheService.fetchAndCache(nextTrack.videoId, streamUrl, {
-        title: nextTrack.title,
-        channel: nextTrack.channel,
-        thumbnail: nextTrack.thumbnail,
-        duration: nextTrack.duration,
-      }).then(() => {
+      try {
+        await audioCacheService.fetchAndCache(nextTrack.videoId, streamUrl, {
+          title: nextTrack.title,
+          channel: nextTrack.channel,
+          thumbnail: nextTrack.thumbnail,
+          duration: nextTrack.duration,
+        });
         console.log(`✅ 下一首預載完成: ${nextTrack.title}`);
-      }).catch(err => {
+      } catch (err) {
         console.warn(`⚠️ 下一首預載失敗: ${nextTrack.title}`, err);
-      });
+      }
     })();
 
     return () => { cancelled = true; };

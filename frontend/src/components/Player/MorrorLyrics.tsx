@@ -174,6 +174,7 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
     if (!ctx) return;
 
     let raf: number;
+    let zeroFrames = 0;
     const draw = () => {
       const { width, height } = canvas;
       const { frequencyData, bassLevel } = dataRef.current;
@@ -181,6 +182,20 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
 
       const binCount = frequencyData.length;
       if (binCount === 0) { raf = requestAnimationFrame(draw); return; }
+
+      // 檢查是否有有效數據（CORS 限制會導致全零）
+      const hasData = frequencyData.some((v: number) => v > 2);
+      if (!hasData) {
+        zeroFrames++;
+        if (zeroFrames > 30) { // 連續 30 幀無數據，隱藏 canvas 避免噪音
+          canvas.style.opacity = '0';
+          raf = requestAnimationFrame(draw);
+          return;
+        }
+      } else {
+        zeroFrames = 0;
+        canvas.style.opacity = '1';
+      }
 
       // Parse accent color for alpha blending
       const r = parseInt(accentColor.slice(1, 3), 16) || 68;
