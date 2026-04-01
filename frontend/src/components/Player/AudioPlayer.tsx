@@ -24,7 +24,7 @@ interface AudioPlayerProps {
 export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPlayerProps) {
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex, currentTime } = useSelector((state: RootState) => state.player);
+  const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
@@ -634,15 +634,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       audio.muted = lastAudioMutedRef.current;
       audio.volume = volume;
 
-      // 恢復音訊時間（從 Redux 獲取最新時間，已由 VideoPlayer 同步）
-      if (currentTime > 0 && audio.readyState >= 1) {
-        try {
-          audio.currentTime = currentTime;
-          console.log(`🔄 從影片模式切回，同步時間: ${currentTime.toFixed(1)}s`);
-        } catch {
-          // 忽略設置時間失敗
-        }
-      }
+      // 音訊在影片模式下靜音但持續播放，currentTime 已同步
+      // 不需要 seek，只需取消靜音即可
+      console.log(`🔄 從影片模式切回，音訊時間: ${audio.currentTime.toFixed(1)}s`);
 
       if (isPlaying && !isLoadingTrack) {
         if (audio.paused && audio.readyState >= 2) {
@@ -698,6 +692,16 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       dispatch(clearSeekTarget());
     }
   }, [seekTarget, displayMode, isLoadingTrack, dispatch]);
+
+  // 定期檢查快取狀態（串流播放中，背景下載完成後更新 tag）
+  useEffect(() => {
+    if (isCached || !currentTrack?.videoId) return;
+    const check = setInterval(async () => {
+      const cached = await audioCacheService.get(currentTrack.videoId);
+      if (cached) { setIsCached(true); clearInterval(check); }
+    }, 5000);
+    return () => clearInterval(check);
+  }, [currentTrack?.videoId, isCached]);
 
   // 預加載下一首：先 backend 下載，再前端 IndexedDB 快取
   useEffect(() => {
