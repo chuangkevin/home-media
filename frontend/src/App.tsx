@@ -24,7 +24,7 @@ import PlaylistSection from './components/Playlist/PlaylistSection';
 import AdminSettings from './components/Admin/AdminSettings';
 import RadioButton from './components/Radio/RadioButton';
 import RadioIndicator from './components/Radio/RadioIndicator';
-import { setPendingTrack, setCurrentTrack, setIsPlaying, addToQueue, setPlaylist, playNow } from './store/playerSlice';
+import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist, playNow, updateTrackMetadata } from './store/playerSlice';
 import { RootState } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
@@ -225,7 +225,8 @@ function AppContent() {
           thumbnail: videoInfo.thumbnail,
           duration: videoInfo.duration,
         };
-        dispatch(setCurrentTrack(fullTrack));
+        // 補全 placeholder metadata（不 reset currentTime、不覆蓋 playlist）
+        dispatch(updateTrackMetadata(fullTrack));
       }).catch(() => {
         // 清除無效的 playing 參數
         const newParams = new URLSearchParams(searchParams);

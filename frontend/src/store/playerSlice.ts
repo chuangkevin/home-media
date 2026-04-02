@@ -53,6 +53,23 @@ const playerSlice = createSlice({
         }
       }
     },
+    // 更新 track metadata（不 reset currentTime，用於補全 '載入中...' placeholder）
+    updateTrackMetadata(state, action: PayloadAction<Track>) {
+      const track = action.payload;
+      // 更新 currentTrack
+      if (state.currentTrack?.videoId === track.videoId) {
+        state.currentTrack = { ...state.currentTrack, ...track };
+      }
+      // 更新 pendingTrack
+      if (state.pendingTrack?.videoId === track.videoId) {
+        state.pendingTrack = { ...state.pendingTrack, ...track };
+      }
+      // 更新 playlist 裡的對應項目
+      const idx = state.playlist.findIndex(t => t.videoId === track.videoId);
+      if (idx !== -1) {
+        state.playlist[idx] = { ...state.playlist[idx], ...track };
+      }
+    },
     // 設置等待載入的曲目（不立即切換 UI）
     setPendingTrack(state, action: PayloadAction<Track | null>) {
       state.pendingTrack = action.payload;
@@ -230,6 +247,7 @@ export const {
   appendToPlaylist,
   playNext,
   playPrevious,
+  updateTrackMetadata,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;
