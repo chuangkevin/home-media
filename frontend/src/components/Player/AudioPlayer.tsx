@@ -881,7 +881,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       // Seek 完成后，如果应该在播放状态，确保继续播放
       if (isPlaying && audio.paused && audio.readyState >= 2) {
         console.log('🔄 Seek 后恢复播放...');
-        audio.play().catch(err => console.error('Seek后播放失败:', err));
+        audio.play().catch(() => {
+          // 瀏覽器 autoplay 限制 — 使用者需要點一下播放按鈕
+        });
       }
     };
 

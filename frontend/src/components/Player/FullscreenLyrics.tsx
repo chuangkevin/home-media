@@ -270,13 +270,20 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
-              // iframe 不控制 audio 播放狀態（不 dispatch setIsPlaying）
-              // 但需要確保 iframe 跟隨 audio 的播放狀態
-              if (event.data === 2 || event.data === -1) {
-                // iframe 暫停或未開始 — 如果 audio 在播放，強制 iframe 也播放
-                const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const audioTime = audioEl?.currentTime || 0;
+
+              if (event.data === 1) {
+                // iframe 開始播放 — 立即同步到 audio 位置
+                const videoTime = event.target.getCurrentTime();
+                if (Math.abs(videoTime - audioTime) > 1) {
+                  console.log(`🎬 iframe playing, 同步: video=${videoTime.toFixed(1)}→audio=${audioTime.toFixed(1)}`);
+                  event.target.seekTo(audioTime, true);
+                }
+              } else if (event.data === 2 || event.data === -1) {
+                // iframe 暫停 — 如果 audio 在播放，強制 iframe 跟上
                 if (audioEl && !audioEl.paused) {
-                  console.log('🎬 iframe 暫停但 audio 在播放，強制 playVideo');
+                  event.target.seekTo(audioTime, true);
                   event.target.playVideo();
                 }
               }
@@ -342,16 +349,21 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       }
     }
 
+    let syncAttempts = 0;
     videoTimeSyncRef.current = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime && playerRef.current.seekTo) {
         const videoTime = playerRef.current.getCurrentTime();
         const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
         const audioTime = audioEl?.currentTime || 0;
         const drift = Math.abs(videoTime - audioTime);
-        // 偏差超過 1 秒就修正
-        if (drift > 1) {
-          console.log(`🎬 影片同步修正: video=${videoTime.toFixed(1)}s → audio=${audioTime.toFixed(1)}s (drift=${drift.toFixed(1)}s)`);
-          playerRef.current.seekTo(audioTime, true);
+        syncAttempts++;
+        // 前 10 次無條件同步（iframe 剛載入時 getCurrentTime 可能不準）
+        // 之後偏差超過 1 秒才修正
+        if (drift > 1 || syncAttempts <= 10) {
+          if (drift > 0.5) {
+            playerRef.current.seekTo(audioTime, true);
+            console.log(`🎬 同步 #${syncAttempts}: video=${videoTime.toFixed(1)}→audio=${audioTime.toFixed(1)} (drift=${drift.toFixed(1)}s)`);
+          }
         }
       }
     }, 500);
@@ -1282,7 +1294,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block', fontWeight: 600 }}>
-              播放清單 ({playlist.length})
+              播放清單 ({playlist.filter(t => t.title && t.title !== '載入中...').length})
             </Typography>
             {renderPlaylist()}
           </Box>
@@ -1320,7 +1332,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           }}
         >
           <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1.5, display: 'block', fontWeight: 600, borderBottom: 1, borderColor: 'divider' }}>
-            播放清單 ({playlist.length})
+            播放清單 ({playlist.filter(t => t.title && t.title !== '載入中...').length})
           </Typography>
           <Box sx={{ flex: 1, overflow: 'auto' }}>
             {renderPlaylist()}

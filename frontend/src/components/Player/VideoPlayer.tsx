@@ -187,17 +187,23 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
+              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const audioTime = audioEl?.currentTime || 0;
+
               if (event.data === 0) {
-                console.log('🎬 影片播放結束，自動下一首');
                 dispatch(playNext());
+              } else if (event.data === 1) {
+                // iframe 開始播放 — 立即同步到 audio 位置
+                const videoTime = event.target.getCurrentTime();
+                if (Math.abs(videoTime - audioTime) > 1) {
+                  event.target.seekTo(audioTime, true);
+                }
               } else if (event.data === 2 || event.data === -1) {
-                // iframe 暫停 — 如果 audio 在播放，強制 iframe 跟上
-                const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
                 if (audioEl && !audioEl.paused) {
+                  event.target.seekTo(audioTime, true);
                   event.target.playVideo();
                 }
               }
-              // 不 dispatch setIsPlaying — audio element 是唯一音源
             },
             onError: (event: any) => {
               if (!isMounted) return;
@@ -349,11 +355,18 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
               event.target.playVideo();
             },
             onStateChange: (event: any) => {
+              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const audioTime = audioEl?.currentTime || 0;
               if (event.data === 0) {
                 dispatch(playNext());
+              } else if (event.data === 1) {
+                const videoTime = event.target.getCurrentTime();
+                if (Math.abs(videoTime - audioTime) > 1) {
+                  event.target.seekTo(audioTime, true);
+                }
               } else if (event.data === 2 || event.data === -1) {
-                const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
                 if (audioEl && !audioEl.paused) {
+                  event.target.seekTo(audioTime, true);
                   event.target.playVideo();
                 }
               }
