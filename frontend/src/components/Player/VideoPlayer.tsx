@@ -5,7 +5,7 @@ import MusicVideoIcon from '@mui/icons-material/MusicVideo';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import type { Track } from '../../types/track.types';
-import { setIsPlaying, setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
+import { setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
 import { RootState } from '../../store';
 
 interface VideoPlayerProps {
@@ -187,19 +187,13 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
-              // 0 = ended, 1 = playing, 2 = paused
-              // 只有在影片模式下才更新播放狀態，避免干擾音訊模式
+              // iframe 是純視覺同步，不控制 audio 播放狀態
+              // 只處理播放結束（自動下一首），不處理 play/pause
               if (event.data === 0) {
-                // 播放結束，自動播放下一首
                 console.log('🎬 影片播放結束，自動下一首');
                 dispatch(playNext());
-              } else if (event.data === 1) {
-                console.log('🎬 影片播放中');
-                dispatch(setIsPlaying(true));
-              } else if (event.data === 2) {
-                console.log('🎬 影片已暫停');
-                dispatch(setIsPlaying(false));
               }
+              // 不 dispatch setIsPlaying — audio element 是唯一音源
             },
             onError: (event: any) => {
               if (!isMounted) return;
@@ -239,13 +233,14 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           if (playerRef.current && playerRef.current.getCurrentTime && playerRef.current.seekTo && isMounted && !isSeekingRef.current) {
             const videoTime = playerRef.current.getCurrentTime();
             const audioTime = getAudioTime();
-            // 偏差超過 2 秒才修正，避免頻繁 seek
-            if (Math.abs(videoTime - audioTime) > 2) {
+            const drift = Math.abs(videoTime - audioTime);
+            // 偏差超過 1 秒就修正
+            if (drift > 1) {
               playerRef.current.seekTo(audioTime, true);
-              console.log(`🎬 影片同步修正: ${videoTime.toFixed(1)}→${audioTime.toFixed(1)}s`);
+              console.log(`🎬 影片同步修正: video=${videoTime.toFixed(1)}→audio=${audioTime.toFixed(1)}s (drift=${drift.toFixed(1)}s)`);
             }
           }
-        }, 1000);
+        }, 500);
       }
     };
 
@@ -352,11 +347,8 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             onStateChange: (event: any) => {
               if (event.data === 0) {
                 dispatch(playNext());
-              } else if (event.data === 1) {
-                dispatch(setIsPlaying(true));
-              } else if (event.data === 2) {
-                dispatch(setIsPlaying(false));
               }
+              // 不 dispatch setIsPlaying — audio element 是唯一音源
             },
             onError: (event: any) => {
               const errorCode = event.data;

@@ -366,9 +366,9 @@ class ApiService {
   /**
    * 獲取相似歌曲推薦
    */
-  async getSimilarTracks(videoId: string, limit: number = 10) {
+  async getSimilarTracks(videoId: string, limit: number = 10, artist?: string, title?: string) {
     const response = await this.api.get(`/recommendations/similar/${videoId}`, {
-      params: { limit },
+      params: { limit, artist, title },
     });
     return response.data.recommendations;
   }

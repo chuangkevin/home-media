@@ -85,12 +85,16 @@ Title cleaning (regex fallback when Gemini unavailable):
 - **Audio architecture**: audio element is the ONLY sound source in ALL modes
   - YouTube iframe is always muted (`event.target.mute()`) — visual sync only
   - Audio element must NEVER be paused/muted in video mode (breaks background/lock-screen playback)
-  - iframe syncs to audio position (not the other way around), corrects drift >2s
+  - iframe syncs to audio position (not the other way around), corrects drift >1s every 500ms
+  - iframe `onStateChange` must NOT dispatch `setIsPlaying` — only handle `ended` for auto-next
   - Seek applies to audio element in all modes; iframe follows
 - Duration: use `track.duration` (YouTube metadata) over `audio.duration` or `iframe.getDuration()` to avoid tail silence
 
 ### Recommendations
-- Similar tracks: search by artist + song name keywords (not generic "music")
+- Two-tier: same artist first (up to 10), then AI-recommended different artists (fill to 20)
+- Tier 1: YouTube search `"{artist} songs"`, filter by channel name match
+- Tier 2: Gemini AI suggests similar style/genre songs by different artists
+- Frontend passes `artist` + `title` as query params (fallback when track not in cached_tracks)
 - Auto-queue: triggers when remainingSongs <= 2, uses `videoId:playlistLength` key to prevent duplicates
 - Dependencies: `[currentVideoId, currentIndex, playlist.length]`
 

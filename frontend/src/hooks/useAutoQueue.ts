@@ -36,7 +36,9 @@ export function useAutoQueue() {
     const loadRecommendations = async () => {
       try {
         // 載入推薦：同歌手 10 首 + AI 推薦 10 首
-        let recommendations = await apiService.getSimilarTracks(currentVideoId, 20);
+        let recommendations = await apiService.getSimilarTracks(
+          currentVideoId, 20, currentTrack?.channel, currentTrack?.title
+        );
         
         console.log(`📥 收到推薦:`, recommendations);
         console.log(`推薦數量: ${recommendations?.length || 0}`);

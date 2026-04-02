@@ -615,9 +615,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audio.play().catch(() => {});
       }
     } else if (prevDisplayModeRef.current === 'video') {
-      // 🎵 從影片模式切回：audio 一直在播放，不需要恢復
-      console.log(`🔄 從影片模式切回，音訊時間: ${audio.currentTime.toFixed(1)}s`);
-      if (!isPlaying && !audio.paused) {
+      // 🎵 從影片模式切回：確保 audio 狀態正確（防禦性恢復）
+      audio.muted = false;
+      audio.volume = volume;
+      console.log(`🔄 從影片模式切回，音訊時間: ${audio.currentTime.toFixed(1)}s, volume: ${volume}`);
+      if (isPlaying && audio.paused && audio.src) {
+        audio.play().catch(() => {});
+      } else if (!isPlaying && !audio.paused) {
         audio.pause();
       }
     } else {
@@ -939,15 +943,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       }
     }, 3000); // 改為 3 秒檢查一次
 
-    // 影片模式防護：確保音訊在影片模式下保持靜音（但不暫停，保留 Media Session）
+    // 影片模式：audio element 是唯一音源，不可靜音
+    // YouTube iframe 已被靜音（event.target.mute()），audio 必須正常播放
     const handlePlaying = () => {
-      if (displayModeRef.current === 'video') {
-        if (!audio.muted) {
-          audio.muted = true;
-          audio.volume = 0;
-          console.log('🔇 影片模式下確保音訊靜音');
-        }
-      }
+      // no-op：不再靜音 audio（舊架構遺留已移除）
     };
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
@@ -1087,9 +1086,28 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               alt={displayTrack.title}
             />
             <Box sx={{ width: '100%', mt: 1 }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, width: '100%', textAlign: 'center' }}>
-                {displayTrack.title}
-              </Typography>
+              <Box sx={{ overflow: 'hidden', width: '100%' }}>
+                <Typography
+                  variant="subtitle1"
+                  noWrap
+                  sx={{
+                    fontWeight: 600,
+                    width: '100%',
+                    textAlign: 'center',
+                    display: 'inline-block',
+                    whiteSpace: 'nowrap',
+                    animation: displayTrack.title.length > 25 ? 'marquee 12s linear infinite' : 'none',
+                    '@keyframes marquee': {
+                      '0%': { transform: 'translateX(0%)' },
+                      '30%': { transform: 'translateX(0%)' },
+                      '70%': { transform: 'translateX(calc(-100% + 250px))' },
+                      '100%': { transform: 'translateX(0%)' },
+                    },
+                  }}
+                >
+                  {displayTrack.title}
+                </Typography>
+              </Box>
               <Typography variant="body2" color="text.secondary" noWrap sx={{ textAlign: 'center', mb: 1 }}>
                 {displayTrack.channel}
               </Typography>
@@ -1127,9 +1145,27 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               alt={displayTrack.title}
             />
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Typography variant="body2" noWrap sx={{ fontWeight: 600, lineHeight: 1.3 }}>
-                {displayTrack.title}
-              </Typography>
+              <Box sx={{ overflow: 'hidden', width: '100%' }}>
+                <Typography
+                  variant="body2"
+                  noWrap
+                  sx={{
+                    fontWeight: 600,
+                    lineHeight: 1.3,
+                    display: 'inline-block',
+                    whiteSpace: 'nowrap',
+                    animation: displayTrack.title.length > 20 ? 'marquee 12s linear infinite' : 'none',
+                    '@keyframes marquee': {
+                      '0%': { transform: 'translateX(0%)' },
+                      '30%': { transform: 'translateX(0%)' },
+                      '70%': { transform: 'translateX(calc(-100% + 200px))' },
+                      '100%': { transform: 'translateX(0%)' },
+                    },
+                  }}
+                >
+                  {displayTrack.title}
+                </Typography>
+              </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>
                   {displayTrack.channel}

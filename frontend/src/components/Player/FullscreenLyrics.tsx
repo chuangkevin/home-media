@@ -266,18 +266,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 } catch {}
               }
             },
-            onStateChange: (event: any) => {
-              if (!isMounted) return;
-              // 只有在影片模式才處理狀態變化
-              if (viewMode !== 'video') return;
-              // YT.PlayerState: PLAYING=1, PAUSED=2, BUFFERING=3
-              if (event.data === 1) {
-                // 影片開始播放，更新播放狀態（但不觸發音訊播放）
-                dispatch(setIsPlaying(true));
-              } else if (event.data === 2) {
-                // 影片暫停
-                dispatch(setIsPlaying(false));
-              }
+            onStateChange: (_event: any) => {
+              // iframe 是純視覺同步，不控制 audio 播放狀態
+              // audio element 是唯一音源，由 AudioPlayer 的 play/pause 控制
+              // 不 dispatch setIsPlaying — 避免 iframe 銷毀時暫停 audio
             },
             onError: (event: any) => {
               if (!isMounted) return;
@@ -335,12 +327,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         const videoTime = playerRef.current.getCurrentTime();
         const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
         const audioTime = audioEl?.currentTime || 0;
-        // 偏差超過 2 秒才修正
-        if (Math.abs(videoTime - audioTime) > 2) {
+        const drift = Math.abs(videoTime - audioTime);
+        // 偏差超過 1 秒就修正
+        if (drift > 1) {
+          console.log(`🎬 影片同步修正: video=${videoTime.toFixed(1)}s → audio=${audioTime.toFixed(1)}s (drift=${drift.toFixed(1)}s)`);
           playerRef.current.seekTo(audioTime, true);
         }
       }
-    }, 1000);
+    }, 500);
 
     return () => {
       if (videoTimeSyncRef.current) {
@@ -728,8 +722,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     dispatch(setIsPlaying(true));
   };
 
-  // 取得待播清單（當前索引之後的曲目）
-  const upcomingTracks = playlist.slice(currentIndex + 1);
+  // 完整播放清單（已播放灰色 + 目前高亮 + 待播正常）
 
   // 渲染歌詞
   const renderLyrics = () => {
@@ -863,19 +856,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           playsInline
           style={{ width: '100%', maxHeight: '100%', maxWidth: 960 }}
           onPlay={() => {
-            // 靜音背景 audio，讓影片聲音為主
-            const audio = document.querySelector('audio') as HTMLAudioElement;
-            if (audio) { audio.muted = true; audio.volume = 0; }
+            // audio element 是唯一音源，不靜音（cached video 也靜音播放）
           }}
           onPause={() => {
-            dispatch(setIsPlaying(false));
+            // 不 dispatch setIsPlaying(false)，避免暫停 audio element
           }}
           onEnded={() => {
-            // 恢復 audio
-            const audio = document.querySelector('audio') as HTMLAudioElement;
-            if (audio) { audio.muted = false; audio.volume = 0.7; }
             dispatch(playNext());
           }}
+          muted
         />
       </Box>
     );
@@ -922,56 +911,72 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     );
   };
 
-  // 渲染待播清單
-  const renderUpcoming = () => {
-    if (upcomingTracks.length === 0) {
+  // 渲染播放清單（已播放灰色 + 目前高亮 + 待播正常）
+  const renderPlaylist = () => {
+    if (playlist.length === 0) {
       return (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
-          沒有更多待播歌曲
+          播放清單是空的
         </Typography>
       );
     }
 
     return (
       <List dense sx={{ py: 0 }}>
-        {upcomingTracks.slice(0, 10).map((item) => (
-          <ListItem
-            key={item.id}
-            disablePadding
-            secondaryAction={
-              <IconButton edge="end" size="small" onClick={() => handlePlayFromList(item)}>
-                <PlayArrowIcon fontSize="small" />
-              </IconButton>
-            }
-          >
-            <ListItemButton onClick={() => handlePlayFromList(item)} sx={{ py: 0.5 }}>
-              <ListItemAvatar sx={{ minWidth: 48 }}>
-                <Avatar
-                  variant="rounded"
-                  src={item.thumbnail}
-                  sx={{ width: 40, height: 40 }}
+        {playlist.map((item, idx) => {
+          const isPlayed = idx < currentIndex;
+          const isCurrent = idx === currentIndex;
+          return (
+            <ListItem
+              key={`${item.videoId}-${idx}`}
+              disablePadding
+              secondaryAction={
+                !isCurrent ? (
+                  <IconButton edge="end" size="small" onClick={() => handlePlayFromList(item)}>
+                    <PlayArrowIcon fontSize="small" />
+                  </IconButton>
+                ) : undefined
+              }
+            >
+              <ListItemButton
+                onClick={() => !isCurrent && handlePlayFromList(item)}
+                sx={{
+                  py: 0.5,
+                  opacity: isPlayed ? 0.45 : 1,
+                  backgroundColor: isCurrent ? 'rgba(255,255,255,0.08)' : 'transparent',
+                }}
+              >
+                <ListItemAvatar sx={{ minWidth: 48 }}>
+                  <Avatar
+                    variant="rounded"
+                    src={item.thumbnail}
+                    sx={{ width: 40, height: 40, opacity: isPlayed ? 0.5 : 1 }}
+                  />
+                </ListItemAvatar>
+                <ListItemText
+                  primary={
+                    <Typography
+                      variant="body2"
+                      noWrap
+                      sx={{
+                        fontSize: '0.85rem',
+                        fontWeight: isCurrent ? 700 : 400,
+                        color: isCurrent ? 'primary.main' : 'text.primary',
+                      }}
+                    >
+                      {isCurrent ? '▶ ' : ''}{item.title}
+                    </Typography>
+                  }
+                  secondary={
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {item.channel}
+                    </Typography>
+                  }
                 />
-              </ListItemAvatar>
-              <ListItemText
-                primary={
-                  <Typography variant="body2" noWrap sx={{ fontSize: '0.85rem' }}>
-                    {item.title}
-                  </Typography>
-                }
-                secondary={
-                  <Typography variant="caption" color="text.secondary" noWrap>
-                    {item.channel}
-                  </Typography>
-                }
-              />
-            </ListItemButton>
-          </ListItem>
-        ))}
-        {upcomingTracks.length > 10 && (
-          <Typography variant="caption" color="text.secondary" sx={{ p: 2, display: 'block', textAlign: 'center' }}>
-            還有 {upcomingTracks.length - 10} 首歌曲
-          </Typography>
-        )}
+              </ListItemButton>
+            </ListItem>
+          );
+        })}
       </List>
     );
   };
@@ -1255,9 +1260,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block', fontWeight: 600 }}>
-              待播清單 ({upcomingTracks.length})
+              播放清單 ({playlist.length})
             </Typography>
-            {renderUpcoming()}
+            {renderPlaylist()}
           </Box>
         )}
 
@@ -1293,10 +1298,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           }}
         >
           <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1.5, display: 'block', fontWeight: 600, borderBottom: 1, borderColor: 'divider' }}>
-            待播清單 ({upcomingTracks.length})
+            播放清單 ({playlist.length})
           </Typography>
           <Box sx={{ flex: 1, overflow: 'auto' }}>
-            {renderUpcoming()}
+            {renderPlaylist()}
           </Box>
         </Box>
       )}

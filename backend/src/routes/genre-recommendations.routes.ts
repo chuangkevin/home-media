@@ -44,8 +44,9 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
       )
       .get(videoId) as any;
 
-    const title = seedTrack?.title || '';
-    const artist = seedTrack?.channel_name || '';
+    // 優先用 DB，fallback 用 query params（新歌可能還沒入 cached_tracks）
+    const title = seedTrack?.title || (req.query.title as string) || '';
+    const artist = seedTrack?.channel_name || (req.query.artist as string) || '';
     const seenIds = new Set([videoId]);
     const seenTitles = new Set<string>();
     const seedLower = title.toLowerCase().replace(/[\(\[].*/g, '').trim();
