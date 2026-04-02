@@ -56,9 +56,9 @@ export function useAutoQueue() {
             .filter((rec: any) => {
               // 過濾掉已存在的
               if (existingVideoIds.has(rec.videoId)) return false;
-              // 過濾掉直播流（duration 為 0 或超過 2 小時 = 7200 秒）
+              // 過濾掉直播流和合輯（duration 為 0 或超過 10 分鐘 = 600 秒）
               const duration = rec.duration || 0;
-              if (duration === 0 || duration > 7200) {
+              if (duration === 0 || duration > 600) {
                 console.log(`⏭️ 跳過直播流: ${rec.title} (${duration}s)`);
                 return false;
               }

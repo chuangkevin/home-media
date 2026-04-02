@@ -106,15 +106,18 @@ class RecommendationService {
           logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
 
 
+          // 過濾掉合輯/超長影片（>10 分鐘 = 600 秒）和直播（duration=0）
+          const filtered = videos.filter(v => v.duration > 0 && v.duration <= 600);
+
           // 快取結果（6 小時）
-          if (videos.length > 0) {
-            this.cacheRecommendations(channel.channelName, videos);
+          if (filtered.length > 0) {
+            this.cacheRecommendations(channel.channelName, filtered);
           }
 
           return {
             channelName: channel.channelName,
             channelThumbnail: channel.channelThumbnail,
-            videos,
+            videos: filtered,
             watchCount: channel.watchCount
           };
         })

@@ -58,8 +58,10 @@ export default function HomeRecommendations() {
         const lyricsCachedCount = Array.from(lyricsStatusMap.values()).filter(v => v).length;
         console.log(`📝 歌詞快取狀態: ${lyricsCachedCount}/${allVideoIds.length} 已快取`);
 
-        // 找出未快取的音訊，逐個預載
-        const uncachedAudios = allVideos.filter(v => !audioStatusMap.get(v.videoId));
+        // 找出未快取的音訊，過濾掉合輯/超長影片（>10 分鐘），逐個預載
+        const uncachedAudios = allVideos.filter(v =>
+          !audioStatusMap.get(v.videoId) && v.duration > 0 && v.duration <= 600
+        );
 
         if (uncachedAudios.length > 0) {
           console.log(`🔄 開始預載 ${uncachedAudios.length} 首未快取的音樂...`);
