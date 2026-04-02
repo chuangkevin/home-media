@@ -35,7 +35,7 @@ export function useAutoQueue() {
     // 載入推薦歌曲
     const loadRecommendations = async () => {
       try {
-        // 先嘗試載入 20 首推薦
+        // 載入推薦：同歌手 10 首 + AI 推薦 10 首
         let recommendations = await apiService.getSimilarTracks(currentVideoId, 20);
         
         console.log(`📥 收到推薦:`, recommendations);
@@ -66,8 +66,8 @@ export function useAutoQueue() {
             }));
 
           if (newTracks.length > 0) {
-            // 只取前 10 首加入播放清單
-            const tracksToAdd = newTracks.slice(0, 10);
+            // 全部加入（backend 已經控制數量：同歌手 10 + AI 推薦 10）
+            const tracksToAdd = newTracks;
             console.log(`✅ 自動佇列：加入 ${tracksToAdd.length} 首推薦歌曲`);
             // 將推薦歌曲加入播放清單末尾（不打斷現有順序）
             dispatch(appendToPlaylist(tracksToAdd));

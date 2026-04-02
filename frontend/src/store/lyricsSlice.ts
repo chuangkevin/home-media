@@ -25,7 +25,8 @@ const lyricsSlice = createSlice({
       state.currentLyrics = action.payload;
       state.currentLineIndex = -1;
       state.error = null;
-      state.timeOffset = 0; // 切換歌曲時重置，之後由 LyricsView 載入儲存的偏好
+      // 不在這裡 reset timeOffset — loadPreference effect 會處理
+      // 避免 race condition：lyrics async 載入比 loadPreference 晚完成時覆蓋已載入的 offset
     },
     setIsLoading(state, action: PayloadAction<boolean>) {
       state.isLoading = action.payload;

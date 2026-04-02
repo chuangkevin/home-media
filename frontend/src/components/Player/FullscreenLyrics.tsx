@@ -247,7 +247,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             autoplay: 1,
             enablejsapi: 1,
             origin: window.location.origin,
-            start: Math.floor(currentTime),
             playsinline: 1, // 手機端內嵌播放
           },
           events: {
@@ -256,7 +255,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               setVideoReady(true);
               // 靜音 iframe — audio element 是唯一音源（支援背景播放 + 鎖屏）
               event.target.mute();
-              event.target.seekTo(currentTime, true);
+              // 用 live audio time（Redux currentTime 可能過時）
+              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const liveTime = audioEl?.currentTime || currentTime;
+              event.target.seekTo(liveTime, true);
               // Try to play - if iOS blocks it, YouTube's built-in play button handles it
               if (audioIsPlaying) {
                 try {
@@ -376,8 +378,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
   }, [seekTarget, videoReady, viewMode, dispatch]);
 
-  // 載入儲存的偏好設定
+  // 載入儲存的偏好設定（切歌時先 reset 再載入，避免殘留上一首的 offset）
   useEffect(() => {
+    // 切歌時立即 reset offset（不管 drawer 開不開）
+    dispatch(setTimeOffset(0));
+
     if (!open) return;
 
     const loadPreference = async () => {
@@ -386,6 +391,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         if (backendPrefs?.timeOffset !== undefined && backendPrefs.timeOffset !== 0) {
           dispatch(setTimeOffset(backendPrefs.timeOffset));
           lyricsCacheService.setTimeOffset(track.videoId, backendPrefs.timeOffset);
+          console.log(`🎯 載入歌詞偏移: ${backendPrefs.timeOffset}s (${track.videoId})`);
           return;
         }
       } catch (error) {
@@ -396,6 +402,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       if (localPref?.timeOffset !== undefined && localPref.timeOffset !== 0) {
         dispatch(setTimeOffset(localPref.timeOffset));
         apiService.updateLyricsPreferences(track.videoId, { timeOffset: localPref.timeOffset });
+        console.log(`🎯 載入歌詞偏移 (local): ${localPref.timeOffset}s (${track.videoId})`);
       }
     };
     loadPreference();
