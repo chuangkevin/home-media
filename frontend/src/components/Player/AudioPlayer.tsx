@@ -852,19 +852,22 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
 
     // 手機端特殊處理：偵測假播放（進度在跑但沒聲音）
+    let stalledRetryCount = 0;
+    const MAX_STALLED_RETRIES = 3;
     const handleStalled = () => {
-      console.warn('⚠️ Audio stalled - 音訊載入停滯');
-      // 嘗試重新載入
+      if (stalledRetryCount >= MAX_STALLED_RETRIES) return; // 不再重試
+      console.warn(`⚠️ Audio stalled (${stalledRetryCount + 1}/${MAX_STALLED_RETRIES})`);
       if (stalledTimeout) clearTimeout(stalledTimeout);
       stalledTimeout = setTimeout(() => {
         if (audio.paused === false && audio.currentTime === lastCurrentTime && displayModeRef.current !== 'video') {
-          console.log('🔄 嘗試重新載入音訊...');
+          stalledRetryCount++;
+          console.log(`🔄 嘗試重新載入音訊 (${stalledRetryCount}/${MAX_STALLED_RETRIES})...`);
           const currentSrc = audio.src;
           const currentPosition = audio.currentTime;
           audio.src = '';
           audio.src = currentSrc;
           audio.currentTime = currentPosition;
-          audio.play().catch(console.error);
+          audio.play().catch(() => {});
         }
       }, 3000);
     };
@@ -945,6 +948,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         } else if (timeSinceUpdate < 2000) {
           // 正常播放中，重置重試計數
           fakePlaybackRetryCount = 0;
+          stalledRetryCount = 0;
         }
       }
     }, 3000); // 改為 3 秒檢查一次
