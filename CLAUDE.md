@@ -84,10 +84,11 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Video tab only enables after download complete
 - **Audio architecture**: audio element is the ONLY sound source in ALL modes
   - YouTube iframe is always muted (`event.target.mute()`) — visual sync only
+  - Cached video uses `<video muted>` element, synced to audio via `onCanPlay` + interval (drift >3s)
   - Audio element must NEVER be paused/muted in video mode (breaks background/lock-screen playback)
-  - iframe syncs to audio position (not the other way around), corrects drift >1s every 500ms
-  - iframe `onStateChange` must NOT dispatch `setIsPlaying` — only handle `ended` for auto-next
-  - Seek applies to audio element in all modes; iframe follows
+  - iframe `onStateChange`: sync position on state=1, force play on state=2/-1, only `playNext` on state=0
+  - Seek applies to audio element in all modes; iframe/video follows
+  - `handlePlaying` event must NOT mute audio (old architecture remnant removed)
 - Duration: use `track.duration` (YouTube metadata) over `audio.duration` or `iframe.getDuration()` to avoid tail silence
 
 ### Recommendations
@@ -96,7 +97,11 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Tier 2: Gemini AI suggests similar style/genre songs by different artists
 - Frontend passes `artist` + `title` as query params (fallback when track not in cached_tracks)
 - Auto-queue: triggers when remainingSongs <= 2, uses `videoId:playlistLength` key to prevent duplicates
-- Dependencies: `[currentVideoId, currentIndex, playlist.length]`
+- Auto-queue waits for metadata (channel non-empty) before triggering — avoids empty artist recommendations
+- Uses `pendingTrack || currentTrack` as seed (playNow sets pendingTrack before currentTrack updates)
+- `playNow` clears tracks after insert position — forces auto-queue to re-recommend for new artist
+- Filter out tracks >600s (10 min) — prevents compilation albums from polluting queue/cache
+- Dependencies: `[activeVideoId, currentIndex, playlist.length]`
 
 ## Critical Patterns
 
@@ -109,6 +114,9 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Lock screen: Blob URL required (streaming URL breaks on screen lock)
 - Skip/complete stats use `track.duration` (YouTube metadata), not `audio.duration`
 - `handleTimeUpdate` dispatches `setCurrentTime` in ALL modes (audio is single time source)
+- `updateTrackMetadata` action: updates currentTrack + pendingTrack + playlist without resetting currentTime
+- Restore from URL: reads metadata from IndexedDB cache first (avoids '載入中...' placeholder)
+- `NotAllowedError` on autoplay: sets `isPlaying(false)` so UI matches (user must click play)
 
 ### yt-dlp
 - Requires `--js-runtimes node:{process.execPath}` (API changed)
@@ -177,5 +185,11 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Video download**: yt-dlp adds .mp4 extension automatically — temp path must account for this
 - **Search**: must NOT replace playlist (causes auto-play), only update searchResults
 - **autoQueue dependencies**: must include currentIndex + playlist.length but use composite key to prevent loops
-- **Video mode audio**: NEVER pause/mute audio element in video mode — iframe must be muted instead, audio element is the only sound source
+- **Video mode audio**: NEVER pause/mute audio element in video mode — iframe/video must be muted instead, audio element is the only sound source
+- **Video sync**: cached `<video>` element syncs via `onCanPlay` (once) + interval (drift >3s) — too frequent = buffering spinner
+- **iframe onStateChange**: must NOT dispatch `setIsPlaying` — iframe pause/destroy would stop audio; only sync position + force play
 - **Tail silence**: use `track.duration` (YouTube metadata) everywhere, not `audio.duration` (which includes encoded silence)
+- **Restore playback**: use `audioCacheService.getMetadata()` for instant track info — `getVideoInfo` (yt-dlp) takes 10s+
+- **Auto-queue timing**: must wait for metadata (channel non-empty) — placeholder track causes empty-artist recommendations
+- **playNow cleanup**: must clear tracks after insert position — otherwise old recommendations from previous artist remain
+- **Preload filter**: skip tracks >600s duration — compilation albums waste IndexedDB space (60-114MB each)

@@ -155,8 +155,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             if (isPlayingRef.current && displayModeRef.current !== 'video') {
               console.log(`▶️ 快取秒開播放: ${pendingTrack.title}`);
               audio.play().catch((error) => {
-                if (error.name === 'NotAllowedError') setAutoplayBlocked(true);
-                else dispatch(setIsPlaying(false));
+                if (error.name === 'NotAllowedError') {
+                  setAutoplayBlocked(true);
+                  dispatch(setIsPlaying(false)); // UI 顯示暫停，讓使用者點播放
+                } else {
+                  dispatch(setIsPlaying(false));
+                }
               });
             }
           };

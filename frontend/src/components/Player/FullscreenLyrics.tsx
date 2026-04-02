@@ -241,32 +241,30 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       if (!isMounted || !videoContainerRef.current) return;
 
       if (window.YT && window.YT.Player) {
+        // 建立 player 前取得 live audio 時間，用 start 參數讓 YouTube 從正確位置開始 buffer
+        const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+        const startTime = Math.floor(audioEl?.currentTime || currentTime);
+        console.log(`🎬 建立 YouTube player, start=${startTime}s`);
+
         playerRef.current = new window.YT.Player(videoContainerRef.current, {
           videoId: track.videoId,
           playerVars: {
             autoplay: 1,
             enablejsapi: 1,
             origin: window.location.origin,
-            playsinline: 1, // 手機端內嵌播放
+            playsinline: 1,
+            start: startTime, // 從 audio 位置開始 buffer（比 seekTo 可靠）
           },
           events: {
             onReady: (event: any) => {
               if (!isMounted) return;
               setVideoReady(true);
-              // 靜音 iframe — audio element 是唯一音源（支援背景播放 + 鎖屏）
               event.target.mute();
-              // 用 live audio time（Redux currentTime 可能過時）
-              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
-              const liveTime = audioEl?.currentTime || currentTime;
-              console.log(`🎬 FullscreenLyrics onReady: seekTo ${liveTime.toFixed(1)}s, audioPlaying=${audioIsPlaying}`);
+              // 再次精確同步（start 只精確到秒）
+              const liveTime = (document.querySelector('audio') as HTMLAudioElement | null)?.currentTime || currentTime;
               event.target.seekTo(liveTime, true);
-              // 開始播放 iframe
-              try {
-                event.target.playVideo();
-                console.log('🎬 FullscreenLyrics: playVideo called');
-              } catch (e) {
-                console.warn('🎬 FullscreenLyrics: playVideo failed', e);
-              }
+              event.target.playVideo();
+              console.log(`🎬 onReady: seekTo ${liveTime.toFixed(1)}s (start was ${startTime}s)`);
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
@@ -403,6 +401,25 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       console.error('🎬 影片跳轉失敗:', e);
     }
   }, [seekTarget, videoReady, viewMode, dispatch]);
+
+  // cached <video> 同步：只在偏差過大時修正（避免頻繁 seek 導致轉圈）
+  useEffect(() => {
+    if (!open || viewMode !== 'video' || !videoCached) return;
+
+    const syncInterval = setInterval(() => {
+      const videoEl = document.querySelector('video') as HTMLVideoElement | null;
+      const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+      if (videoEl && audioEl && videoEl.readyState >= 2) {
+        const drift = Math.abs(videoEl.currentTime - audioEl.currentTime);
+        // 只在偏差超過 3 秒才修正（避免頻繁 seek 造成 buffering 轉圈）
+        if (drift > 3) {
+          videoEl.currentTime = audioEl.currentTime;
+        }
+      }
+    }, 2000);
+
+    return () => clearInterval(syncInterval);
+  }, [open, viewMode, videoCached]);
 
   // 載入儲存的偏好設定（切歌時先 reset 再載入，避免殘留上一首的 offset）
   useEffect(() => {
@@ -887,15 +904,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           autoPlay
           playsInline
           style={{ width: '100%', maxHeight: '100%', maxWidth: 960 }}
-          onPlay={() => {
-            // audio element 是唯一音源，不靜音（cached video 也靜音播放）
+          onCanPlay={(e) => {
+            // 可以播放後同步到 audio 位置（只做一次）
+            const videoEl = e.target as HTMLVideoElement;
+            const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+            if (audioEl && !videoEl.dataset.synced) {
+              videoEl.dataset.synced = '1';
+              videoEl.currentTime = audioEl.currentTime;
+              console.log(`🎬 cached video 同步到 audio: ${audioEl.currentTime.toFixed(1)}s`);
+            }
           }}
-          onPause={() => {
-            // 不 dispatch setIsPlaying(false)，避免暫停 audio element
-          }}
-          onEnded={() => {
-            dispatch(playNext());
-          }}
+          onPause={() => {}}
+          onEnded={() => dispatch(playNext())}
           muted
         />
       </Box>
