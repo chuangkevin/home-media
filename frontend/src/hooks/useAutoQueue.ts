@@ -11,24 +11,30 @@ import type { Track } from '../types/track.types';
  */
 export function useAutoQueue() {
   const dispatch = useDispatch();
-  const { currentTrack, playlist, currentIndex } = useSelector((state: RootState) => state.player);
+  const { currentTrack, pendingTrack, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const isLoadingRef = useRef(false);
   const lastLoadedVideoIdRef = useRef<string | null>(null);
 
-  const currentVideoId = currentTrack?.videoId;
+  // 用 pendingTrack（正在載入的）優先，否則用 currentTrack
+  // 解決：playNow 時 currentTrack 還是舊歌，推薦用錯 artist
+  const activeTrack = pendingTrack || currentTrack;
+  const activeVideoId = activeTrack?.videoId;
   const remainingSongs = playlist.length - currentIndex - 1;
 
   useEffect(() => {
-    if (!currentVideoId || playlist.length === 0) return;
+    if (!activeVideoId || playlist.length === 0) return;
+
+    // 等 metadata 載入完才推薦（避免用空 artist 推薦）
+    if (!activeTrack?.channel || activeTrack.title === '載入中...') return;
 
     const shouldLoadMore = remainingSongs <= 2;
     if (!shouldLoadMore || isLoadingRef.current) return;
 
     // 防止同一首歌在同一個 playlist 長度下重複載入
-    const key = `${currentVideoId}:${playlist.length}`;
+    const key = `${activeVideoId}:${playlist.length}`;
     if (lastLoadedVideoIdRef.current === key) return;
 
-    console.log(`🎵 自動佇列：剩餘 ${remainingSongs} 首，載入推薦...`);
+    console.log(`🎵 自動佇列：剩餘 ${remainingSongs} 首，載入推薦（${activeTrack?.channel}）...`);
     isLoadingRef.current = true;
     lastLoadedVideoIdRef.current = key;
 
@@ -37,7 +43,7 @@ export function useAutoQueue() {
       try {
         // 載入推薦：同歌手 10 首 + AI 推薦 10 首
         let recommendations = await apiService.getSimilarTracks(
-          currentVideoId, 20, currentTrack?.channel, currentTrack?.title
+          activeVideoId, 20, activeTrack?.channel, activeTrack?.title
         );
         
         console.log(`📥 收到推薦:`, recommendations);
@@ -89,5 +95,5 @@ export function useAutoQueue() {
 
     loadRecommendations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentVideoId, currentIndex, playlist.length]);
+  }, [activeVideoId, currentIndex, playlist.length]);
 }

@@ -187,11 +187,15 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
-              // iframe 是純視覺同步，不控制 audio 播放狀態
-              // 只處理播放結束（自動下一首），不處理 play/pause
               if (event.data === 0) {
                 console.log('🎬 影片播放結束，自動下一首');
                 dispatch(playNext());
+              } else if (event.data === 2 || event.data === -1) {
+                // iframe 暫停 — 如果 audio 在播放，強制 iframe 跟上
+                const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+                if (audioEl && !audioEl.paused) {
+                  event.target.playVideo();
+                }
               }
               // 不 dispatch setIsPlaying — audio element 是唯一音源
             },
@@ -347,8 +351,12 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             onStateChange: (event: any) => {
               if (event.data === 0) {
                 dispatch(playNext());
+              } else if (event.data === 2 || event.data === -1) {
+                const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+                if (audioEl && !audioEl.paused) {
+                  event.target.playVideo();
+                }
               }
-              // 不 dispatch setIsPlaying — audio element 是唯一音源
             },
             onError: (event: any) => {
               const errorCode = event.data;

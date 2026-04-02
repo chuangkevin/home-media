@@ -258,18 +258,28 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               // 用 live audio time（Redux currentTime 可能過時）
               const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
               const liveTime = audioEl?.currentTime || currentTime;
+              console.log(`🎬 FullscreenLyrics onReady: seekTo ${liveTime.toFixed(1)}s, audioPlaying=${audioIsPlaying}`);
               event.target.seekTo(liveTime, true);
-              // Try to play - if iOS blocks it, YouTube's built-in play button handles it
-              if (audioIsPlaying) {
-                try {
-                  event.target.playVideo();
-                } catch {}
+              // 開始播放 iframe
+              try {
+                event.target.playVideo();
+                console.log('🎬 FullscreenLyrics: playVideo called');
+              } catch (e) {
+                console.warn('🎬 FullscreenLyrics: playVideo failed', e);
               }
             },
-            onStateChange: (_event: any) => {
-              // iframe 是純視覺同步，不控制 audio 播放狀態
-              // audio element 是唯一音源，由 AudioPlayer 的 play/pause 控制
-              // 不 dispatch setIsPlaying — 避免 iframe 銷毀時暫停 audio
+            onStateChange: (event: any) => {
+              if (!isMounted) return;
+              // iframe 不控制 audio 播放狀態（不 dispatch setIsPlaying）
+              // 但需要確保 iframe 跟隨 audio 的播放狀態
+              if (event.data === 2 || event.data === -1) {
+                // iframe 暫停或未開始 — 如果 audio 在播放，強制 iframe 也播放
+                const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+                if (audioEl && !audioEl.paused) {
+                  console.log('🎬 iframe 暫停但 audio 在播放，強制 playVideo');
+                  event.target.playVideo();
+                }
+              }
             },
             onError: (event: any) => {
               if (!isMounted) return;
@@ -320,6 +330,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         videoTimeSyncRef.current = null;
       }
       return;
+    }
+
+    // 首次同步：立即修正
+    if (playerRef.current?.seekTo) {
+      const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+      const audioTime = audioEl?.currentTime || 0;
+      if (audioTime > 0) {
+        playerRef.current.seekTo(audioTime, true);
+        console.log(`🎬 首次同步: seekTo ${audioTime.toFixed(1)}s`);
+      }
     }
 
     videoTimeSyncRef.current = setInterval(() => {
@@ -911,9 +931,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     );
   };
 
-  // 渲染播放清單（已播放灰色 + 目前高亮 + 待播正常）
+  // 渲染播放清單（已播放灰色 + 目前高亮 + 待播正常，過濾幽靈歌曲）
   const renderPlaylist = () => {
-    if (playlist.length === 0) {
+    if (playlist.length === 0 || playlist.every(t => !t.title || t.title === '載入中...')) {
       return (
         <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
           播放清單是空的
@@ -924,6 +944,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     return (
       <List dense sx={{ py: 0 }}>
         {playlist.map((item, idx) => {
+          // 跳過幽靈歌曲（未載入完的 placeholder）
+          if (!item.title || item.title === '載入中...') return null;
           const isPlayed = idx < currentIndex;
           const isCurrent = idx === currentIndex;
           return (

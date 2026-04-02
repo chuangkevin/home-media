@@ -126,20 +126,21 @@ const playerSlice = createSlice({
       state.playlist = action.payload;
     },
     // YouTube 風格：插入到當前歌曲的下一首位置並立即播放
+    // 清掉插入位置之後的舊歌，讓 auto-queue 用新歌手重新推薦
     playNow(state, action: PayloadAction<Track>) {
-      const track = { ...action.payload, id: action.payload.videoId }; // 確保 id === videoId
-      // 找到當前播放歌曲的 videoId
+      const track = { ...action.payload, id: action.payload.videoId };
       const currentVideoId = state.currentTrack?.videoId;
       // 移除重複
       state.playlist = state.playlist.filter(t => t.videoId !== track.videoId);
-      // 重新定位 currentIndex（filter 可能改變了位置）
+      // 重新定位 currentIndex
       if (currentVideoId) {
         state.currentIndex = state.playlist.findIndex(t => t.videoId === currentVideoId);
         if (state.currentIndex === -1) state.currentIndex = 0;
       }
-      // 插入到 currentIndex 後面
+      // 插入到 currentIndex 後面，並清掉後面的舊推薦
       const insertAt = Math.max(0, state.currentIndex + 1);
-      state.playlist.splice(insertAt, 0, track);
+      state.playlist = state.playlist.slice(0, insertAt);
+      state.playlist.push(track);
       // 設為 pending
       state.pendingTrack = track;
       state.isLoadingTrack = true;
