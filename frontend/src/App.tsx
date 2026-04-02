@@ -201,38 +201,40 @@ function AppContent() {
   useEffect(() => {
     const playingVideoId = searchParams.get('playing');
     if (playingVideoId && !currentTrack) {
-      // 載入並播放該歌曲
-      // 先用最小資訊建 track，不阻塞首頁（getVideoInfo 用 yt-dlp 要 10 秒+）
-      const minTrack: Track = {
-        id: playingVideoId,
-        videoId: playingVideoId,
-        title: '載入中...',
-        channel: '',
-        thumbnail: `https://i.ytimg.com/vi/${playingVideoId}/hqdefault.jpg`,
-        duration: 0,
-      };
-      dispatch(setPlaylist([minTrack]));
-      dispatch(setPendingTrack(minTrack));
-      dispatch(setIsPlaying(true));
-
-      // 背景補全資訊（不阻塞）
-      apiService.getVideoInfo(playingVideoId).then(videoInfo => {
-        const fullTrack: Track = {
-          id: videoInfo.videoId,
-          videoId: videoInfo.videoId,
-          title: videoInfo.title,
-          channel: videoInfo.channel,
-          thumbnail: videoInfo.thumbnail,
-          duration: videoInfo.duration,
+      const restoreTrack = async () => {
+        // 優先從 IndexedDB 讀 metadata（快取命中 = 有完整資訊）
+        const cached = await audioCacheService.getMetadata(playingVideoId);
+        const track: Track = {
+          id: playingVideoId,
+          videoId: playingVideoId,
+          title: cached?.title || '載入中...',
+          channel: cached?.channel || '',
+          thumbnail: cached?.thumbnail || `https://i.ytimg.com/vi/${playingVideoId}/hqdefault.jpg`,
+          duration: cached?.duration || 0,
         };
-        // 補全 placeholder metadata（不 reset currentTime、不覆蓋 playlist）
-        dispatch(updateTrackMetadata(fullTrack));
-      }).catch(() => {
-        // 清除無效的 playing 參數
-        const newParams = new URLSearchParams(searchParams);
-        newParams.delete('playing');
-        setSearchParams(newParams, { replace: true });
-      });
+        dispatch(setPlaylist([track]));
+        dispatch(setPendingTrack(track));
+        dispatch(setIsPlaying(true));
+
+        // 如果快取沒有 metadata，背景補全
+        if (!cached) {
+          apiService.getVideoInfo(playingVideoId).then(videoInfo => {
+            dispatch(updateTrackMetadata({
+              id: videoInfo.videoId,
+              videoId: videoInfo.videoId,
+              title: videoInfo.title,
+              channel: videoInfo.channel,
+              thumbnail: videoInfo.thumbnail,
+              duration: videoInfo.duration,
+            }));
+          }).catch(() => {
+            const newParams = new URLSearchParams(searchParams);
+            newParams.delete('playing');
+            setSearchParams(newParams, { replace: true });
+          });
+        }
+      };
+      restoreTrack();
     }
   }, []); // 只在頁面初始化時執行一次
 

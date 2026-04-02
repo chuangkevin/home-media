@@ -204,6 +204,27 @@ class AudioCacheService {
   }
 
   /**
+   * 取得快取的 metadata（不讀 Blob，速度快）
+   */
+  async getMetadata(videoId: string): Promise<CachedAudioMetadata | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    return new Promise((resolve) => {
+      const transaction = this.db!.transaction([this.storeName], 'readonly');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.get(videoId);
+
+      request.onsuccess = () => {
+        const cached = request.result as CachedAudio | undefined;
+        resolve(cached?.metadata || null);
+      };
+
+      request.onerror = () => resolve(null);
+    });
+  }
+
+  /**
    * 儲存音訊到快取
    */
   async set(videoId: string, blob: Blob, metadata?: CachedAudioMetadata): Promise<void> {
