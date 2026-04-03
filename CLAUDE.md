@@ -137,6 +137,7 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Skip/complete stats use `track.duration` (YouTube metadata), not `audio.duration`
 - `handleTimeUpdate` dispatches `setCurrentTime` in ALL modes (audio is single time source)
 - `updateTrackMetadata` action: updates currentTrack + pendingTrack + playlist without resetting currentTime
+- **pendingTrack effect dependency**: MUST use `pendingTrack?.videoId` (not `pendingTrack` object) — `updateTrackMetadata` creates new object reference which re-triggers the effect, causing duplicate audio load + stalled playback
 - Restore from URL: reads metadata from IndexedDB cache first (avoids '載入中...' placeholder)
 - `NotAllowedError` on autoplay: sets `isPlaying(false)` so UI matches (user must click play)
 
@@ -214,6 +215,7 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 
 ## Things That Break Easily
 
+- **pendingTrack effect**: dependency MUST be `pendingTrack?.videoId`, NOT `pendingTrack` — object reference changes from `updateTrackMetadata` cause duplicate audio load, stalled playback, and autoplay failure
 - **UI positioning**: Uses flex layout (not position:fixed) — don't add transform/will-change to parents
 - **Lyrics abort**: `getLyrics()` has AbortController — preloading must use `getLyricsForPreload()` instead
 - **Translation cache**: keyed by videoId + lines_hash — changing lyrics source invalidates cache automatically

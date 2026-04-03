@@ -737,7 +737,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         pendingBlobUrlRef.current = null;
       }
     };
-  }, [pendingTrack, dispatch]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingTrack?.videoId, dispatch]);
 
   // 當播放狀態改變時（影片模式下不播放音訊）
   useEffect(() => {
