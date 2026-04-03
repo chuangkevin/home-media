@@ -79,6 +79,9 @@ export function useAutoQueue() {
             console.log(`✅ 自動佇列：加入 ${tracksToAdd.length} 首推薦歌曲`);
             // 將推薦歌曲加入播放清單末尾（不打斷現有順序）
             dispatch(appendToPlaylist(tracksToAdd));
+
+            // 預熱推薦歌曲的音訊 URL（backend 快取 yt-dlp URL，加速後續播放）
+            apiService.prewarmUrls(newTracks.map(t => t.videoId)).catch(() => {});
           } else {
             console.warn(`⚠️ 自動佇列：所有 ${recommendations.length} 首推薦都被過濾（直播流或重複）`);
             console.log(`💡 建議：嘗試播放不同類型的歌曲以獲得更多元的推薦`);

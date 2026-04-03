@@ -481,6 +481,39 @@ export class YouTubeController {
   }
 
   /**
+   * POST /api/prewarm-urls
+   * 批量預熱音訊 URL（火即忘，立即返回 202）
+   */
+  async prewarmUrls(req: Request, res: Response): Promise<void> {
+    try {
+      const { videoIds } = req.body;
+
+      if (!videoIds || !Array.isArray(videoIds)) {
+        res.status(400).json({ error: 'videoIds array is required' });
+        return;
+      }
+
+      // 限制最多 10 個
+      const ids = videoIds.slice(0, 10).filter((id: any) => typeof id === 'string' && id.length === 11);
+
+      if (ids.length > 0) {
+        console.log(`🔥 [Prewarm] Warming ${ids.length} URL(s) in background`);
+        // Fire-and-forget: 並行呼叫 getAudioStreamUrl 預熱快取
+        for (const id of ids) {
+          youtubeService.getAudioStreamUrl(id).catch(() => {});
+        }
+      }
+
+      res.status(202).json({ message: 'Prewarm started', count: ids.length });
+    } catch (error) {
+      logger.error('Prewarm URLs error:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to prewarm URLs',
+      });
+    }
+  }
+
+  /**
    * DELETE /api/cache/clear
    * 清空所有音訊快取
    */

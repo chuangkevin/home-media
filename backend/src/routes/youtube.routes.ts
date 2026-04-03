@@ -38,6 +38,9 @@ router.get('/cache/status/:videoId', (req, res) => youtubeController.getCacheSta
 // 批量檢查快取狀態
 router.post('/cache/status/batch', (req, res) => youtubeController.getCacheStatusBatch(req, res));
 
+// 批量預熱音訊 URL
+router.post('/prewarm-urls', (req, res) => youtubeController.prewarmUrls(req, res));
+
 // ===== 影片快取 =====
 
 // 觸發影片下載

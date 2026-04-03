@@ -75,6 +75,13 @@ class ApiService {
     await Promise.all(videoIds.map(id => this.preloadAudio(id)));
   }
 
+  /**
+   * 批量預熱音訊 URL（讓 backend 提前快取 yt-dlp URL，加速後續播放）
+   */
+  async prewarmUrls(videoIds: string[]): Promise<void> {
+    await this.api.post('/prewarm-urls', { videoIds });
+  }
+
   // ==================== 快取狀態 ====================
 
   /**

@@ -17,9 +17,11 @@ interface Job {
   reject: (err: Error) => void;
 }
 
+const MAX_LOW_PRIORITY = 3;
+
 class DownloadManager {
   private highPriority: Job | null = null;
-  private lowPriority: Job | null = null;
+  private lowPriority: Job[] = [];
   private lowQueue: string[] = [];
 
   /**
@@ -49,15 +51,17 @@ class DownloadManager {
       this.highPriority = null;
     }
 
-    // 殺掉低優先級（釋放資源給高優先級）
-    if (this.lowPriority) {
-      console.log(`⏸️ [DM] Pausing low-priority: ${this.lowPriority.videoId}`);
-      // 重新排入佇列（如果不同歌）
-      if (this.lowPriority.videoId !== videoId) {
-        this.lowQueue.unshift(this.lowPriority.videoId);
+    // 殺掉所有低優先級（釋放資源給高優先級）
+    if (this.lowPriority.length > 0) {
+      for (const job of this.lowPriority) {
+        console.log(`⏸️ [DM] Pausing low-priority: ${job.videoId}`);
+        // 重新排入佇列（如果不同歌）
+        if (job.videoId !== videoId) {
+          this.lowQueue.unshift(job.videoId);
+        }
+        this.killJob(job);
       }
-      this.killJob(this.lowPriority);
-      this.lowPriority = null;
+      this.lowPriority = [];
     }
 
     // 從低優先級佇列移除（如果在裡面）
@@ -86,7 +90,7 @@ class DownloadManager {
     for (const id of videoIds) {
       if (audioCacheService.has(id)) continue;
       if (this.highPriority?.videoId === id) continue;
-      if (this.lowPriority?.videoId === id) continue;
+      if (this.lowPriority.some(j => j.videoId === id)) continue;
       if (this.lowQueue.includes(id)) continue;
       this.lowQueue.push(id);
     }
@@ -99,30 +103,29 @@ class DownloadManager {
   getStatus(videoId: string): { status: 'cached' | 'downloading-high' | 'downloading-low' | 'queued' | 'none' } {
     if (audioCacheService.has(videoId)) return { status: 'cached' };
     if (this.highPriority?.videoId === videoId) return { status: 'downloading-high' };
-    if (this.lowPriority?.videoId === videoId) return { status: 'downloading-low' };
+    if (this.lowPriority.some(j => j.videoId === videoId)) return { status: 'downloading-low' };
     if (this.lowQueue.includes(videoId)) return { status: 'queued' };
     return { status: 'none' };
   }
 
   private processLowQueue(): void {
     if (this.highPriority) return; // 高優先級運行中，不啟動低優先級
-    if (this.lowPriority) return;  // 已有低優先級在跑
 
-    while (this.lowQueue.length > 0) {
+    while (this.lowPriority.length < MAX_LOW_PRIORITY && this.lowQueue.length > 0) {
       const videoId = this.lowQueue.shift()!;
       if (audioCacheService.has(videoId)) continue;
 
-      console.log(`🔵 [DM] LOW PRIORITY: ${videoId}`);
+      console.log(`🔵 [DM] LOW PRIORITY (${this.lowPriority.length + 1}/${MAX_LOW_PRIORITY}): ${videoId}`);
       const job = this.spawnJob(videoId, () => {}, () => {});
-      this.lowPriority = job;
+      this.lowPriority.push(job);
 
       job.proc.on('close', () => {
-        if (this.lowPriority === job) {
-          this.lowPriority = null;
-          this.processLowQueue();
+        const idx = this.lowPriority.indexOf(job);
+        if (idx !== -1) {
+          this.lowPriority.splice(idx, 1);
         }
+        this.processLowQueue();
       });
-      break; // 一次只跑一個低優先級
     }
   }
 

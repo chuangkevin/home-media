@@ -267,31 +267,26 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           audio.src = blobUrl;
           audio.load();
 
-          // 預載 SponsorBlock segments（在播放前就準備好）
-          const sbPromise = apiService.getSponsorBlockSegments(videoId).then(segments => {
+          // 非阻塞載入 SponsorBlock segments（背景載入，不等待）
+          apiService.getSponsorBlockSegments(videoId).then(segments => {
             if (segments.length > 0) {
               skipSegmentsRef.current = segments;
               skippedSegmentsRef.current = new Set();
               console.log(`🚫 [SponsorBlock] Pre-loaded ${segments.length} segments for cached track`);
+              // 如果開頭有非音樂段落且音訊還在前 5 秒內，seek 到音樂開始處
+              const introSeg = segments.find((s: any) => s.category === 'music_offtopic' && s.start < 5);
+              if (introSeg && audioRef.current && audioRef.current.currentTime < introSeg.end) {
+                audioRef.current.currentTime = introSeg.end;
+                skippedSegmentsRef.current.add(segments.indexOf(introSeg));
+                console.log(`🚫 [SponsorBlock] 快取秒開跳過: 0→${introSeg.end.toFixed(1)}s`);
+              }
             }
-            return segments;
-          }).catch(() => []);
+          }).catch(() => {});
 
-          // 等 audio ready 再播放
-          const playWhenReady = async () => {
+          // 等 audio ready 再播放（不等 SponsorBlock）
+          const playWhenReady = () => {
             // 用 YouTube metadata duration（比 audio.duration 精確，沒有尾部靜音）
             dispatch(setDuration(pendingTrack.duration || audio.duration));
-
-            // 等 SponsorBlock 載入完再播放（最多等 2 秒）
-            const segments = await Promise.race([sbPromise, new Promise<any[]>(r => setTimeout(() => r([]), 2000))]);
-
-            // 如果開頭有非音樂段落，先 seek 到音樂開始處
-            const introSeg = segments.find((s: any) => s.category === 'music_offtopic' && s.start < 5);
-            if (introSeg) {
-              audio.currentTime = introSeg.end;
-              skippedSegmentsRef.current.add(skipSegmentsRef.current.indexOf(introSeg));
-              console.log(`🚫 [SponsorBlock] 快取秒開跳過: 0→${introSeg.end.toFixed(1)}s`);
-            }
 
             if (isPlayingRef.current && displayModeRef.current !== 'video') {
               console.log(`▶️ 快取秒開播放: ${pendingTrack.title}`);
@@ -813,45 +808,50 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     return () => clearInterval(check);
   }, [currentTrack?.videoId, isCached]);
 
-  // 預加載下一首：先 backend 下載，再前端 IndexedDB 快取
+  // 預加載接下來 3 首：先 backend 下載，再前端 IndexedDB 快取
   useEffect(() => {
     if (!currentTrack || playlist.length === 0 || currentIndex < 0) return;
-    const nextIdx = currentIndex + 1;
-    if (nextIdx >= playlist.length) return;
 
-    const nextTrack = playlist[nextIdx];
+    const PRELOAD_AHEAD = 3;
     let cancelled = false;
 
-    (async () => {
-      // 已在前端快取？跳過
-      const cached = await audioCacheService.get(nextTrack.videoId);
-      if (cached || cancelled) return;
+    const preloadTasks = [];
+    for (let i = 1; i <= PRELOAD_AHEAD; i++) {
+      const idx = currentIndex + i;
+      if (idx >= playlist.length) break;
 
-      // 先檢查前端 IndexedDB 是否已有
-      const existing = await audioCacheService.get(nextTrack.videoId);
-      if (existing) {
-        console.log(`✅ 下一首已在 IndexedDB: ${nextTrack.title}`);
-        return;
-      }
+      const track = playlist[idx];
+      preloadTasks.push((async () => {
+        try {
+          // 已在前端快取？跳過
+          const cached = await audioCacheService.get(track.videoId);
+          if (cached || cancelled) return;
 
-      // 直接下載到前端 IndexedDB（不等 backend cache，不等播放進度）
-      console.log(`⏬ 預載下一首 (前端): ${nextTrack.title}`);
-      // 同時觸發 backend 預載（背景，不阻塞）
-      apiService.preloadAudio(nextTrack.videoId).catch(() => {});
+          // 直接下載到前端 IndexedDB（不等 backend cache，不等播放進度）
+          console.log(`⏬ 預載第 +${i} 首 (前端): ${track.title}`);
+          // 同時觸發 backend 預載（背景，不阻塞）
+          apiService.preloadAudio(track.videoId).catch(() => {});
 
-      const streamUrl = apiService.getStreamUrl(nextTrack.videoId);
-      try {
-        await audioCacheService.fetchAndCache(nextTrack.videoId, streamUrl, {
-          title: nextTrack.title,
-          channel: nextTrack.channel,
-          thumbnail: nextTrack.thumbnail,
-          duration: nextTrack.duration,
-        });
-        console.log(`✅ 下一首預載完成: ${nextTrack.title}`);
-      } catch (err) {
-        console.warn(`⚠️ 下一首預載失敗: ${nextTrack.title}`, err);
-      }
-    })();
+          const streamUrl = apiService.getStreamUrl(track.videoId);
+          await audioCacheService.fetchAndCache(track.videoId, streamUrl, {
+            title: track.title,
+            channel: track.channel,
+            thumbnail: track.thumbnail,
+            duration: track.duration,
+          });
+          if (!cancelled) {
+            console.log(`✅ 預載完成 (+${i}): ${track.title}`);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            console.warn(`⚠️ 預載失敗 (+${i}): ${track.title}`, err);
+          }
+        }
+      })());
+    }
+
+    // Fire-and-forget: don't await Promise.all
+    Promise.all(preloadTasks).catch(() => {});
 
     return () => { cancelled = true; };
   }, [currentTrack?.videoId, currentIndex, playlist]);

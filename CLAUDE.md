@@ -81,8 +81,8 @@ Title cleaning (regex fallback when Gemini unavailable):
 - SponsorBlock paused during crossfade
 
 ### SponsorBlock
-- Fetches skip segments on track load
-- Cached path: pre-loads segments before play, seeks past intro
+- **Non-blocking**: `audio.play()` fires immediately, SponsorBlock fetches in background
+- Intro-skip applied only if audio still within intro segment when data arrives
 - Streaming path: checks buffer range before seeking (prevents infinite loop)
 - `skippedSegmentsRef` (Set) prevents re-skip of same segment
 
@@ -160,9 +160,11 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Canvas resize must defer to `requestAnimationFrame` (layout not ready on mount)
 
 ### Preloading
-- Next track: starts immediately when current track plays (not at 50%)
+- **3 tracks ahead**: preloads up to 3 upcoming tracks (not just 1), each independently
 - Downloads directly to IndexedDB from stream URL (not waiting for backend cache)
 - Background Blob switch: `setIsCached(true)` must be called after switch (updates tag)
+- **URL pre-warming**: when auto-queue loads recommendations, `POST /api/prewarm-urls` pre-fetches yt-dlp URLs (6h cache) so streaming starts instantly
+- **Download manager**: 1 high-priority + up to 3 concurrent low-priority downloads (`MAX_LOW_PRIORITY = 3`)
 
 ### Lyrics Fine-Tune (滑動對準)
 - `fineTuneStartTimeRef` records `currentTime` on enter (fixed, doesn't drift)
