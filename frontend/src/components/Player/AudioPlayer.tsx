@@ -982,14 +982,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
       const videoId = currentVideoIdRef.current;
       if (!videoId || isCached) {
+        console.warn(`⚠️ Audio error on ${isCached ? 'cached' : 'unknown'} track, skipping to next`);
         dispatch(setIsPlaying(false));
+        dispatch(playNext());
         return;
       }
 
       streamRetryCount++;
       if (streamRetryCount > MAX_STREAM_RETRIES) {
-        console.error(`❌ All ${MAX_STREAM_RETRIES} retries failed for ${videoId}`);
+        console.error(`❌ All ${MAX_STREAM_RETRIES} retries failed for ${videoId}, skipping to next`);
         dispatch(setIsPlaying(false));
+        dispatch(playNext());
         return;
       }
 
