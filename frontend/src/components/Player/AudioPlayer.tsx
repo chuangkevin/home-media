@@ -864,6 +864,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }
 
     let stalledTimeout: ReturnType<typeof setTimeout> | null = null;
+    let endFallbackTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastTimeUpdate = Date.now();
     let lastCurrentTime = 0;
     let streamRetryCount = 0;
@@ -880,9 +881,22 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       const completeDur = currentTrack?.duration || audio.duration;
       if (!completeSentRef.current && completeDur > 0 && audio.currentTime >= completeDur * 0.9) {
         completeSentRef.current = true;
-        wasCompletedRef.current = true;
+        // Note: wasCompletedRef is NOT set here — it gates the time-based end detection
+        // and must only be set when actually triggering playNext()
         if (currentVideoIdRef.current) {
           apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
+        }
+        // iOS 背景 fallback：設定 setTimeout 在 trackDuration + 3s 後強制跳下一首
+        // 因為 iOS 鎖屏時 timeupdate 事件會被暫停，時間偵測無法觸發
+        if (!endFallbackTimeout && currentTrack?.duration) {
+          const remainingMs = (currentTrack.duration - audio.currentTime + 3) * 1000;
+          endFallbackTimeout = setTimeout(() => {
+            if (!wasCompletedRef.current && displayMode !== 'video') {
+              console.log('⏰ iOS fallback: timeupdate 未觸發結尾偵測，強制跳下一首');
+              wasCompletedRef.current = true;
+              dispatch(playNext());
+            }
+          }, Math.max(remainingMs, 1000));
         }
       }
       // SponsorBlock: 自動跳過片段
@@ -928,6 +942,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         if (!crossfade.crossfadeActiveRef.current) {
           console.log(`⏭️ 到達 YouTube 原始長度 ${trackDuration}s，跳下一首（audio.duration=${audio.duration.toFixed(1)}s）`);
           wasCompletedRef.current = true;
+          if (endFallbackTimeout) { clearTimeout(endFallbackTimeout); endFallbackTimeout = null; }
           if (displayMode !== 'video') dispatch(playNext());
           return;
         }
@@ -968,6 +983,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       // If crossfade is active, the outgoing element naturally ended — ignore
       if (crossfade.crossfadeActiveRef.current) return;
 
+      if (endFallbackTimeout) { clearTimeout(endFallbackTimeout); endFallbackTimeout = null; }
       wasCompletedRef.current = true;
       // Record complete signal (only if not already sent at 90%)
       if (!completeSentRef.current && currentVideoIdRef.current) {
@@ -1138,19 +1154,37 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     audio.addEventListener('playing', handlePlaying);
     audio.addEventListener('seeked', handleSeeked);
 
-    // iOS 鎖屏恢復：頁面回到前台時自動恢復播放
+    // iOS 鎖屏恢復：頁面回到前台時自動恢復播放 + 檢查是否已超過歌曲結尾
     const handleVisibilityChange = () => {
-      if (!document.hidden && isPlayingRef.current && audio.paused && audio.src) {
-        console.log('📱 頁面回到前台，恢復音訊播放');
-        audio.play().catch((err) => {
-          console.warn('恢復播放失敗:', err);
-        });
+      if (!document.hidden) {
+        // 檢查是否已超過 trackDuration（iOS 背景中 timeupdate 可能被暫停）
+        const trackDur = currentTrack?.duration;
+        if (trackDur && trackDur > 0 && audio.currentTime >= trackDur - 0.5 && !wasCompletedRef.current) {
+          console.log('📱 回到前台：偵測到已超過歌曲結尾，跳下一首');
+          wasCompletedRef.current = true;
+          if (!completeSentRef.current && currentVideoIdRef.current) {
+            completeSentRef.current = true;
+            apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
+          }
+          if (displayMode !== 'video') {
+            dispatch(playNext());
+            return;
+          }
+        }
+        // 恢復暫停的播放
+        if (isPlayingRef.current && audio.paused && audio.src) {
+          console.log('📱 頁面回到前台，恢復音訊播放');
+          audio.play().catch((err) => {
+            console.warn('恢復播放失敗:', err);
+          });
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       if (stalledTimeout) clearTimeout(stalledTimeout);
+      if (endFallbackTimeout) clearTimeout(endFallbackTimeout);
       clearInterval(checkFakePlayback);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       audio.removeEventListener('timeupdate', handleTimeUpdate);

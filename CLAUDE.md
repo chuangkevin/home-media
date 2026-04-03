@@ -245,3 +245,5 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Landscape auto-fullscreen**: `effectiveFullscreen = isFullscreenLayout || isLandscape` — landscape always uses fullscreen three-panel layout
 - **Recommendation API speed**: similar tracks + AI discovery MUST use `Promise.all` — serial requests add 10s+ latency
 - **Preload timing**: audio/lyrics preload must delay 3s after recommendations load — prevents bandwidth contention with API calls
+- **wasCompletedRef vs completeSentRef**: `completeSentRef` tracks the 90% API call, `wasCompletedRef` gates the time-based `playNext()` trigger. NEVER set `wasCompletedRef = true` at 90% — it blocks end detection at `trackDuration - 0.5s` and breaks auto-advance
+- **iOS background auto-next**: `timeupdate` stops firing when iOS Safari is in background/locked. Three fallback layers: (1) `setTimeout` at 90% signal for `trackDuration + 3s`, (2) `visibilitychange` checks `currentTime >= trackDuration - 0.5` on foreground return, (3) native `ended` event as last resort. All three guard with `wasCompletedRef` + clear `endFallbackTimeout` to prevent double-trigger

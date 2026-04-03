@@ -43,3 +43,18 @@ The system SHALL track in-flight yt-dlp processes per videoId. If a stream reque
 #### Scenario: Rapid double-click on play button
 - **WHEN** two stream requests arrive for the same videoId within 1 second
 - **THEN** only one yt-dlp process is spawned and both requests share the result
+
+### Requirement: Auto-next MUST work reliably on iOS background/lock screen
+When a track finishes playing on iOS Safari with the screen locked, the system SHALL advance to the next track without multi-minute delays caused by throttled `timeupdate` events or audio tail silence.
+
+#### Scenario: Track ends while iPhone screen is locked
+- **WHEN** a track reaches its YouTube metadata duration while the page is in background
+- **THEN** the next track begins within 60 seconds (setTimeout fallback fires even under iOS timer throttling)
+
+#### Scenario: User unlocks phone after track ended in background
+- **WHEN** the user returns to the app and `audio.currentTime >= trackDuration - 0.5`
+- **THEN** `playNext()` is triggered immediately via `visibilitychange` handler
+
+#### Scenario: Normal foreground playback (no regression)
+- **WHEN** a track ends while the app is in foreground
+- **THEN** the existing `timeupdate`-based end detection at `trackDuration - 0.5s` fires as before, and the setTimeout fallback is cleared to prevent double-trigger
