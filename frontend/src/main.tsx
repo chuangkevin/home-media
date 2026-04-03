@@ -45,11 +45,9 @@ function ThemedApp() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <Provider store={store}>
-      <ThemedApp />
-    </Provider>
-  </React.StrictMode>
+  <Provider store={store}>
+    <ThemedApp />
+  </Provider>
 );
 
 // 註冊 Service Worker
