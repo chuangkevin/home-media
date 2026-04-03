@@ -921,13 +921,22 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           break;
         }
       }
-      // 🔊 Crossfade: check if we should preload/start crossfade
+      // 用 YouTube metadata duration 偵測實際結尾（必須在 crossfade 之前，避免被跳過）
       const trackDuration = currentTrack?.duration;
+      if (trackDuration && trackDuration > 0 && t >= trackDuration - 0.5 && !wasCompletedRef.current) {
+        // crossfade 活躍時由 crossfade 處理跳曲，不重複觸發
+        if (!crossfade.crossfadeActiveRef.current) {
+          console.log(`⏭️ 到達 YouTube 原始長度 ${trackDuration}s，跳下一首（audio.duration=${audio.duration.toFixed(1)}s）`);
+          wasCompletedRef.current = true;
+          if (displayMode !== 'video') dispatch(playNext());
+          return;
+        }
+      }
+
+      // 🔊 Crossfade: check if we should preload/start crossfade
       if (trackDuration && trackDuration > 0 && !crossfade.crossfadeActiveRef.current) {
-        // Pause SponsorBlock during crossfade (handled by crossfadeActiveRef check above)
         const crossfadeHandling = crossfade.checkTimeForCrossfade(t, trackDuration);
         if (crossfadeHandling) {
-          // Crossfade is handling track transition, skip normal end detection
           lastTimeUpdate = Date.now();
           lastCurrentTime = audio.currentTime;
           return;
@@ -938,14 +947,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       if (crossfade.crossfadeActiveRef.current) {
         lastTimeUpdate = Date.now();
         lastCurrentTime = audio.currentTime;
-        return;
-      }
-
-      // 用 YouTube metadata duration 偵測實際結尾（audio 檔案可能有尾部靜音）
-      if (trackDuration && trackDuration > 0 && t >= trackDuration - 0.5 && !wasCompletedRef.current) {
-        console.log(`⏭️ 到達 YouTube 原始長度 ${trackDuration}s，跳下一首（audio.duration=${audio.duration.toFixed(1)}s）`);
-        wasCompletedRef.current = true;
-        if (displayMode !== 'video') dispatch(playNext());
         return;
       }
 
