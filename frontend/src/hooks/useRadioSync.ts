@@ -29,7 +29,7 @@ const SEEK_COOLDOWN_MS = 8000; // seek 後的冷卻時間（8 秒，等待緩衝
  */
 export function useRadioSync() {
   const dispatch = useDispatch();
-  const { currentTrack, isPlaying, currentTime, isLoadingTrack, displayMode } = useSelector(
+  const { currentTrack, pendingTrack, isPlaying, currentTime, isLoadingTrack, displayMode } = useSelector(
     (state: RootState) => state.player
   );
   const { isHost, isListener, syncTrack, syncTime, syncIsPlaying, syncDisplayMode } = useSelector(
@@ -49,6 +49,8 @@ export function useRadioSync() {
 
   // 聽眾載入超時計時器
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 追蹤當前 syncTrack videoId（供 timeout closure 讀取最新值）
+  const syncTrackVideoIdRef = useRef<string | null>(null);
   // 追蹤上一次 isLoadingTrack 值（避免初始 false 誤觸清除邏輯）
   const prevIsLoadingTrackRef = useRef<boolean>(false);
   // 載入完成後的靜默期時間戳
@@ -111,30 +113,33 @@ export function useRadioSync() {
 
   // ===== 主播同步邏輯 =====
 
-  // 同步曲目變更
+  // 同步曲目變更（使用 pendingTrack || currentTrack 避免轉場延遲）
   useEffect(() => {
     if (!isHost) return;
 
-    const currentVideoId = currentTrack?.videoId || null;
-    if (currentVideoId !== prevTrackRef.current) {
-      prevTrackRef.current = currentVideoId;
+    // pendingTrack 在 playNow 時先設定，currentTrack 要等載入完成才更新
+    // 用 pendingTrack 優先，讓聽眾立即開始載入新曲目
+    const activeTrack = pendingTrack || currentTrack;
+    const activeVideoId = activeTrack?.videoId || null;
 
-      if (currentTrack) {
-        const radioTrack: RadioTrack = {
-          videoId: currentTrack.videoId,
-          title: currentTrack.title,
-          channel: currentTrack.channel,
-          thumbnail: currentTrack.thumbnail,
-          duration: currentTrack.duration,
-        };
-        socketService.radioTrackChange(radioTrack);
-        console.log('📻 [Host] Track changed:', currentTrack.title);
-      } else {
-        socketService.radioTrackChange(null);
-        console.log('📻 [Host] Track cleared');
-      }
-    }
-  }, [isHost, currentTrack]);
+    // 避免重複發送同一首曲目
+    if (activeVideoId === prevTrackRef.current) return;
+
+    // null guard：轉場期間 track 可能短暫為 null，不發送避免聽眾誤取消
+    if (!activeTrack) return;
+
+    prevTrackRef.current = activeVideoId;
+
+    const radioTrack: RadioTrack = {
+      videoId: activeTrack.videoId,
+      title: activeTrack.title,
+      channel: activeTrack.channel,
+      thumbnail: activeTrack.thumbnail,
+      duration: activeTrack.duration,
+    };
+    socketService.radioTrackChange(radioTrack);
+    console.log('📻 [Host] Track changed:', activeTrack.title);
+  }, [isHost, currentTrack, pendingTrack]);
 
   // 同步播放狀態
   useEffect(() => {
@@ -202,6 +207,9 @@ export function useRadioSync() {
   useEffect(() => {
     if (!isListener || !syncTrack) return;
 
+    // 更新 ref，讓 timeout closure 能讀到最新的 syncTrack videoId
+    syncTrackVideoIdRef.current = syncTrack.videoId;
+
     // 如果當前播放的曲目和同步曲目不同，切換曲目
     if (currentTrack?.videoId !== syncTrack.videoId) {
       console.log('📻 [Listener] Switching to track:', syncTrack.title);
@@ -213,8 +221,14 @@ export function useRadioSync() {
         clearTimeout(loadTimeoutRef.current);
       }
 
-      // 設定載入超時
+      // 設定載入超時 — 捕獲當前 syncTrack videoId，避免競態取消
+      const expectedVideoId = syncTrack.videoId;
       loadTimeoutRef.current = setTimeout(() => {
+        // 超時前檢查：如果 DJ 已經切到新曲目，不取消（新曲目有自己的 timeout）
+        if (syncTrackVideoIdRef.current && syncTrackVideoIdRef.current !== expectedVideoId) {
+          console.log('📻 [Listener] Timeout for old track, DJ already moved on — skipping cancel');
+          return;
+        }
         console.warn('📻 [Listener] Track load timeout, cancelling...');
         dispatch(cancelPendingTrack());
         // 通知使用者
