@@ -7,6 +7,10 @@ import { generateDiscoveryQueries } from '../services/gemini.service';
 import { getUserProfile } from '../services/style-cache.service';
 import youtubeService from '../services/youtube.service';
 
+// Mixed recommendations cache (避免每次首頁載入都跑 12s 的 AI + 搜尋)
+let mixedCache: { data: any; timestamp: number } | null = null;
+const MIXED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 /**
  * 推薦控制器
  */
@@ -115,6 +119,13 @@ export class RecommendationController {
         return;
       }
 
+      // 首頁第一頁用 cache（5 分鐘 TTL），避免每次載入都跑 12s
+      const cacheKey = `${pageNum}-${pageSizeNum}-${includeNum}`;
+      if (pageNum === 0 && mixedCache && (Date.now() - mixedCache.timestamp) < MIXED_CACHE_TTL) {
+        res.json(mixedCache.data);
+        return;
+      }
+
       // 頻道推薦 + 相似歌曲 + AI 發現：全部並行
       const recentTracks = db.prepare(`
         SELECT video_id as videoId
@@ -218,13 +229,20 @@ export class RecommendationController {
         });
       }
 
-      res.json({
+      const responseData = {
         page: pageNum,
         pageSize: pageSizeNum,
         count: mixedRecommendations.length,
         hasMore: channelRecommendations.length === pageSizeNum,
         recommendations: mixedRecommendations,
-      });
+      };
+
+      // Cache first page
+      if (pageNum === 0) {
+        mixedCache = { data: responseData, timestamp: Date.now() };
+      }
+
+      res.json(responseData);
     } catch (error) {
       logger.error('Get mixed recommendations error:', error);
       res.status(500).json({

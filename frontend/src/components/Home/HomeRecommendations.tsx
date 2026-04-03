@@ -64,17 +64,16 @@ export default function HomeRecommendations() {
         );
         const uncachedLyrics = allVideos.filter(v => !lyricsStatusMap.get(v.videoId));
 
-        // 延遲預載：等 UI 渲染完再開始，避免搶佔頻寬
-        if (uncachedAudios.length > 0 || uncachedLyrics.length > 0) {
-          await new Promise(resolve => setTimeout(resolve, 3000));
-        }
+        // 只預載前 2 首（避免首頁載入時佔滿頻寬，其餘等播放時再下載）
+        const HOMEPAGE_PRELOAD_LIMIT = 2;
+        const preloadAudios = uncachedAudios.slice(0, HOMEPAGE_PRELOAD_LIMIT);
 
-        if (uncachedAudios.length > 0 && isActive) {
-          console.log(`🔄 開始預載 ${uncachedAudios.length} 首未快取的音樂...`);
+        if (preloadAudios.length > 0 && isActive) {
+          console.log(`🔄 預載首頁前 ${preloadAudios.length} 首（共 ${uncachedAudios.length} 首未快取）`);
 
-          for (const video of uncachedAudios) {
-            if (!isActive) break;
-
+          // 並行預載（不序列等待）
+          await Promise.all(preloadAudios.map(async (video) => {
+            if (!isActive) return;
             const streamUrl = apiService.getStreamUrl(video.videoId);
             try {
               await audioCacheService.preload(video.videoId, streamUrl, {
@@ -87,11 +86,7 @@ export default function HomeRecommendations() {
             } catch (err) {
               console.warn(`⚠️ 音訊預載失敗: ${video.title}`, err);
             }
-          }
-
-          if (isActive) {
-            console.log(`🎉 所有推薦音樂預載完成！`);
-          }
+          }));
         }
 
         if (uncachedLyrics.length > 0 && isActive) {
