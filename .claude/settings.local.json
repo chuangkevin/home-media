@@ -1,5 +1,4 @@
 {
-  "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": [
       "Bash(git -C \"D:\\\\Projects\\\\home-media\" log --oneline -10)",
@@ -23,7 +22,42 @@
       "WebSearch",
       "WebFetch(domain:tw.bid.yahoo.com)",
       "WebFetch(domain:www.coolpc.com.tw)",
-      "WebFetch(domain:coolpc.com.tw)"
+      "WebFetch(domain:coolpc.com.tw)",
+      "Bash(openspec new:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(npm ls:*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(\"d:\\\\GitClone\\\\home-media\\\\frontend\\\\node_modules\\\\.bin\\\\tsc.cmd\" --noEmit)",
+      "Bash(node node_modules/.bin/tsc --noEmit)",
+      "Bash(npx vite:*)",
+      "Bash(gh run:*)",
+      "Bash(npx @anthropic-ai/claude-code --version)",
+      "Bash(claude --version)",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker logs home-media-backend --tail 50 2>&1\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker logs home-media-backend --tail 200 2>&1 | grep -E ''radio|lyrics|socket|Radio|Lyrics|Socket|sync|Sync'' | tail -40\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker logs home-media-backend --tail 500 2>&1 | grep -iE ''lyrics.*handler|lyrics.*offset|lyrics.*source|socket.*lyrics|handler.*register|setupLyrics'' | tail -20\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker logs home-media-backend --tail 500 2>&1 | grep -iE ''radio|station|broadcast|host|listener'' | tail -20\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker logs home-media-backend --tail 500 2>&1 | grep -iE ''connect|socket|io|server.*start|listening'' | tail -20\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend cat /app/dist/server.js 2>&1 | grep -E ''lyrics|setupLyrics|handler'' | head -10\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend cat /app/dist/handlers/lyrics.handler.js 2>&1\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-frontend cat /usr/share/nginx/html/assets/*.js 2>&1 | grep -o ''lyrics:offset-update'' | head -3\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-frontend ls /usr/share/nginx/html/assets/*.js 2>&1\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker logs home-media-backend --tail 1000 2>&1 | grep -iE ''socket|connect|station|radio|disconnect'' | tail -30\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker inspect home-media-backend --format ''{{json .NetworkSettings.Ports}}'' 2>&1\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker inspect home-media-backend --format ''{{json .HostConfig.PortBindings}}'' 2>&1\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker network ls 2>&1 | grep media; docker inspect home-media-backend --format ''{{json .NetworkSettings.Networks}}'' 2>&1 | python3 -m json.tool 2>/dev/null || docker inspect home-media-backend --format ''{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}'' 2>&1\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-frontend cat /etc/nginx/conf.d/default.conf 2>&1\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend printenv | grep -iE ''CORS|ORIGIN|ALLOWED'' 2>&1\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend env | grep -iE ''CORS|ORIGIN|ALLOWED''\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker logs home-media-backend 2>&1 | grep -c ''socket\\\\|Socket\\\\|connect\\\\|Connect''\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker logs home-media-backend 2>&1 | grep -i ''socket\\\\|Socket\\\\|connect\\\\|Connect''\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend env | grep -i LOG\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend cat /app/dist/utils/logger.js 2>&1 | head -30\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend cat logs/combined.log 2>&1 | tail -30\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend cat logs/combined.log 2>&1 | grep -i ''connect\\\\|register\\\\|device'' | tail -20\")",
+      "Bash(ssh -i \"C:\\\\Users\\\\kevin\\\\.ssh\\\\id_ed25519\" kevin@rpi-matrix.bunny-salmon.ts.net \"docker exec home-media-backend cat logs/combined.log 2>&1 | grep -E ''Client connected|Device registered|Device disconnected'' | tail -20\")"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true
 }
