@@ -150,9 +150,21 @@ class SocketService {
     this.socket = io(wsUrl, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
     });
 
     this.setupEventListeners();
+
+    // 手機鎖屏/背景恢復時強制重連
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.socket && !this.socket.connected) {
+        console.log('📱 Page visible, reconnecting socket...');
+        this.socket.connect();
+      }
+    });
   }
 
   private getWebSocketUrl(): string {
