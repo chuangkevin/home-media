@@ -872,7 +872,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     const handleTimeUpdate = () => {
       // audio element 是唯一音源，所有模式都更新時間
-      dispatch(setCurrentTime(audio.currentTime));
+      // 用 trackDuration clamp，避免尾部靜音時進度條跑超過
+      const td = currentTrack?.duration;
+      const clampedTime = (td && td > 0 && audio.currentTime > td) ? td : audio.currentTime;
+      dispatch(setCurrentTime(clampedTime));
       // Record complete when 90% reached (用 YouTube metadata duration)
       const completeDur = currentTrack?.duration || audio.duration;
       if (!completeSentRef.current && completeDur > 0 && audio.currentTime >= completeDur * 0.9) {
@@ -1211,9 +1214,29 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       // 部分瀏覽器不支援設為 null
     }
 
+    // 設定正確的播放位置與時長（覆蓋 audio.duration 的尾部靜音）
+    const updatePositionState = () => {
+      try {
+        const duration = currentTrack.duration && currentTrack.duration > 0
+          ? currentTrack.duration : audioRef.current?.duration || 0;
+        if (duration > 0 && audioRef.current) {
+          navigator.mediaSession.setPositionState({
+            duration,
+            playbackRate: audioRef.current.playbackRate || 1,
+            position: Math.min(audioRef.current.currentTime, duration),
+          });
+        }
+      } catch { /* 部分瀏覽器不支援 */ }
+    };
+
+    // 初始設定 + 定期更新（鎖屏進度條）
+    updatePositionState();
+    const positionInterval = setInterval(updatePositionState, 5000);
+
     console.log('🎵 Media Session API 已設定:', currentTrack.title);
 
     return () => {
+      clearInterval(positionInterval);
       // 清理 action handlers
       try {
         navigator.mediaSession.setActionHandler('play', null);
