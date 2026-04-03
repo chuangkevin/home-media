@@ -120,7 +120,6 @@ export class RecommendationController {
       }
 
       // 首頁第一頁用 cache（5 分鐘 TTL），避免每次載入都跑 12s
-      const cacheKey = `${pageNum}-${pageSizeNum}-${includeNum}`;
       if (pageNum === 0 && mixedCache && (Date.now() - mixedCache.timestamp) < MIXED_CACHE_TTL) {
         res.json(mixedCache.data);
         return;
