@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { Box, Typography, IconButton } from '@mui/material';
+import { Box, Typography, IconButton, Chip, CircularProgress } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import type { LyricsLine } from '../../types/lyrics.types';
 import type { Track } from '../../types/track.types';
 import { extractDominantColor } from '../../utils/extractColor';
@@ -46,6 +47,9 @@ interface MorrorLyricsProps {
   timeOffset: number;
   onFullscreenChange?: (isFullscreen: boolean) => void;
   translations?: string[];
+  translationError?: boolean;
+  isTranslating?: boolean;
+  onRetryTranslation?: () => void;
 }
 
 // Split text into characters for per-char animation
@@ -295,7 +299,7 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
   );
 }
 
-export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange, translations = [] }: MorrorLyricsProps) {
+export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange, translations = [], translationError = false, isTranslating = false, onRetryTranslation }: MorrorLyricsProps) {
   const [accentColor, setAccentColor] = useState(DEFAULT_COLOR);
   const [effect, setEffect] = useState<LyricsEffect>(() => {
     const saved = localStorage.getItem('morror-effect');
@@ -511,6 +515,27 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
             }}>
               {translations[currentLineIndex]}
             </Typography>
+          )}
+          {/* 翻譯重試 */}
+          {translationError && !isTranslating && translations.length === 0 && onRetryTranslation && (
+            <Chip
+              icon={<RefreshIcon sx={{ color: 'white !important' }} />}
+              label="重試翻譯"
+              onClick={onRetryTranslation}
+              variant="outlined"
+              size="small"
+              sx={{
+                mt: 1,
+                color: 'white',
+                borderColor: 'rgba(255,255,255,0.5)',
+                textShadow: textShadowLight,
+                cursor: 'pointer',
+                '&:hover': { borderColor: 'white', backgroundColor: 'rgba(255,255,255,0.1)' },
+              }}
+            />
+          )}
+          {isTranslating && translations.length === 0 && (
+            <CircularProgress size={18} sx={{ mt: 1, color: 'rgba(255,255,255,0.6)' }} />
           )}
         </Box>
 
