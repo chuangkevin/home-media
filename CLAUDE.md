@@ -226,7 +226,7 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Video mode audio**: NEVER pause/mute audio element in video mode — iframe/video must be muted instead, audio element is the only sound source
 - **Video sync**: cached `<video>` element syncs via `onCanPlay` (once) + interval (drift >3s) — too frequent = buffering spinner
 - **iframe onStateChange**: must NOT dispatch `setIsPlaying` — iframe pause/destroy would stop audio; only sync position + force play
-- **Tail silence**: use `track.duration` (YouTube metadata) everywhere, not `audio.duration` (which includes encoded silence)
+- **Tail silence**: use `track.duration` (YouTube metadata) everywhere, not `audio.duration` (which includes encoded silence). End detection (`trackDuration - 0.5s`) MUST be checked BEFORE crossfade logic — crossfade early-returns at `-5s` and blocks end detection if placed after
 - **Restore playback**: use `audioCacheService.getMetadata()` for instant track info — `getVideoInfo` (yt-dlp) takes 10s+
 - **Auto-queue timing**: must wait for metadata (channel non-empty) — placeholder track causes empty-artist recommendations
 - **playNow cleanup**: must clear tracks after insert position — otherwise old recommendations from previous artist remain
@@ -239,3 +239,9 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Lyrics drag dismiss**: `touchAction: 'none'` on header is essential — without it, browser scroll intercepts the swipe gesture
 - **Lyrics drag + transition**: `isDraggingRef` disables CSS transition during active drag — otherwise translateY lags behind finger
 - **Sticky search zIndex**: must be lower than MUI Drawer/Modal (1300) but above content — zIndex 5 is correct
+- **Audio error → playNext**: cached audio error AND stream retry exhaustion MUST dispatch `playNext()` — otherwise track gets stuck with progress bar spinning
+- **handleTimeUpdate order**: end detection → crossfade → crossfade active → normal update. NEVER put crossfade checks before end detection
+- **MediaSession positionState**: must call `setPositionState` with `track.duration` — iOS lock screen defaults to `audio.duration` (includes tail silence)
+- **Landscape auto-fullscreen**: `effectiveFullscreen = isFullscreenLayout || isLandscape` — landscape always uses fullscreen three-panel layout
+- **Recommendation API speed**: similar tracks + AI discovery MUST use `Promise.all` — serial requests add 10s+ latency
+- **Preload timing**: audio/lyrics preload must delay 3s after recommendations load — prevents bandwidth contention with API calls
