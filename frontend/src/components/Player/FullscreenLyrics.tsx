@@ -77,6 +77,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [translationError, setTranslationError] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const retryCountRef = useRef(0);
+
+  // Swipe-down-to-dismiss gesture
+  const [dragOffset, setDragOffset] = useState(0);
+  const touchStartYRef = useRef(0);
+  const isDraggingRef = useRef(false);
   const cancelledRef = useRef(false);
 
   // 影片快取狀態
@@ -1089,6 +1094,33 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     );
   };
 
+  // Reset drag offset when drawer opens/closes
+  useEffect(() => {
+    setDragOffset(0);
+    isDraggingRef.current = false;
+  }, [open]);
+
+  const handleHeaderTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0].clientY;
+    isDraggingRef.current = false;
+  }, []);
+
+  const handleHeaderTouchMove = useCallback((e: React.TouchEvent) => {
+    const delta = e.touches[0].clientY - touchStartYRef.current;
+    if (delta > 0) {
+      isDraggingRef.current = true;
+      setDragOffset(delta);
+    }
+  }, []);
+
+  const handleHeaderTouchEnd = useCallback(() => {
+    if (dragOffset > 80) {
+      onClose();
+    }
+    setDragOffset(0);
+    isDraggingRef.current = false;
+  }, [dragOffset, onClose]);
+
   return (
     <>
       <Drawer
@@ -1107,6 +1139,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             display: 'flex',
             flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
             pb: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 3,
+            transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
+            transition: isDraggingRef.current ? 'none' : 'transform 0.3s ease',
           },
         }}
         ModalProps={{
@@ -1150,6 +1184,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         >
           {/* 頂部操作列 — 沉浸全螢幕時隱藏 */}
           {!isMorrorFullscreen && <Box
+            onTouchStart={handleHeaderTouchStart}
+            onTouchMove={handleHeaderTouchMove}
+            onTouchEnd={handleHeaderTouchEnd}
             sx={{
               position: 'sticky',
               top: 0,
@@ -1160,16 +1197,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               px: 2,
               py: 1,
               flexShrink: 0,
+              touchAction: 'none',
             }}
           >
             {/* 下拉指示器 */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, mb: 0.5, cursor: 'grab' }}>
               <Box
                 sx={{
                   width: 40,
                   height: 4,
-                  backgroundColor: 'action.disabled',
+                  backgroundColor: dragOffset > 0 ? 'action.active' : 'action.disabled',
                   borderRadius: 2,
+                  transition: 'background-color 0.2s',
                 }}
               />
             </Box>

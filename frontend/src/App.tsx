@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
@@ -102,7 +102,7 @@ function TrackPage() {
 }
 
 // 底部導航列元件
-function BottomNav() {
+function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -114,6 +114,10 @@ function BottomNav() {
   };
 
   const handleClick = (path: string) => {
+    if (getNavValue() === path) {
+      scrollToTop();
+      return;
+    }
     // 保持 playing 參數
     const playing = searchParams.get('playing');
     const newPath = playing ? `${path}?playing=${playing}` : path;
@@ -174,6 +178,11 @@ function AppContent() {
   const [lyricsDrawerOpen, setLyricsDrawerOpen] = useState(false); // 歌詞抽屜狀態
   const [siteTitle, setSiteTitle] = useState('Home Media'); // 網站標題
   // const isShortViewport = useMediaQuery('(max-height: 768px)');
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollToTop = useCallback(() => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   // Socket 連線（遠端控制）
   useSocketConnection();
@@ -302,7 +311,7 @@ function AppContent() {
       overflow: 'hidden',
     }}>
       {/* 可滾動內容區 */}
-      <Box sx={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <Box ref={scrollContainerRef} sx={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
       <Container maxWidth="lg" sx={{ py: 4, pb: 2 }}>
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
@@ -332,7 +341,19 @@ function AppContent() {
         )}
 
         {/* 搜尋列 */}
-        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
+        <Box sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 5,
+          backgroundColor: 'background.paper',
+          display: 'flex',
+          justifyContent: 'center',
+          pt: 2,
+          pb: 2,
+          mb: 2,
+          mx: -3,
+          px: 3,
+        }}>
           <SearchBar onSearch={handleSearch} loading={loading} />
         </Box>
 
@@ -375,7 +396,7 @@ function AppContent() {
       <AudioPlayer
         onOpenLyrics={() => setLyricsDrawerOpen(true)}
       />
-      <BottomNav />
+      <BottomNav scrollToTop={scrollToTop} />
 
       {/* 全螢幕歌詞抽屜 */}
       {currentTrack && (

@@ -194,6 +194,22 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - Health check: `docker exec` node http check (port not exposed to host), 24 × 5s = 120s
 - Container startup takes 60-90s (Node.js + DB init)
 
+### UX Gestures & Navigation
+
+- **Lyrics drawer swipe-down dismiss**: Top header area (drag handle + track info) has touch gesture handlers
+  - `touchAction: 'none'` on header prevents scroll interference
+  - Drag threshold: 80px downward → `onClose()`
+  - Visual feedback: Drawer paper `translateY(dragOffset)` during drag
+  - Snap-back: `transition: transform 0.3s ease` when released below threshold
+  - `dragOffset` resets on drawer open/close via useEffect
+  - Touch handlers ONLY on header area — lyrics content scrolls normally
+- **Sticky search bar**: `position: sticky, top: 0, zIndex: 5` in scrollable container
+  - `mx: -3, px: 3` extends background to container edges (prevents content bleed-through)
+  - Background color: `background.paper` for solid coverage
+- **Tab re-click scroll to top**: BottomNav checks `getNavValue() === path` → calls `scrollToTop()`
+  - `scrollContainerRef` on the main scrollable `<Box>` in AppContent
+  - `scrollTo({ top: 0, behavior: 'smooth' })`
+
 ## Things That Break Easily
 
 - **UI positioning**: Uses flex layout (not position:fixed) — don't add transform/will-change to parents
@@ -220,3 +236,6 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Crossfade + SponsorBlock**: must pause skip segment checks during crossfade, resume on new primary element
 - **Crossfade warm-up**: secondary audio element must be warmed up on first user interaction — otherwise mobile autoplay policy blocks it
 - **Crossfade interruption**: DJ skip during crossfade must immediately cancel and hard-switch — don't let stale crossfade timer complete
+- **Lyrics drag dismiss**: `touchAction: 'none'` on header is essential — without it, browser scroll intercepts the swipe gesture
+- **Lyrics drag + transition**: `isDraggingRef` disables CSS transition during active drag — otherwise translateY lags behind finger
+- **Sticky search zIndex**: must be lower than MUI Drawer/Modal (1300) but above content — zIndex 5 is correct
