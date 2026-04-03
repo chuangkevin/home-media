@@ -31,6 +31,7 @@ import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget, playNext } from
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
+import { useLyricsSync } from '../../hooks/useLyricsSync';
 import AudioPlayer from './AudioPlayer';
 import PlayerControls from './PlayerControls';
 import MorrorLyrics from './MorrorLyrics';
@@ -60,6 +61,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     (state: RootState) => state.lyrics
   );
   const { currentTime, playlist, currentIndex, seekTarget } = useSelector((state: RootState) => state.player);
+  const { emitOffsetUpdate, emitSourceUpdate } = useLyricsSync(track.videoId);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -564,6 +566,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     dispatch(adjustTimeOffset(delta));
     apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+    emitOffsetUpdate(track.videoId, newOffset);
   };
 
   const handleOffsetIncrease = () => applyOffset(0.5);
@@ -582,6 +585,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     dispatch(resetTimeOffset());
     apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0 });
     lyricsCacheService.setTimeOffset(track.videoId, 0);
+    emitOffsetUpdate(track.videoId, 0);
   };
 
   // 微調模式
@@ -603,6 +607,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     dispatch(setTimeOffset(newOffset));
     apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+    emitOffsetUpdate(track.videoId, newOffset);
     setIsFineTuning(false);
   };
 
@@ -653,6 +658,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         await lyricsCacheService.set(track.videoId, lyrics);
         dispatch(setCurrentLyrics(lyrics));
         dispatch(resetTimeOffset());
+        emitSourceUpdate(track.videoId, 'auto', null);
+        emitOffsetUpdate(track.videoId, 0);
       } else {
         dispatch(setCurrentLyrics(null));
       }
@@ -756,6 +763,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         }
         await lyricsCacheService.set(track.videoId, lyrics);
         dispatch(setCurrentLyrics(lyrics));
+        emitSourceUpdate(track.videoId, searchSource, result.id);
         setSearchOpen(false);
       }
     } catch (error) {

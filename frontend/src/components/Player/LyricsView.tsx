@@ -22,6 +22,7 @@ import { seekTo } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
+import { useLyricsSync } from '../../hooks/useLyricsSync';
 
 interface LyricsViewProps {
   track: Track;
@@ -34,6 +35,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     (state: RootState) => state.lyrics
   );
   const { currentTime } = useSelector((state: RootState) => state.player);
+  const { emitOffsetUpdate, emitSourceUpdate } = useLyricsSync(track.videoId);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const lyricsViewRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -222,6 +224,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     // 儲存到後端（跨裝置同步）和本地（離線支援）
     apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+    emitOffsetUpdate(track.videoId, newOffset);
   };
 
   const handleOffsetDecrease = () => {
@@ -230,6 +233,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     // 儲存到後端（跨裝置同步）和本地（離線支援）
     apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+    emitOffsetUpdate(track.videoId, newOffset);
   };
 
   const handleOffsetReset = () => {
@@ -237,6 +241,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     // 儲存到後端（跨裝置同步）和本地（離線支援）
     apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0 });
     lyricsCacheService.setTimeOffset(track.videoId, 0);
+    emitOffsetUpdate(track.videoId, 0);
   };
 
   // ==================== 微調模式 ====================
@@ -260,6 +265,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     // 儲存到後端（跨裝置同步）和本地（離線支援）
     apiService.updateLyricsPreferences(track.videoId, { timeOffset: newOffset });
     lyricsCacheService.setTimeOffset(track.videoId, newOffset);
+    emitOffsetUpdate(track.videoId, newOffset);
     setIsFineTuning(false);
     console.log(`✅ 已套用時間偏移: ${newOffset}s (已同步)`);
   };
@@ -318,6 +324,9 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         dispatch(setCurrentLyrics(lyrics));
         // 重置時間偏移
         dispatch(resetTimeOffset());
+        // 廣播來源切換（reload = 重置來源）+ 偏移重置
+        emitSourceUpdate(track.videoId, 'auto', null);
+        emitOffsetUpdate(track.videoId, 0);
         console.log(`✅ 已重新載入原始歌詞 (${lyrics.source})`);
       } else {
         dispatch(setCurrentLyrics(null));
@@ -372,6 +381,8 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         await lyricsCacheService.set(track.videoId, lyrics);
         // 更新 Redux
         dispatch(setCurrentLyrics(lyrics));
+        // 廣播來源切換給其他裝置
+        emitSourceUpdate(track.videoId, searchSource, result.id);
         // 關閉對話框
         setSearchOpen(false);
         console.log(`✅ 已套用歌詞 (${searchSource}): ${result.trackName} - ${result.artistName} (已同步)`);

@@ -421,6 +421,47 @@ class SocketService {
     this.socket?.emit('radio:display-mode', { displayMode });
   }
 
+  // ===== Lyrics sync methods =====
+
+  // 歌詞偏移更新
+  emitLyricsOffsetUpdate(videoId: string, timeOffset: number): void {
+    this.socket?.emit('lyrics:offset-update', {
+      videoId,
+      timeOffset,
+      deviceId: this.deviceId,
+    });
+  }
+
+  // 歌詞來源切換
+  emitLyricsSourceUpdate(videoId: string, source: string, sourceId: number | string | null): void {
+    this.socket?.emit('lyrics:source-update', {
+      videoId,
+      source,
+      sourceId,
+      deviceId: this.deviceId,
+    });
+  }
+
+  // 監聽歌詞偏移變更
+  onLyricsOffsetChanged(callback: (data: { videoId: string; timeOffset: number; deviceId: string }) => void): void {
+    this.socket?.on('lyrics:offset-changed', callback);
+  }
+
+  // 移除歌詞偏移變更監聽
+  offLyricsOffsetChanged(callback: (data: { videoId: string; timeOffset: number; deviceId: string }) => void): void {
+    this.socket?.off('lyrics:offset-changed', callback);
+  }
+
+  // 監聽歌詞來源變更
+  onLyricsSourceChanged(callback: (data: { videoId: string; source: string; sourceId: number | string | null; deviceId: string }) => void): void {
+    this.socket?.on('lyrics:source-changed', callback);
+  }
+
+  // 移除歌詞來源變更監聽
+  offLyricsSourceChanged(callback: (data: { videoId: string; source: string; sourceId: number | string | null; deviceId: string }) => void): void {
+    this.socket?.off('lyrics:source-changed', callback);
+  }
+
   // 斷開連接
   disconnect(): void {
     this.socket?.disconnect();

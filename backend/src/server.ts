@@ -13,6 +13,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import logger from './utils/logger';
 import { setupCastingHandlers } from './handlers/casting.handler';
 import { setupRadioHandlers } from './handlers/radio.handler';
+import { setupLyricsHandlers } from './handlers/lyrics.handler';
 
 // 確保必要的目錄存在
 const ensureDirectories = () => {
@@ -149,6 +150,7 @@ io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id}`);
   setupCastingHandlers(io, socket);
   setupRadioHandlers(io, socket);
+  setupLyricsHandlers(io, socket);
 });
 
 // 啟動伺服器
