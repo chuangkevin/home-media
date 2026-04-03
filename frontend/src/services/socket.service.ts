@@ -108,6 +108,7 @@ type RadioLeftCallback = (data: { stationId: string }) => void;
 type RadioErrorCallback = (data: { message: string }) => void;
 type RadioPendingStationCallback = (data: RadioPendingStationData | null) => void;
 type RadioHostDisconnectedCallback = (data: RadioHostDisconnectedData) => void;
+type RadioCrossfadeStartCallback = (data: { nextTrack: RadioTrack; crossfadeDuration: number; elapsedMs: number }) => void;
 
 class SocketService {
   private socket: Socket | null = null;
@@ -131,6 +132,7 @@ class SocketService {
     onRadioError?: RadioErrorCallback;
     onRadioPendingStation?: RadioPendingStationCallback;
     onRadioHostDisconnected?: RadioHostDisconnectedCallback;
+    onRadioCrossfadeStart?: RadioCrossfadeStartCallback;
   } = {};
 
   constructor() {
@@ -251,6 +253,11 @@ class SocketService {
     this.socket.on('radio:host-disconnected', (data: RadioHostDisconnectedData) => {
       console.log('Host disconnected:', data);
       this.callbacks.onRadioHostDisconnected?.(data);
+    });
+
+    this.socket.on('radio:crossfade-start', (data: { nextTrack: RadioTrack; crossfadeDuration: number; elapsedMs: number }) => {
+      console.log('Radio crossfade start:', data);
+      this.callbacks.onRadioCrossfadeStart?.(data);
     });
   }
 
@@ -419,6 +426,11 @@ class SocketService {
   // 主播：顯示模式變更
   radioDisplayMode(displayMode: DisplayMode): void {
     this.socket?.emit('radio:display-mode', { displayMode });
+  }
+
+  // 主播：crossfade 開始
+  radioCrossfadeStart(nextTrack: RadioTrack, crossfadeDuration: number, elapsedMs: number): void {
+    this.socket?.emit('radio:crossfade-start', { nextTrack, crossfadeDuration, elapsedMs });
   }
 
   // ===== Lyrics sync methods =====

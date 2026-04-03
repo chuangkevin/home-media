@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton, Snackbar } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
@@ -8,12 +8,15 @@ import StorageIcon from '@mui/icons-material/Storage';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
-import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack } from '../../store/playerSlice';
+import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack } from '../../store/playerSlice';
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { useAutoQueue } from '../../hooks/useAutoQueue';
+import { useCrossfade } from '../../hooks/useCrossfade';
+import { socketService } from '../../services/socket.service';
+import type { Track } from '../../types/track.types';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
 
 interface AudioPlayerProps {
@@ -24,7 +27,9 @@ interface AudioPlayerProps {
 export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPlayerProps) {
   const dispatch = useDispatch();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const secondaryAudioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
+  const { isHost } = useSelector((state: RootState) => state.radio);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
@@ -39,6 +44,135 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
   const prevDisplayModeRef = useRef(displayMode);
+
+  // 🔊 Crossfade engine
+  // Use a ref to store getSecondaryBlobUrl/clearSecondaryBlobUrl to avoid circular dependency
+  const crossfadeRef = useRef<ReturnType<typeof useCrossfade> | null>(null);
+
+  const handleCrossfadeComplete = useCallback((newTrack: Track) => {
+    // Swap audio element roles: secondary becomes primary
+    const oldPrimaryBlobUrl = currentBlobUrlRef.current;
+    const newBlobUrl = crossfadeRef.current?.getSecondaryBlobUrl() ?? null;
+
+    // Update tracking refs
+    currentVideoIdRef.current = newTrack.videoId;
+    currentBlobUrlRef.current = newBlobUrl;
+    crossfadeRef.current?.clearSecondaryBlobUrl();
+
+    // Revoke old primary blob URL
+    if (oldPrimaryBlobUrl) {
+      URL.revokeObjectURL(oldPrimaryBlobUrl);
+    }
+
+    // Swap the audio element refs: secondary is now the active player
+    // We need to copy the secondary's src to primary and reset secondary
+    const primary = audioRef.current;
+    const secondary = secondaryAudioRef.current;
+    if (primary && secondary) {
+      // Transfer secondary to primary: copy src and state
+      primary.src = secondary.src;
+      primary.currentTime = secondary.currentTime;
+      primary.volume = volume;
+      primary.play().catch(() => {});
+
+      // Clear secondary
+      secondary.pause();
+      secondary.src = '';
+      secondary.volume = 0;
+    }
+
+    // Update MediaSession metadata
+    if ('mediaSession' in navigator) {
+      const artwork = newTrack.thumbnail ? [
+        { src: newTrack.thumbnail, sizes: '96x96', type: 'image/jpeg' },
+        { src: newTrack.thumbnail, sizes: '192x192', type: 'image/jpeg' },
+        { src: newTrack.thumbnail, sizes: '512x512', type: 'image/jpeg' },
+      ] : [];
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: newTrack.title,
+        artist: newTrack.channel,
+        artwork,
+      });
+    }
+
+    // Dispatch pending track to update Redux state
+    dispatch(setPendingTrack({
+      id: newTrack.videoId,
+      videoId: newTrack.videoId,
+      title: newTrack.title,
+      channel: newTrack.channel,
+      thumbnail: newTrack.thumbnail,
+      duration: newTrack.duration,
+    }));
+    // Immediately confirm since audio is already playing
+    dispatch(confirmPendingTrack());
+    dispatch(setDuration(newTrack.duration || 0));
+
+    // Reset completion tracking for the new track
+    wasCompletedRef.current = false;
+    completeSentRef.current = false;
+
+    console.log(`🔊 [Crossfade] Transition complete: ${newTrack.title}`);
+  }, [dispatch, volume]);
+
+  const handleCrossfadeStarted = useCallback((nextTrack: Track, crossfadeDuration: number, elapsedMs: number) => {
+    // Host: emit crossfade-start to listeners via socket
+    if (isHost) {
+      socketService.radioCrossfadeStart(
+        {
+          videoId: nextTrack.videoId,
+          title: nextTrack.title,
+          channel: nextTrack.channel,
+          thumbnail: nextTrack.thumbnail,
+          duration: nextTrack.duration,
+        },
+        crossfadeDuration,
+        elapsedMs,
+      );
+    }
+  }, [isHost]);
+
+  const crossfade = useCrossfade({
+    primaryAudioRef: audioRef,
+    secondaryAudioRef,
+    onCrossfadeComplete: handleCrossfadeComplete,
+    onCrossfadeStarted: handleCrossfadeStarted,
+  });
+  crossfadeRef.current = crossfade;
+
+  // 🔊 Warm up secondary audio element on first user interaction
+  useEffect(() => {
+    const warmUp = () => {
+      crossfade.warmUpSecondary();
+      document.removeEventListener('click', warmUp);
+      document.removeEventListener('touchstart', warmUp);
+      document.removeEventListener('keydown', warmUp);
+    };
+    document.addEventListener('click', warmUp, { once: true });
+    document.addEventListener('touchstart', warmUp, { once: true });
+    document.addEventListener('keydown', warmUp, { once: true });
+    return () => {
+      document.removeEventListener('click', warmUp);
+      document.removeEventListener('touchstart', warmUp);
+      document.removeEventListener('keydown', warmUp);
+    };
+  }, [crossfade.warmUpSecondary]);
+
+  // 🔊 Radio crossfade sync: Listener receives crossfade-start and executes local crossfade
+  useEffect(() => {
+    socketService.setCallbacks({
+      onRadioCrossfadeStart: (data) => {
+        console.log('🔊 [Crossfade] Listener received crossfade-start:', data.nextTrack?.title);
+        if (crossfadeRef.current?.shouldCrossfade()) {
+          crossfadeRef.current.executeCrossfadeAsListener(
+            { ...data.nextTrack, id: data.nextTrack.videoId } as Track,
+            data.crossfadeDuration,
+            data.elapsedMs,
+          );
+        }
+      },
+    });
+  }, []);
 
   // 快取狀態
   const [isCached, setIsCached] = useState(false);
@@ -80,6 +214,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 當有 pendingTrack 時，預載音訊（不切換 UI）
   useEffect(() => {
     if (!pendingTrack || !audioRef.current) return;
+
+    // 🔊 Cancel any active crossfade when a new track is requested (DJ skip during crossfade)
+    if (crossfade.crossfadeActiveRef.current) {
+      console.log('🔊 [Crossfade] Interrupting crossfade for new track:', pendingTrack.title);
+      crossfade.cancelCrossfade();
+    }
+    crossfade.resetPreload();
 
     // Record skip signal if previous track was not completed and played less than 50%
     if (audioRef.current && currentVideoIdRef.current && !wasCompletedRef.current) {
@@ -647,9 +788,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
   }, [displayMode, isPlaying, isLoadingTrack, dispatch]);
 
-  // 當音量改變時
+  // 當音量改變時（crossfade 進行中不直接設定 volume，由 crossfade engine 處理）
   useEffect(() => {
-    if (audioRef.current) {
+    if (audioRef.current && !crossfade.crossfadeActiveRef.current) {
       audioRef.current.volume = volume;
     }
   }, [volume]);
@@ -777,8 +918,27 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           break;
         }
       }
-      // 用 YouTube metadata duration 偵測實際結尾（audio 檔案可能有尾部靜音）
+      // 🔊 Crossfade: check if we should preload/start crossfade
       const trackDuration = currentTrack?.duration;
+      if (trackDuration && trackDuration > 0 && !crossfade.crossfadeActiveRef.current) {
+        // Pause SponsorBlock during crossfade (handled by crossfadeActiveRef check above)
+        const crossfadeHandling = crossfade.checkTimeForCrossfade(t, trackDuration);
+        if (crossfadeHandling) {
+          // Crossfade is handling track transition, skip normal end detection
+          lastTimeUpdate = Date.now();
+          lastCurrentTime = audio.currentTime;
+          return;
+        }
+      }
+
+      // If crossfade is active, let it handle everything
+      if (crossfade.crossfadeActiveRef.current) {
+        lastTimeUpdate = Date.now();
+        lastCurrentTime = audio.currentTime;
+        return;
+      }
+
+      // 用 YouTube metadata duration 偵測實際結尾（audio 檔案可能有尾部靜音）
       if (trackDuration && trackDuration > 0 && t >= trackDuration - 0.5 && !wasCompletedRef.current) {
         console.log(`⏭️ 到達 YouTube 原始長度 ${trackDuration}s，跳下一首（audio.duration=${audio.duration.toFixed(1)}s）`);
         wasCompletedRef.current = true;
@@ -801,6 +961,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
 
     const handleEnded = () => {
+      // If crossfade is active, the outgoing element naturally ended — ignore
+      if (crossfade.crossfadeActiveRef.current) return;
+
       wasCompletedRef.current = true;
       // Record complete signal (only if not already sent at 90%)
       if (!completeSentRef.current && currentVideoIdRef.current) {
@@ -1063,14 +1226,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
   if (!currentTrack && !pendingTrack) {
-    return <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />;
+    return (<>
+      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
+      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
+    </>);
   }
 
   // 有 pendingTrack 但沒有 currentTrack 時，顯示載入狀態
   const displayTrack = currentTrack || pendingTrack;
 
   if (!displayTrack) {
-    return <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />;
+    return (<>
+      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
+      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
+    </>);
   }
 
   return (
@@ -1213,6 +1382,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
       {/* 隱藏的 audio 元素 */}
       <audio ref={audioRef} preload="auto" crossOrigin="anonymous" />
+      {/* 🔊 Secondary audio element for crossfade */}
+      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" />
 
       {/* 加入播放清單選單 */}
       {currentTrack && (

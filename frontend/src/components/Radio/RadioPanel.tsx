@@ -19,6 +19,8 @@ import {
   IconButton,
   Chip,
   Avatar,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import RadioIcon from '@mui/icons-material/Radio';
 import HeadphonesIcon from '@mui/icons-material/Headphones';
@@ -77,10 +79,15 @@ function TabPanel({ children, value, index }: TabPanelProps) {
   );
 }
 
+const CROSSFADE_LOCALSTORAGE_KEY = 'radio-crossfade-enabled';
+
 export default function RadioPanel({ open, onClose }: RadioPanelProps) {
   const [tabIndex, setTabIndex] = useState(0);
   const [stationName, setStationName] = useState('');
   const [djName, setDjName] = useState('');
+  const [crossfadeEnabled, setCrossfadeEnabled] = useState(() => {
+    try { return localStorage.getItem(CROSSFADE_LOCALSTORAGE_KEY) === 'true'; } catch { return false; }
+  });
   const {
     stations,
     isHost,
@@ -136,6 +143,11 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
     leaveRadio();
   };
 
+  const handleCrossfadeToggle = (checked: boolean) => {
+    setCrossfadeEnabled(checked);
+    try { localStorage.setItem(CROSSFADE_LOCALSTORAGE_KEY, String(checked)); } catch { /* noop */ }
+  };
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -168,11 +180,25 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
               <Typography color="text.secondary" gutterBottom>
                 DJ: {hostName}
               </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={crossfadeEnabled}
+                    onChange={(_, checked) => handleCrossfadeToggle(checked)}
+                    color="primary"
+                  />
+                }
+                label="Crossfade"
+                sx={{ mt: 2 }}
+              />
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                Smooth 5s volume transition between songs
+              </Typography>
               <Button
                 variant="outlined"
                 color="error"
                 onClick={handleLeaveStation}
-                sx={{ mt: 2 }}
+                sx={{ mt: 1 }}
               >
                 Leave
               </Button>
@@ -288,6 +314,20 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Your playback is synced to all listeners
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={crossfadeEnabled}
+                    onChange={(_, checked) => handleCrossfadeToggle(checked)}
+                    color="primary"
+                  />
+                }
+                label="Crossfade"
+                sx={{ mb: 2 }}
+              />
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2, mt: -1 }}>
+                Smooth 5s volume transition between songs
               </Typography>
               <Button
                 variant="outlined"

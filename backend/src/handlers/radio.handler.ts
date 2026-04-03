@@ -253,6 +253,27 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
   });
 
   /**
+   * 主播：crossfade 開始
+   */
+  socket.on('radio:crossfade-start', (data: {
+    nextTrack: RadioTrack;
+    crossfadeDuration: number;
+    elapsedMs: number;
+  }) => {
+    const station = radioService.getStationByHost(socket.id);
+    if (station) {
+      // Relay to all listeners (not host)
+      socket.to(`radio:${station.id}`).emit('radio:crossfade-start', {
+        nextTrack: data.nextTrack,
+        crossfadeDuration: data.crossfadeDuration,
+        elapsedMs: data.elapsedMs,
+      });
+
+      logger.debug(`📻 [Radio] Crossfade start: ${data.nextTrack?.title || 'null'} (${data.crossfadeDuration}s)`);
+    }
+  });
+
+  /**
    * 主播切換顯示模式（音訊/影片）
    */
   socket.on('radio:display-mode', (data: { displayMode: 'video' | 'visualizer' }) => {
