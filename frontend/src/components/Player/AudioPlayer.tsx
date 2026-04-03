@@ -40,7 +40,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const completeSentRef = useRef(false);
 
   // 🎵 自動播放佇列 - 當接近播放清單尾端時自動加入推薦歌曲
-  useAutoQueue();
+  useAutoQueue(!embedded);
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
   const prevDisplayModeRef = useRef(displayMode);
@@ -142,6 +142,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 🔊 Warm up secondary audio element on first user interaction
   useEffect(() => {
+    if (embedded) return;
     const warmUp = () => {
       crossfade.warmUpSecondary();
       document.removeEventListener('click', warmUp);
@@ -160,6 +161,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 🔊 Radio crossfade sync: Listener receives crossfade-start and executes local crossfade
   useEffect(() => {
+    if (embedded) return;
     socketService.setCallbacks({
       onRadioCrossfadeStart: (data) => {
         console.log('🔊 [Crossfade] Listener received crossfade-start:', data.nextTrack?.title);
@@ -199,6 +201,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // SponsorBlock: 載入跳過片段
   useEffect(() => {
+    if (embedded) return;
     if (!currentTrack?.videoId) return;
     skipSegmentsRef.current = [];
     lastSkipRef.current = 0;
@@ -213,6 +216,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 當有 pendingTrack 時，預載音訊（不切換 UI）
   useEffect(() => {
+    if (embedded) return;
     if (!pendingTrack || !audioRef.current) return;
 
     // 🔊 Cancel any active crossfade when a new track is requested (DJ skip during crossfade)
@@ -742,6 +746,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 當播放狀態改變時（影片模式下不播放音訊）
   useEffect(() => {
+    if (embedded) return;
     if (!audioRef.current) return;
 
     let playWhenReadyHandler: (() => void) | null = null;
@@ -786,6 +791,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 當音量改變時（crossfade 進行中不直接設定 volume，由 crossfade engine 處理）
   useEffect(() => {
+    if (embedded) return;
     if (audioRef.current && !crossfade.crossfadeActiveRef.current) {
       audioRef.current.volume = volume;
     }
@@ -793,6 +799,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 當需要 seek 時（所有模式，audio element 是唯一音源）
   useEffect(() => {
+    if (embedded) return;
     if (seekTarget !== null && audioRef.current && !isLoadingTrack) {
       audioRef.current.currentTime = seekTarget;
       dispatch(clearSeekTarget());
@@ -801,6 +808,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 定期檢查快取狀態（串流播放中，背景下載完成後更新 tag）
   useEffect(() => {
+    if (embedded) return;
     if (isCached || !currentTrack?.videoId) return;
     const check = setInterval(async () => {
       const cached = await audioCacheService.get(currentTrack.videoId);
@@ -811,6 +819,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 預加載接下來 3 首：先 backend 下載，再前端 IndexedDB 快取
   useEffect(() => {
+    if (embedded) return;
     if (!currentTrack || playlist.length === 0 || currentIndex < 0) return;
 
     const PRELOAD_AHEAD = 3;
@@ -859,6 +868,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 音訊事件處理（在有曲目時添加）
   useEffect(() => {
+    if (embedded) return;
     const audio = audioRef.current;
     if (!audio || !currentTrack) {
       return;
@@ -1201,6 +1211,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // Media Session API - 支援手機鎖屏播放控制與背景播放
   useEffect(() => {
+    if (embedded) return;
     if (!currentTrack || !('mediaSession' in navigator)) {
       return;
     }
@@ -1288,6 +1299,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
   if (!currentTrack && !pendingTrack) {
+    if (embedded) return null;
     return (<>
       <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
       <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
@@ -1298,6 +1310,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const displayTrack = currentTrack || pendingTrack;
 
   if (!displayTrack) {
+    if (embedded) return null;
     return (<>
       <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
       <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
@@ -1441,11 +1454,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       )}
 
       {/* 隱藏的 audio 元素 - 放在 CardContent 外面確保不受條件渲染影響 */}
-
-      {/* 隱藏的 audio 元素 */}
-      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" />
-      {/* 🔊 Secondary audio element for crossfade */}
-      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" />
+      {/* embedded 模式不渲染 audio 元素，避免多音訊同時播放 */}
+      {!embedded && (<>
+        <audio ref={audioRef} preload="auto" crossOrigin="anonymous" />
+        {/* 🔊 Secondary audio element for crossfade */}
+        <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" />
+      </>)}
 
       {/* 加入播放清單選單 */}
       {currentTrack && (

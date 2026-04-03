@@ -9,7 +9,7 @@ import type { Track } from '../types/track.types';
  * 自動播放佇列 Hook
  * 當播放接近清單尾端時，自動加入推薦歌曲
  */
-export function useAutoQueue() {
+export function useAutoQueue(enabled = true) {
   const dispatch = useDispatch();
   const { currentTrack, pendingTrack, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const isLoadingRef = useRef(false);
@@ -22,6 +22,7 @@ export function useAutoQueue() {
   const remainingSongs = playlist.length - currentIndex - 1;
 
   useEffect(() => {
+    if (!enabled) return;
     if (!activeVideoId || playlist.length === 0) return;
 
     // 等 metadata 載入完才推薦（避免用空 artist 推薦）
@@ -98,5 +99,5 @@ export function useAutoQueue() {
 
     loadRecommendations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeVideoId, currentIndex, playlist.length]);
+  }, [enabled, activeVideoId, currentIndex, playlist.length]);
 }
