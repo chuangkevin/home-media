@@ -115,13 +115,7 @@ export class RecommendationController {
         return;
       }
 
-      // 獲取頻道推薦
-      const channelRecommendations = await recommendationService.getChannelRecommendations(
-        pageNum,
-        pageSizeNum
-      );
-
-      // 獲取最近播放的歌曲（用於生成相似推薦）
+      // 頻道推薦 + 相似歌曲 + AI 發現：全部並行
       const recentTracks = db.prepare(`
         SELECT video_id as videoId
         FROM cached_tracks
@@ -130,106 +124,98 @@ export class RecommendationController {
         LIMIT 5
       `).all() as Array<{ videoId: string }>;
 
-      // 為每個最近播放的歌曲獲取相似推薦
-      const similarTracks = new Map<string, any[]>();
+      const [channelRecommendations, similarResults, discoveryResult] = await Promise.all([
+        // 1. 頻道推薦
+        recommendationService.getChannelRecommendations(pageNum, pageSizeNum),
 
-      for (const track of recentTracks) {
-        try {
-          const response = await axios.get(
-            `http://localhost:3001/api/recommendations/similar/${track.videoId}`,
-            {
-              params: { limit: includeNum },
-              timeout: 2000,
-            }
-          );
+        // 2. 相似歌曲（全部並行，個別失敗不影響）
+        Promise.allSettled(
+          recentTracks.map(track =>
+            axios.get(
+              `http://localhost:3001/api/recommendations/similar/${track.videoId}`,
+              { params: { limit: includeNum }, timeout: 2000 }
+            ).then((r: any) => r.data?.recommendations || [])
+          )
+        ),
 
-          if (response.data?.recommendations) {
-            similarTracks.set(track.videoId, response.data.recommendations);
-          }
-        } catch (err) {
-          logger.warn(`Failed to fetch similar tracks for ${track.videoId}:`, err);
-        }
-      }
+        // 3. AI 發現推薦（失敗不阻塞）
+        (async () => {
+          try {
+            const profile = await getUserProfile();
+            if (!profile) return null;
 
-      // 將相似歌曲混入頻道推薦
-      const mixedRecommendations = [];
+            const listenedArtists = db.prepare(
+              `SELECT DISTINCT channel_name FROM watched_channels ORDER BY watch_count DESC LIMIT 20`
+            ).all().map((r: any) => r.channel_name);
 
-      for (const channel of channelRecommendations) {
-        // 添加原始頻道推薦
-        mixedRecommendations.push({
-          type: 'channel',
-          ...channel,
-        });
+            const queries = await generateDiscoveryQueries(profile, listenedArtists);
+            if (queries.length === 0) return null;
 
-        // 如果有相似推薦，添加一個"相似推薦"區塊
-        if (similarTracks.size > 0 && mixedRecommendations.length <= 2) {
-          const allSimilar: any[] = [];
-          similarTracks.forEach((tracks) => {
-            allSimilar.push(...tracks);
-          });
-
-          // 去重並限制數量
-          const uniqueSimilar = Array.from(
-            new Map(allSimilar.map((t) => [t.videoId, t])).values()
-          ).slice(0, 10);
-
-          if (uniqueSimilar.length > 0) {
-            mixedRecommendations.push({
-              type: 'similar',
-              channelName: '根據您的收聽記錄',
-              channelThumbnail: '',
-              videos: uniqueSimilar.map((t: any) => ({
-                videoId: t.videoId,
-                title: t.title,
-                thumbnail: t.thumbnail,
-                duration: t.duration || 0,
-              })),
-              watchCount: 0,
-            });
-          }
-        }
-      }
-
-      // AI 發現推薦：用 Gemini 根據用戶偏好搜尋新音樂
-      try {
-        const profile = await getUserProfile();
-        if (profile) {
-          const listenedArtists = db.prepare(
-            `SELECT DISTINCT channel_name FROM watched_channels ORDER BY watch_count DESC LIMIT 20`
-          ).all().map((r: any) => r.channel_name);
-
-          const queries = await generateDiscoveryQueries(profile, listenedArtists);
-
-          if (queries.length > 0) {
-            // 用第一個 query 搜尋（不要同時搜太多，免得太慢）
             const query = queries[Math.floor(Math.random() * queries.length)];
             const results = await youtubeService.search(query, 6);
 
-            // 過濾掉已聽過的頻道
-            const listenedSet = new Set(listenedArtists.map(a => a.toLowerCase()));
+            const listenedSet = new Set(listenedArtists.map((a: string) => a.toLowerCase()));
             const newResults = results.filter(r =>
               !listenedSet.has((r.channel || '').toLowerCase())
             ).slice(0, 5);
 
-            if (newResults.length > 0) {
-              mixedRecommendations.splice(1, 0, {
-                type: 'discovery',
-                channelName: `🔮 AI 為你發現`,
-                channelThumbnail: '',
-                videos: newResults.map(r => ({
-                  videoId: r.videoId,
-                  title: r.title,
-                  thumbnail: r.thumbnail,
-                  duration: r.duration || 0,
-                  channel: r.channel,
-                })),
-                watchCount: 0,
-              });
-            }
+            return newResults.length > 0 ? newResults : null;
+          } catch (err) {
+            logger.warn('AI discovery recommendations failed:', err);
+            return null;
           }
+        })(),
+      ]);
+
+      // 組合相似歌曲
+      const allSimilar: any[] = [];
+      for (const result of similarResults) {
+        if (result.status === 'fulfilled' && result.value.length > 0) {
+          allSimilar.push(...result.value);
         }
-      } catch (err) {
-        logger.warn('AI discovery recommendations failed:', err);
+      }
+      const uniqueSimilar = Array.from(
+        new Map(allSimilar.map((t) => [t.videoId, t])).values()
+      ).slice(0, 10);
+
+      // 組裝混合推薦
+      const mixedRecommendations: any[] = [];
+
+      for (const channel of channelRecommendations) {
+        mixedRecommendations.push({ type: 'channel', ...channel });
+
+        // 在第一個頻道後插入相似推薦
+        if (uniqueSimilar.length > 0 && mixedRecommendations.length <= 2) {
+          mixedRecommendations.push({
+            type: 'similar',
+            channelName: '根據您的收聽記錄',
+            channelThumbnail: '',
+            videos: uniqueSimilar.map((t: any) => ({
+              videoId: t.videoId,
+              title: t.title,
+              thumbnail: t.thumbnail,
+              duration: t.duration || 0,
+            })),
+            watchCount: 0,
+          });
+        }
+      }
+
+      // 插入 AI 發現推薦
+      if (discoveryResult) {
+        mixedRecommendations.splice(1, 0, {
+          type: 'discovery',
+          channelName: `🔮 AI 為你發現`,
+          channelThumbnail: '',
+          videos: discoveryResult.map((r: any) => ({
+            videoId: r.videoId,
+            title: r.title,
+            thumbnail: r.thumbnail,
+            duration: r.duration || 0,
+            channel: r.channel,
+          })),
+          watchCount: 0,
+        });
       }
 
       res.json({

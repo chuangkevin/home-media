@@ -62,8 +62,14 @@ export default function HomeRecommendations() {
         const uncachedAudios = allVideos.filter(v =>
           !audioStatusMap.get(v.videoId) && v.duration > 0 && v.duration <= 600
         );
+        const uncachedLyrics = allVideos.filter(v => !lyricsStatusMap.get(v.videoId));
 
-        if (uncachedAudios.length > 0) {
+        // 延遲預載：等 UI 渲染完再開始，避免搶佔頻寬
+        if (uncachedAudios.length > 0 || uncachedLyrics.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+
+        if (uncachedAudios.length > 0 && isActive) {
           console.log(`🔄 開始預載 ${uncachedAudios.length} 首未快取的音樂...`);
 
           for (const video of uncachedAudios) {
@@ -88,9 +94,6 @@ export default function HomeRecommendations() {
           }
         }
 
-        // 找出未快取的歌詞，逐個預載
-        const uncachedLyrics = allVideos.filter(v => !lyricsStatusMap.get(v.videoId));
-
         if (uncachedLyrics.length > 0 && isActive) {
           console.log(`🔄 開始預載 ${uncachedLyrics.length} 首未快取的歌詞...`);
 
@@ -98,7 +101,6 @@ export default function HomeRecommendations() {
             if (!isActive) break;
 
             try {
-              // 用 getLyricsForPreload 避免 abort 正在播放的歌詞請求
               const lyrics = await apiService.getLyricsForPreload(video.videoId, video.title, video.channel);
               if (lyrics) {
                 await lyricsCacheService.set(video.videoId, lyrics);
