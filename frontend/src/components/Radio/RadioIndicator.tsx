@@ -34,12 +34,12 @@ export default function RadioIndicator() {
     >
       <HeadphonesIcon fontSize="small" />
       <Typography variant="body2" sx={{ fontWeight: 500 }}>
-        Listening: {currentStationName}
+        收聽中：{currentStationName}
       </Typography>
       <Typography variant="caption" sx={{ opacity: 0.8 }}>
         (DJ: {hostName})
       </Typography>
-      <Tooltip title="Leave">
+      <Tooltip title="離開">
         <IconButton
           size="small"
           onClick={leaveRadio}

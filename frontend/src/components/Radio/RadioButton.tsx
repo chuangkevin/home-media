@@ -12,9 +12,9 @@ export default function RadioButton() {
   );
 
   const getTooltip = () => {
-    if (isHost) return `On Air (${listenerCount} listeners)`;
-    if (isListener) return 'Listening';
-    return 'Radio';
+    if (isHost) return `廣播中（${listenerCount} 位聽眾）`;
+    if (isListener) return '收聽中';
+    return '電台';
   };
 
   const getColor = () => {

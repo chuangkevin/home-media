@@ -152,7 +152,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <RadioIcon color="primary" />
-        Radio
+        電台
       </DialogTitle>
 
       <Tabs
@@ -160,8 +160,8 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
         onChange={(_, newValue) => setTabIndex(newValue)}
         sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
       >
-        <Tab label="Discover" />
-        <Tab label="On Air" />
+        <Tab label="探索" />
+        <Tab label="開台" />
       </Tabs>
 
       <DialogContent sx={{ minHeight: 300 }}>
@@ -172,7 +172,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <HeadphonesIcon sx={{ fontSize: 60, color: 'primary.main', mb: 2 }} />
               <Typography variant="h6" gutterBottom>
-                Listening
+                收聽中
               </Typography>
               <Typography variant="h5" color="primary" gutterBottom>
                 {currentStationName}
@@ -188,11 +188,11 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
                     color="primary"
                   />
                 }
-                label="Crossfade"
+                label="淡入淡出"
                 sx={{ mt: 2 }}
               />
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                Smooth 5s volume transition between songs
+                歌曲切換時 5 秒平滑音量過渡
               </Typography>
               <Button
                 variant="outlined"
@@ -200,16 +200,16 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
                 onClick={handleLeaveStation}
                 sx={{ mt: 1 }}
               >
-                Leave
+                離開
               </Button>
             </Box>
           ) : stations.length === 0 ? (
             // 沒有電台
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <RadioIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
-              <Typography color="text.secondary">No stations on air</Typography>
+              <Typography color="text.secondary">目前沒有電台</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                Go to "On Air" tab to start your own station
+                切換到「開台」分頁來建立你的電台
               </Typography>
               <IconButton onClick={refreshStations} sx={{ mt: 2 }}>
                 <RefreshIcon />
@@ -309,11 +309,11 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
               <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1, mb: 2 }}>
                 <PeopleIcon color="action" />
                 <Typography color="text.secondary">
-                  {listenerCount} listeners
+                  {listenerCount} 位聽眾
                 </Typography>
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Your playback is synced to all listeners
+                你的播放內容會同步給所有聽眾
               </Typography>
               <FormControlLabel
                 control={
@@ -323,18 +323,18 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
                     color="primary"
                   />
                 }
-                label="Crossfade"
+                label="淡入淡出"
                 sx={{ mb: 2 }}
               />
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2, mt: -1 }}>
-                Smooth 5s volume transition between songs
+                歌曲切換時 5 秒平滑音量過渡
               </Typography>
               <Button
                 variant="outlined"
                 color="error"
                 onClick={handleCloseStation}
               >
-                Stop Broadcasting
+                停止廣播
               </Button>
             </Box>
           ) : isListener ? (
@@ -342,21 +342,21 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <HeadphonesIcon sx={{ fontSize: 60, color: 'text.disabled', mb: 2 }} />
               <Typography color="text.secondary">
-                You're listening to "{currentStationName}"
+                你正在收聽「{currentStationName}」
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                Leave the station first to go on air
+                請先離開電台才能開台
               </Typography>
             </Box>
           ) : (
             // 可以開台
             <Box sx={{ py: 2 }}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                Start broadcasting and share what you're listening to with others
+                開始廣播，和其他人分享你正在聽的音樂
               </Typography>
               <TextField
                 fullWidth
-                label="Station Name"
+                label="電台名稱"
                 placeholder="幫你的電台取個名字吧"
                 value={stationName}
                 onChange={(e) => setStationName(e.target.value)}
@@ -364,7 +364,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
               />
               <TextField
                 fullWidth
-                label="DJ Name"
+                label="DJ 名稱"
                 placeholder="你的 DJ 藝名"
                 value={djName}
                 onChange={(e) => setDjName(e.target.value)}
@@ -378,7 +378,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
                 onClick={handleCreateStation}
                 sx={{ mt: 2, fontWeight: 700 }}
               >
-                Go On Air
+                開始廣播
               </Button>
             </Box>
           )}
@@ -386,7 +386,7 @@ export default function RadioPanel({ open, onClose }: RadioPanelProps) {
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={onClose}>關閉</Button>
       </DialogActions>
     </Dialog>
   );
