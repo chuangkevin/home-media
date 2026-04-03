@@ -57,6 +57,28 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Max 200 lines per request (truncates longer lyrics)
 - Mixed language: translates per-line independently, compares with original
 - Frontend retry: 4 attempts × 15s interval (matches 30s cooldown)
+- Manual retry: after all auto-retries fail, show "重試翻譯" Chip (FullscreenLyrics + MorrorLyrics)
+
+### Lyrics Realtime Sync (Socket.io)
+
+- Any lyrics change (offset/source) broadcasts to ALL connected devices via `lyrics:offset-changed` / `lyrics:source-changed`
+- Backend `lyrics.handler.ts`: `socket.broadcast.emit` (excludes sender)
+- Frontend `useLyricsSync` hook: emit on local change, listen for remote changes
+- Anti-loop: `isRemoteUpdateRef` flag prevents re-emit on received changes
+- `deviceId` (UUID v4 in sessionStorage) for identification
+- REST API `updateLyricsPreferences` retained for persistence; socket is real-time push only
+
+### Radio Crossfade
+
+- Dual `<audio>` element architecture (primary/secondary), swap roles after each crossfade
+- `useCrossfade` hook: volume animation (16ms interval), preload next track, role swap
+- Triggers at `track.duration - 5s`, preloads at `track.duration - 10s`
+- Secondary element warm-up on first user interaction (bypasses autoplay)
+- Host emits `radio:crossfade-start` → Listener executes local crossfade with elapsedMs adjustment
+- Short track guard: skip crossfade if `track.duration < 10s`
+- Disabled in video mode; toggle in RadioPanel (localStorage `radio-crossfade-enabled`)
+- MediaSession updated only after crossfade completes
+- SponsorBlock paused during crossfade
 
 ### SponsorBlock
 - Fetches skip segments on track load
@@ -193,3 +215,8 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Auto-queue timing**: must wait for metadata (channel non-empty) — placeholder track causes empty-artist recommendations
 - **playNow cleanup**: must clear tracks after insert position — otherwise old recommendations from previous artist remain
 - **Preload filter**: skip tracks >600s duration — compilation albums waste IndexedDB space (60-114MB each)
+- **Radio track sync**: Host must emit `pendingTrack || currentTrack` (not just currentTrack) — otherwise Listener sees delayed update
+- **Lyrics sync loop**: remote offset/source apply MUST set `isRemoteUpdateRef = true` before dispatch — prevents infinite emit→receive→emit loop
+- **Crossfade + SponsorBlock**: must pause skip segment checks during crossfade, resume on new primary element
+- **Crossfade warm-up**: secondary audio element must be warmed up on first user interaction — otherwise mobile autoplay policy blocks it
+- **Crossfade interruption**: DJ skip during crossfade must immediately cancel and hard-switch — don't let stale crossfade timer complete
