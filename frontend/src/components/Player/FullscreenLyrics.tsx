@@ -72,6 +72,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [isFullscreenLayout, setIsFullscreenLayout] = useState(false);
   const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
 
+  // 橫向自動視為全螢幕佈局
+  const effectiveFullscreen = isFullscreenLayout || isLandscape;
+
   // 歌詞翻譯
   const [translations, setTranslations] = useState<string[]>([]);
   const [translationError, setTranslationError] = useState(false);
@@ -1129,16 +1132,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: (isFullscreenLayout || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
-            maxHeight: (isFullscreenLayout || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
-            borderTopLeftRadius: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 16,
-            borderTopRightRadius: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 16,
-            bottom: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
+            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
+            maxHeight: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
+            borderTopLeftRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
+            borderTopRightRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
+            bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
             paddingTop: 'env(safe-area-inset-top, 0px)',
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             display: 'flex',
-            flexDirection: isFullscreenLayout && isLandscape ? 'row' : 'column',
-            pb: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 3,
+            flexDirection: isLandscape ? 'row' : 'column',
+            pb: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 3,
             transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
             transition: isDraggingRef.current ? 'none' : 'transform 0.3s ease',
           },
@@ -1146,16 +1149,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         ModalProps={{
           keepMounted: true,
           sx: {
-            bottom: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
-            height: (isFullscreenLayout || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
+            bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
+            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
             '& .MuiBackdrop-root': {
-              bottom: (isFullscreenLayout || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
+              bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
             },
           },
         }}
       >
         {/* 橫式裝置：左側播放器 */}
-        {isFullscreenLayout && isLandscape && (
+        {isLandscape && (
           <Box
             sx={{
               width: 280,
@@ -1248,11 +1251,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                     <EditIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title={isFullscreenLayout ? "退出全螢幕" : "全螢幕歌詞"}>
-                  <IconButton size="small" onClick={() => setIsFullscreenLayout(!isFullscreenLayout)}>
-                    {isFullscreenLayout ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
+                {!isLandscape && (
+                  <Tooltip title={isFullscreenLayout ? "退出全螢幕" : "全螢幕歌詞"}>
+                    <IconButton size="small" onClick={() => setIsFullscreenLayout(!isFullscreenLayout)}>
+                      {isFullscreenLayout ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                )}
               </>
             )}
             <IconButton onClick={onClose}>
@@ -1261,7 +1266,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
 
           {/* 模式切換 */}
-          {!isFullscreenLayout && (
+          {(!isFullscreenLayout || isLandscape) && (
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
               <ToggleButtonGroup
                 value={viewMode}
@@ -1374,7 +1379,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             }),
           }}
         >
-          {isFullscreenLayout ? renderLyrics() : (
+          {(isFullscreenLayout && !isLandscape) ? renderLyrics() : (
             <>
               {viewMode === 'lyrics' && renderLyrics()}
               {viewMode === 'video' && renderVideo()}
@@ -1396,8 +1401,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           )}
         </Box>
 
-        {/* 待播清單 - 非全螢幕且非沉浸全螢幕時顯示 */}
-        {!isFullscreenLayout && !isMorrorFullscreen && (
+        {/* 待播清單 - 非全螢幕、非沉浸、非橫向時顯示（橫向用右側面板） */}
+        {!effectiveFullscreen && !isMorrorFullscreen && (
           <Box
             sx={{
               borderTop: 1,
@@ -1434,7 +1439,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       </Box>
 
       {/* 橫式裝置：右側播放清單 */}
-      {isFullscreenLayout && isLandscape && (
+      {isLandscape && (
         <Box
           sx={{
             width: 320,
