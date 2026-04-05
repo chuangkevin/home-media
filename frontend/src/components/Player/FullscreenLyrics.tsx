@@ -1421,8 +1421,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
         )}
 
-        {/* 直式裝置：底部迷你控制列（全螢幕模式） */}
-        {isFullscreenLayout && !isLandscape && (
+        {/* 直式裝置：底部迷你控制列（全螢幕模式，沉浸全螢幕時隱藏） */}
+        {isFullscreenLayout && !isLandscape && !isMorrorFullscreen && (
           <Box
             sx={{
               flexShrink: 0,
@@ -1438,8 +1438,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         )}
       </Box>
 
-      {/* 橫式裝置：右側播放清單 */}
-      {isLandscape && (
+      {/* 橫式裝置：右側播放清單 — 沉浸全螢幕時隱藏 */}
+      {isLandscape && !isMorrorFullscreen && (
         <Box
           sx={{
             width: 320,
