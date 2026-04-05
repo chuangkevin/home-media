@@ -203,7 +203,7 @@ export default function HomeRecommendations() {
   return (
     <Box sx={{ width: '100%' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" sx={{ fontWeight: 700 }}>
+        <Typography variant="h5" sx={{ fontWeight: 700, fontFamily: '"Syne", sans-serif', letterSpacing: '0.02em' }}>
           為您推薦
         </Typography>
         <Button

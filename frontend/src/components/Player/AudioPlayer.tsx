@@ -1384,20 +1384,58 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         </CardContent>
       ) : (
         /* ===== 迷你播放器模式（固定在底部）===== */
-        <CardContent sx={{ py: 1, px: 1.5, '&:last-child': { pb: 1 } }}>
+        <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
           {/* 第一行：封面 + 標題/頻道 + 功能按鈕 */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-            {/* 點擊封面/標題展開歌詞（像 Spotify/YouTube Music） */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.75 }}>
+            {/* 點擊封面/標題展開歌詞 */}
             <Box
               onClick={onOpenLyrics}
-              sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1, minWidth: 0, cursor: 'pointer' }}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexGrow: 1, minWidth: 0, cursor: 'pointer' }}
             >
-            <CardMedia
-              component="img"
-              sx={{ width: 48, height: 48, borderRadius: 0.5, flexShrink: 0 }}
-              image={displayTrack.thumbnail}
-              alt={displayTrack.title}
-            />
+            {/* 封面圖：播放時帶琥珀光暈 */}
+            <Box sx={{ position: 'relative', flexShrink: 0 }}>
+              <CardMedia
+                component="img"
+                sx={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: 1.5,
+                  display: 'block',
+                  boxShadow: isPlaying
+                    ? '0 0 0 2px rgba(245,166,35,0.35), 0 4px 16px rgba(0,0,0,0.45)'
+                    : '0 2px 10px rgba(0,0,0,0.4)',
+                  transition: 'box-shadow 0.4s ease',
+                  animation: isPlaying ? 'pulse-glow 2.8s ease-in-out infinite' : 'none',
+                }}
+                image={displayTrack.thumbnail}
+                alt={displayTrack.title}
+              />
+              {/* 正在播放均衡器動畫 */}
+              {isPlaying && !isLoading && !isLoadingTrack && (
+                <Box sx={{
+                  position: 'absolute',
+                  bottom: 4,
+                  right: 4,
+                  display: 'flex',
+                  alignItems: 'flex-end',
+                  gap: '2px',
+                  height: 14,
+                }}>
+                  {[
+                    { anim: 'eq-bar1 0.7s ease-in-out infinite' },
+                    { anim: 'eq-bar2 0.85s ease-in-out infinite 0.1s' },
+                    { anim: 'eq-bar3 0.75s ease-in-out infinite 0.2s' },
+                  ].map((bar, i) => (
+                    <Box key={i} sx={{
+                      width: 2,
+                      borderRadius: 1,
+                      backgroundColor: '#F5A623',
+                      animation: bar.anim,
+                    }} />
+                  ))}
+                </Box>
+              )}
+            </Box>
             <Box sx={{ flexGrow: 1, minWidth: 0 }}>
               <Box sx={{ overflow: 'hidden', width: '100%' }}>
                 <Typography
@@ -1405,6 +1443,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                   noWrap
                   sx={{
                     fontWeight: 600,
+                    fontFamily: '"Outfit", sans-serif',
+                    fontSize: '0.85rem',
                     lineHeight: 1.3,
                     display: 'inline-block',
                     whiteSpace: 'nowrap',
@@ -1420,19 +1460,32 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                   {displayTrack.title}
                 </Typography>
               </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  noWrap
+                  sx={{ flex: 1, minWidth: 0, fontFamily: '"Outfit", sans-serif', fontSize: '0.72rem' }}
+                >
                   {displayTrack.channel}
                 </Typography>
+                {/* 快取狀態：小圓點取代 Chip */}
                 {!isLoading && !isLoadingTrack && (
-                  <Chip
-                    icon={isCached ? <StorageIcon sx={{ fontSize: 12 }} /> : <CloudIcon sx={{ fontSize: 12 }} />}
-                    label={isCached ? '快取' : '網路'}
-                    size="small"
-                    sx={{ height: 18, fontSize: '0.65rem', backgroundColor: isCached ? 'success.main' : 'primary.main', color: 'white', '& .MuiChip-icon': { color: 'white' } }}
+                  <Box
+                    title={isCached ? '本機快取' : '串流播放'}
+                    sx={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      backgroundColor: isCached ? '#4ADE80' : '#40C4FF',
+                      boxShadow: isCached
+                        ? '0 0 4px rgba(74,222,128,0.7)'
+                        : '0 0 4px rgba(64,196,255,0.7)',
+                    }}
                   />
                 )}
-                {(isLoading || isLoadingTrack) && <CircularProgress size={14} />}
+                {(isLoading || isLoadingTrack) && <CircularProgress size={12} />}
               </Box>
             </Box>
             </Box>{/* end clickable area */}
@@ -1443,8 +1496,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               ><PlayArrowIcon /></IconButton>
             ) : (
               <>
-                {onOpenLyrics && <IconButton size="small" onClick={onOpenLyrics}><LyricsIcon fontSize="small" /></IconButton>}
-                <IconButton size="small" onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}><PlaylistAddIcon fontSize="small" /></IconButton>
+                {onOpenLyrics && (
+                  <IconButton size="small" onClick={onOpenLyrics} sx={{ color: 'text.secondary' }}>
+                    <LyricsIcon fontSize="small" />
+                  </IconButton>
+                )}
+                <IconButton size="small" onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)} sx={{ color: 'text.secondary' }}>
+                  <PlaylistAddIcon fontSize="small" />
+                </IconButton>
               </>
             )}
           </Box>

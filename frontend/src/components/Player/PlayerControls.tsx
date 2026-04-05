@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Box, IconButton, Slider, Typography, Stack, useMediaQuery, useTheme } from '@mui/material';
+import { Box, IconButton, Slider, Typography, Stack, useMediaQuery, useTheme, alpha } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import SkipNextIcon from '@mui/icons-material/SkipNext';
@@ -71,14 +71,41 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
     // ===== 迷你模式：進度條 + 按鈕在同一行 =====
     return (
       <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography variant="caption" sx={{ minWidth: 32, textAlign: 'right', fontSize: '0.7rem' }}>
+        <Typography
+          variant="caption"
+          sx={{
+            minWidth: 32,
+            textAlign: 'right',
+            fontSize: '0.67rem',
+            fontFamily: '"Outfit", sans-serif',
+            fontVariantNumeric: 'tabular-nums',
+            color: 'text.secondary',
+          }}
+        >
           {formatDuration(Math.floor(currentTime))}
         </Typography>
-        <Slider size="small" value={isSeeking ? seekValue : currentTime} max={duration || 100} onChange={onSeekChange} onChangeCommitted={onSeekCommit} sx={{ flex: 1, mx: 0.5 }} />
+        <Slider
+          size="small"
+          value={isSeeking ? seekValue : currentTime}
+          max={duration || 100}
+          onChange={onSeekChange}
+          onChangeCommitted={onSeekCommit}
+          sx={{ flex: 1, mx: 0.5 }}
+        />
         <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious} sx={{ p: 0.5 }}>
           <SkipPreviousIcon fontSize="small" />
         </IconButton>
-        <IconButton onClick={onPlayPause} color="primary" size="small" sx={{ p: 0.5 }}>
+        <IconButton
+          onClick={onPlayPause}
+          color="primary"
+          size="small"
+          sx={{
+            p: 0.5,
+            backgroundColor: (t) => alpha(t.palette.primary.main, 0.13),
+            '&:hover': { backgroundColor: (t) => alpha(t.palette.primary.main, 0.24) },
+            transition: 'all 0.18s ease',
+          }}
+        >
           {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
         </IconButton>
         <IconButton size="small" onClick={handleNext} disabled={!hasNext} sx={{ p: 0.5 }}>
@@ -97,7 +124,17 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
     <Box sx={{ width: '100%', mt: 1 }}>
       {/* 進度條 */}
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-        <Typography variant="caption" sx={{ minWidth: 40, textAlign: 'right' }}>
+        <Typography
+          variant="caption"
+          sx={{
+            minWidth: 40,
+            textAlign: 'right',
+            fontFamily: '"Outfit", sans-serif',
+            fontVariantNumeric: 'tabular-nums',
+            color: 'text.secondary',
+            fontSize: '0.72rem',
+          }}
+        >
           {formatDuration(Math.floor(currentTime))}
         </Typography>
         <Slider
@@ -108,7 +145,16 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
           onChangeCommitted={onSeekCommit}
           sx={{ flexGrow: 1 }}
         />
-        <Typography variant="caption" sx={{ minWidth: 40 }}>
+        <Typography
+          variant="caption"
+          sx={{
+            minWidth: 40,
+            fontFamily: '"Outfit", sans-serif',
+            fontVariantNumeric: 'tabular-nums',
+            color: 'text.secondary',
+            fontSize: '0.72rem',
+          }}
+        >
           {formatDuration(Math.floor(duration))}
         </Typography>
       </Stack>
@@ -119,7 +165,16 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
           <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious}>
             <SkipPreviousIcon />
           </IconButton>
-          <IconButton onClick={onPlayPause} color="primary" size="large">
+          <IconButton
+            onClick={onPlayPause}
+            color="primary"
+            size="large"
+            sx={{
+              backgroundColor: (t) => alpha(t.palette.primary.main, 0.13),
+              '&:hover': { backgroundColor: (t) => alpha(t.palette.primary.main, 0.24) },
+              transition: 'all 0.18s ease',
+            }}
+          >
             {isPlaying ? <PauseIcon fontSize="large" /> : <PlayArrowIcon fontSize="large" />}
           </IconButton>
           <IconButton size="small" onClick={handleNext} disabled={!hasNext}>

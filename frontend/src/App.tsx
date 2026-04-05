@@ -128,18 +128,22 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
     <Paper
       sx={{
         flexShrink: 0,
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         borderTop: '1px solid',
         borderColor: 'divider',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        background: (theme) =>
+          theme.palette.mode === 'dark'
+            ? 'rgba(8, 11, 18, 0.96)'
+            : 'rgba(255, 255, 255, 0.96)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
       }}
-      elevation={8}
+      elevation={0}
     >
       <BottomNavigation
         value={getNavValue()}
         showLabels
-        sx={{
-          minHeight: 56,
-        }}
+        sx={{ minHeight: 60, background: 'transparent' }}
       >
         <BottomNavigationAction
           label="首頁"
@@ -322,11 +326,30 @@ function AppContent() {
             variant="h3"
             component="h1"
             gutterBottom
-            sx={{ fontWeight: 700 }}
+            sx={{
+              fontWeight: 700,
+              background: 'linear-gradient(135deg, #C97D0A 0%, #F5A623 35%, #FFC846 65%, #F5A623 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              letterSpacing: '0.05em',
+              filter: 'drop-shadow(0 0 24px rgba(245, 166, 35, 0.28))',
+              pb: 0.5,
+            }}
           >
             {siteTitle}
           </Typography>
-          <Typography variant="subtitle1" color="text.secondary">
+          <Typography
+            variant="subtitle1"
+            color="text.secondary"
+            sx={{
+              fontFamily: '"Outfit", sans-serif',
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              fontSize: '0.72rem',
+              opacity: 0.55,
+            }}
+          >
             搜尋並播放 YouTube 音樂
           </Typography>
           {/* 電台收聽指示器 */}
@@ -345,7 +368,6 @@ function AppContent() {
           position: 'sticky',
           top: 0,
           zIndex: 5,
-          backgroundColor: 'background.paper',
           display: 'flex',
           justifyContent: 'center',
           pt: 2,
@@ -353,6 +375,14 @@ function AppContent() {
           mb: 2,
           mx: -3,
           px: 3,
+          backdropFilter: 'blur(18px)',
+          WebkitBackdropFilter: 'blur(18px)',
+          backgroundColor: (theme) =>
+            theme.palette.mode === 'dark'
+              ? 'rgba(8, 11, 18, 0.82)'
+              : 'rgba(242, 237, 228, 0.82)',
+          borderBottom: '1px solid',
+          borderColor: 'divider',
         }}>
           <SearchBar onSearch={handleSearch} loading={loading} />
         </Box>

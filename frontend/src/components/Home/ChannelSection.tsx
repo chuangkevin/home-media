@@ -55,6 +55,8 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           variant="h6"
           sx={{
             fontWeight: 600,
+            fontFamily: '"Syne", sans-serif',
+            letterSpacing: '0.01em',
             background: isSimilarRecommendation
               ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
               : 'inherit',
@@ -131,18 +133,16 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           <Card
             key={video.videoId}
             sx={{
-              minWidth: { xs: 240, sm: 260, md: 280 },
-              maxWidth: { xs: 240, sm: 260, md: 280 },
+              minWidth: { xs: 200, sm: 220, md: 240 },
+              maxWidth: { xs: 200, sm: 220, md: 240 },
               flexShrink: 0,
               cursor: 'pointer',
               position: 'relative',
-              transition: 'transform 0.2s, box-shadow 0.2s',
+              transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1), box-shadow 0.28s cubic-bezier(0.4,0,0.2,1)',
               '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: 4,
-                '& .play-overlay': {
-                  opacity: 1,
-                },
+                transform: 'translateY(-7px) scale(1.015)',
+                boxShadow: '0 16px 48px rgba(0,0,0,0.45), 0 0 0 1px rgba(245,166,35,0.18)',
+                '& .play-overlay': { opacity: 1 },
               },
             }}
             onClick={() => onPlay(video)}
@@ -172,16 +172,20 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
               >
                 <IconButton
                   sx={{
-                    backgroundColor: 'primary.main',
-                    color: 'white',
-                    width: 56,
-                    height: 56,
+                    backgroundColor: 'rgba(245,166,35,0.9)',
+                    backdropFilter: 'blur(4px)',
+                    color: '#000',
+                    width: 52,
+                    height: 52,
+                    boxShadow: '0 0 24px rgba(245,166,35,0.5)',
+                    transition: 'all 0.2s ease',
                     '&:hover': {
-                      backgroundColor: 'primary.dark',
+                      backgroundColor: '#F5A623',
+                      transform: 'scale(1.1)',
                     },
                   }}
                 >
-                  <PlayArrowIcon sx={{ fontSize: 32 }} />
+                  <PlayArrowIcon sx={{ fontSize: 28 }} />
                 </IconButton>
               </Box>
               <Chip

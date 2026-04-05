@@ -9,6 +9,7 @@ import {
   Grid,
   Chip,
   CircularProgress,
+  alpha,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AddIcon from '@mui/icons-material/Add';
@@ -118,13 +119,15 @@ export default function SearchResults({
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
-                transition: 'transform 0.2s, box-shadow 0.2s',
+                transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1), box-shadow 0.28s cubic-bezier(0.4,0,0.2,1)',
                 '&:hover': {
-                  transform: 'translateY(-4px)',
-                  boxShadow: 6,
+                  transform: 'translateY(-6px)',
+                  boxShadow: '0 14px 44px rgba(0,0,0,0.42), 0 0 0 1px rgba(245,166,35,0.14)',
                 },
-                border: currentTrackId === track.videoId ? '2px solid' : 'none',
-                borderColor: 'primary.main',
+                ...(currentTrackId === track.videoId && {
+                  border: '1px solid rgba(245,166,35,0.55) !important',
+                  boxShadow: '0 0 0 1px rgba(245,166,35,0.55), 0 8px 24px rgba(0,0,0,0.35)',
+                }),
               }}
             >
               <Box sx={{ position: 'relative' }}>
@@ -193,7 +196,13 @@ export default function SearchResults({
                 <IconButton
                   color="primary"
                   onClick={() => onPlay(track)}
-                  sx={{ flexGrow: 1 }}
+                  sx={{
+                    flexGrow: 1,
+                    borderRadius: 2,
+                    backgroundColor: (t) => alpha(t.palette.primary.main, 0.08),
+                    '&:hover': { backgroundColor: (t) => alpha(t.palette.primary.main, 0.18) },
+                    transition: 'all 0.18s ease',
+                  }}
                 >
                   <PlayArrowIcon />
                 </IconButton>
