@@ -92,8 +92,10 @@ router.post('/:videoId/translate', async (req: Request, res: Response): Promise<
     } catch { /* column already exists */ }
 
     // 用歌詞內容的 hash 驗證快取有效性（避免換歌詞來源後翻譯錯位）
+    // v2: 使用 indexed-object 格式避免行數不符導致的位移問題
+    const TRANSLATION_PROMPT_VERSION = 'v2';
     const crypto = await import('crypto');
-    const linesHash = crypto.createHash('md5').update(lines.join('\n')).digest('hex').substring(0, 16);
+    const linesHash = crypto.createHash('md5').update(TRANSLATION_PROMPT_VERSION + lines.join('\n')).digest('hex').substring(0, 16);
 
     // 檢查快取（必須 hash 匹配才用）
     const cached = db.prepare(

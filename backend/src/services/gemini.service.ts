@@ -459,15 +459,15 @@ Rules:
 3. If a line is in Simplified Chinese: convert to Traditional Chinese
 4. If a line is in English/Japanese/Korean/other: translate to natural Traditional Chinese
 5. IMPORTANT: For mixed-language songs (e.g. English + Chinese), translate EACH line independently based on its own language. Do NOT skip translation just because some lines are Chinese.
-6. Keep the same number of lines. Each translated line corresponds to the original line.
-7. Keep proper nouns and names in original form.
-8. detected_language should reflect the PRIMARY language (e.g. "mixed" for mixed-language songs, "en" for mostly English, "zh-TW" for PURELY Traditional Chinese).
+6. Keep proper nouns and names in original form.
+7. detected_language should reflect the PRIMARY language (e.g. "mixed" for mixed-language songs, "en" for mostly English, "zh-TW" for PURELY Traditional Chinese).
+8. CRITICAL: Use the line index as the key in the translations object. Empty lines get an empty string "".
 
 Lyrics (${cleanLines.length} lines):
-${cleanLines.map((l, i) => `${i}: ${l || '(instrumental)'}`).join('\n')}
+${cleanLines.map((l, i) => `${i}: ${l}`).join('\n')}
 
-Reply with ONLY a JSON object:
-{"detected_language": "en", "translations": ["翻譯第一行", "翻譯第二行", ...]}`;
+Reply with ONLY a JSON object where each key is a line index (as a string):
+{"detected_language": "en", "translations": {"0": "第一行翻譯", "1": "第二行翻譯", "2": "", ...}}`;
 
   let currentKey = apiKey;
   const maxRetries = getMaxRetries();
@@ -489,13 +489,30 @@ Reply with ONLY a JSON object:
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsed.translations)) return null;
 
-      // 確保行數匹配
-      while (parsed.translations.length < lines.length) {
-        parsed.translations.push('');
+      // Support both indexed-object format {"0": "trans", "1": "trans"} and legacy array format
+      let translationsArray: string[];
+      if (Array.isArray(parsed.translations)) {
+        // Legacy array format — pad to correct length (may still have shift if Gemini skipped lines)
+        translationsArray = parsed.translations as string[];
+        while (translationsArray.length < lines.length) translationsArray.push('');
+        translationsArray = translationsArray.slice(0, lines.length);
+        if (translationsArray.length !== lines.length) {
+          console.warn(`⚠️ [Gemini] Translation array length mismatch: expected ${lines.length}, got ${translationsArray.length}`);
+        }
+      } else if (parsed.translations && typeof parsed.translations === 'object') {
+        // Indexed-object format — reconstruct array by index, missing indices become ''
+        const map = parsed.translations as Record<string, string>;
+        translationsArray = Array.from({ length: lines.length }, (_, i) => map[String(i)] ?? '');
+        const covered = Object.keys(map).filter(k => Number(k) < lines.length).length;
+        if (covered < lines.length) {
+          console.warn(`⚠️ [Gemini] Translation object missing ${lines.length - covered} indices (filled with '')`);
+        }
+      } else {
+        return null;
       }
-      parsed.translations = parsed.translations.slice(0, lines.length);
+
+      parsed.translations = translationsArray;
 
       console.log(`🌐 [Gemini] Translated ${lines.length} lines (${parsed.detected_language}→zh-TW)`);
       return parsed;

@@ -55,7 +55,8 @@ interface FullscreenLyricsProps {
 
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
   const dispatch = useDispatch();
-  const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 768px)');
+  const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px)');
+  const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
@@ -1157,8 +1158,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           },
         }}
       >
-        {/* 橫式裝置：左側播放器 — 沉浸全螢幕時隱藏 */}
-        {isLandscape && !isMorrorFullscreen && (
+        {/* 橫式裝置：左側播放器 — 沉浸全螢幕時隱藏，窄屏時也隱藏 */}
+        {showLandscapeSidePanel && !isMorrorFullscreen && (
           <Box
             sx={{
               width: 280,
