@@ -86,7 +86,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [dragOffset, setDragOffset] = useState(0);
   const touchStartYRef = useRef(0);
   const isDraggingRef = useRef(false);
-  const cancelledRef = useRef(false);
+  // Translation generation counter: incremented each time a new translation starts.
+  // In-flight requests from a previous generation are silently discarded.
+  const translationGenRef = useRef(0);
 
   // 影片快取狀態
   const [videoCached, setVideoCached] = useState(false);
@@ -118,7 +120,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   }, [track?.videoId]);
 
   // 翻譯邏輯：提取為 doTranslate，供 effect 和 retry button 共用
-  const doTranslate = useCallback(() => {
+  // gen: generation counter passed from caller — discards results from older generations
+  const doTranslate = useCallback((gen: number) => {
     if (!currentLyrics || currentLyrics.lines.length === 0 || !track?.videoId) return;
 
     setIsTranslating(true);
@@ -126,7 +129,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     const lines = currentLyrics.lines.map(l => l.text);
     apiService.translateLyrics(track.videoId, lines).then(result => {
-      if (cancelledRef.current || !result) return;
+      if (translationGenRef.current !== gen || !result) return; // stale or no data
       const trans = result.translations.map((t: string, i: number) => {
         if (!t || t === lines[i]) return '';
         return t;
@@ -136,12 +139,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       setTranslationError(false);
       setIsTranslating(false);
     }).catch(() => {
-      if (cancelledRef.current) return;
+      if (translationGenRef.current !== gen) return; // stale
       // Gemini key cooldown 30 秒，間隔 15 秒重試最多 4 次（共 60 秒）
       if (retryCountRef.current < 4) {
         retryCountRef.current++;
         console.log(`🔄 翻譯重試 ${retryCountRef.current}/4（${retryCountRef.current * 15}s 後）`);
-        setTimeout(doTranslate, 15000);
+        setTimeout(() => doTranslate(gen), 15000);
       } else {
         // 所有自動重試都失敗
         setTranslationError(true);
@@ -157,24 +160,22 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       return;
     }
 
-    // AI 辨識的歌詞 (source='manual') 翻譯已存在 lyrics_translations 表
-    // translateLyrics 會先查快取，有就直接用（不重新翻）
-    cancelledRef.current = false;
+    // 每次重新翻譯時遞增 generation，使所有舊的 in-flight 請求自動失效
+    const gen = ++translationGenRef.current;
     retryCountRef.current = 0;
 
     // 開始翻譯前先清空（避免新舊混合）
     setTranslations([]);
 
-    doTranslate();
-    return () => { cancelledRef.current = true; };
+    doTranslate(gen);
   }, [currentLyrics, track?.videoId, doTranslate]);
 
   // 手動重試翻譯
   const handleRetryTranslation = useCallback(() => {
-    cancelledRef.current = false;
+    const gen = ++translationGenRef.current;
     retryCountRef.current = 0;
     setTranslationError(false);
-    doTranslate();
+    doTranslate(gen);
   }, [doTranslate]);
 
   // 影片快取：開啟 Drawer 時自動開始下載，輪詢狀態
