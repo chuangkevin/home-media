@@ -1157,8 +1157,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           },
         }}
       >
-        {/* 橫式裝置：左側播放器 */}
-        {isLandscape && (
+        {/* 橫式裝置：左側播放器 — 沉浸全螢幕時隱藏 */}
+        {isLandscape && !isMorrorFullscreen && (
           <Box
             sx={{
               width: 280,
@@ -1265,8 +1265,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             </IconButton>
           </Box>
 
-          {/* 模式切換 */}
-          {(!isFullscreenLayout || isLandscape) && (
+          {/* 模式切換 — 沉浸全螢幕時隱藏 */}
+          {(!isFullscreenLayout || isLandscape) && !isMorrorFullscreen && (
             <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
               <ToggleButtonGroup
                 value={viewMode}
