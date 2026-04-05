@@ -315,7 +315,7 @@ function AppContent() {
       overflow: 'hidden',
     }}>
       {/* 可滾動內容區 */}
-      <Box ref={scrollContainerRef} sx={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <Box ref={scrollContainerRef} sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch' }}>
       <Container maxWidth="lg" sx={{ py: 4, pb: 2 }}>
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
