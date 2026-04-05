@@ -96,7 +96,14 @@ class YouTubeService {
 
       try {
         // 優先使用 youtube-sr（快速，無需 yt-dlp 進程）
-        const videos = await YouTube.search(query, { limit, type: 'video' });
+        // 8 秒逾時：youtube-sr 有時會 hang，逾時後自動 fallback 到 yt-dlp
+        const srTimeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('youtube-sr timeout')), 8000)
+        );
+        const videos = await Promise.race([
+          YouTube.search(query, { limit, type: 'video' }),
+          srTimeout,
+        ]);
 
         tracks = videos
           .filter((video) => video.id) // 過濾掉無效結果
