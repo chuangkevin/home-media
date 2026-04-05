@@ -361,28 +361,41 @@ class LyricsService {
 
     try {
       const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
-      const searchQuery = cleanArtist ? `${cleanTitle} - ${cleanArtist}` : cleanTitle;
 
-      console.log(`🎵 [NetEase] Searching: "${searchQuery}"`);
-      logger.info(`[NetEase] Starting search for: ${searchQuery}`);
-
-      // 搜尋歌曲（加入 timeout 和重試）
-      const searchResult = await this.retryWithBackoff(
-        () => withTimeout(neteaseApi.search(searchQuery), NETEASE_TIMEOUT),
-        { maxRetries: 2, baseDelay: 1000, operationName: 'NetEase Search' }
-      );
-
-      if (!searchResult) {
-        console.error(`🎵 [NetEase] Search API failed after retries`);
-        return null;
+      // Build fallback search queries: title+artist → title only → simplified title
+      const searchQueries: string[] = [];
+      if (cleanArtist) {
+        searchQueries.push(`${cleanTitle} ${cleanArtist}`);
+        searchQueries.push(cleanTitle);
+      } else {
+        searchQueries.push(cleanTitle);
+      }
+      const simplified = this.simplifyTitle(cleanTitle);
+      if (simplified !== cleanTitle) {
+        searchQueries.push(simplified);
       }
 
-      if (!searchResult || !searchResult.result || !searchResult.result.songs || searchResult.result.songs.length === 0) {
-        console.log(`🎵 [NetEase] No songs found for: ${searchQuery}`);
-        return null;
+      logger.info(`[NetEase] Starting search for: ${cleanTitle}`);
+
+      let songs: NeteaseSongResult[] | null = null;
+      for (const searchQuery of searchQueries) {
+        console.log(`🎵 [NetEase] Searching: "${searchQuery}"`);
+        const searchResult = await this.retryWithBackoff(
+          () => withTimeout(neteaseApi.search(searchQuery), NETEASE_TIMEOUT),
+          { maxRetries: 2, baseDelay: 1000, operationName: 'NetEase Search' }
+        );
+        if (searchResult?.result?.songs?.length > 0) {
+          songs = searchResult.result.songs as NeteaseSongResult[];
+          console.log(`🎵 [NetEase] Found ${songs.length} results for: "${searchQuery}"`);
+          break;
+        }
+        console.log(`🎵 [NetEase] No results for: "${searchQuery}", trying fallback...`);
       }
 
-      const songs = searchResult.result.songs as NeteaseSongResult[];
+      if (!songs) {
+        console.log(`🎵 [NetEase] No songs found after all fallback queries`);
+        return null;
+      }
       console.log(`🎵 [NetEase] Found ${songs.length} songs`);
 
       // 選擇最匹配的歌曲（第一個結果通常最相關）
@@ -446,44 +459,53 @@ class LyricsService {
       // 清理標題（regex 優先，Gemini fallback）
       const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
 
-      console.log(`🎼 [LRCLIB] Searching: "${cleanTitle}" by "${cleanArtist}"`);
       logger.info(`[LRCLIB] Starting search for: ${cleanTitle}`);
 
-      // 使用 search API（加入藝術家名稱以提高搜尋精準度）
-      const url = cleanArtist
-        ? `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(cleanArtist)}`
-        : `https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`;
-      console.log(`🎼 [LRCLIB] Fetching: ${url}`);
+      // Build fallback URLs: title+artist → title only → simplified title
+      const searchURLs: string[] = [];
+      if (cleanArtist) {
+        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(cleanArtist)}`);
+        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`);
+      } else {
+        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`);
+      }
+      const simplified = this.simplifyTitle(cleanTitle);
+      if (simplified !== cleanTitle) {
+        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(simplified)}`);
+      }
 
-      // 使用 https 模組來繞過 SSL 問題，增加超時時間和重試
-      const response = await this.retryWithBackoff(
-        async () => {
-          const res = await this.fetchWithSSLBypass(url, 25000);
-          if (!res.ok) {
-            throw new Error(`API returned status ${res.status}`);
+      let results: LRCLIBResponse[] = [];
+      for (const url of searchURLs) {
+        console.log(`🎼 [LRCLIB] Fetching: ${url}`);
+        const response = await this.retryWithBackoff(
+          async () => {
+            const res = await this.fetchWithSSLBypass(url, 25000);
+            if (!res.ok) throw new Error(`API returned status ${res.status}`);
+            return res;
+          },
+          { maxRetries: 2, baseDelay: 1500, operationName: 'LRCLIB Fetch' }
+        );
+
+        if (!response) {
+          console.warn(`🎼 [LRCLIB] API failed for: ${url}`);
+          continue;
+        }
+
+        try {
+          const r = (await response.json()) as LRCLIBResponse[];
+          console.log(`🎼 [LRCLIB] Search returned ${r?.length ?? 0} results`);
+          if (r?.length > 0) {
+            results = r;
+            break;
           }
-          return res;
-        },
-        { maxRetries: 2, baseDelay: 1500, operationName: 'LRCLIB Fetch' }
-      );
-
-      if (!response) {
-        console.error(`🎼 [LRCLIB] API failed after retries`);
-        return null;
+          console.log(`🎼 [LRCLIB] No results, trying fallback...`);
+        } catch (parseErr) {
+          console.error(`🎼 [LRCLIB] JSON parse error:`, parseErr);
+          logger.error(`[LRCLIB] JSON parse error:`, parseErr);
+        }
       }
 
-      let results: LRCLIBResponse[];
-      try {
-        results = (await response.json()) as LRCLIBResponse[];
-      } catch (parseErr) {
-        console.error(`🎼 [LRCLIB] JSON parse error:`, parseErr);
-        logger.error(`[LRCLIB] JSON parse error:`, parseErr);
-        return null;
-      }
-
-      console.log(`🎼 [LRCLIB] Search returned ${results.length} results`);
-
-      if (!results || results.length === 0) {
+      if (results.length === 0) {
         console.log(`🎼 [LRCLIB] No lyrics found for: ${cleanTitle}`);
         return null;
       }
@@ -653,6 +675,18 @@ class LyricsService {
       .replace(/\s+/g, ' ')                       // 統一空白
       .trim();
 
+    // 0.5 日文括號「」『』優先提取（常見格式：Artist「Song」或 「Song」歌詞）
+    const japaneseBracketMatch = normalized.match(/[「『]([^「」『』]{1,60})[」』]/);
+    if (japaneseBracketMatch) {
+      const extracted = japaneseBracketMatch[1].trim();
+      // Only use if the extracted part doesn't look like an anime title or descriptor
+      const isDescriptor = /(?:anime|OP|ED|歌詞|official|MV|TV)/i.test(extracted);
+      if (!isDescriptor) {
+        console.log(`🎵 [cleanSongTitle] 從日文括號提取: "${extracted}" (原始: "${title}")`);
+        return extracted;
+      }
+    }
+
     // 1. 先移除常見後綴（日文動漫標記、Official 等），再做歌名提取
     let cleaned = normalized
       // 移除方括號內容（通常是附加資訊、動漫標記等）
@@ -664,7 +698,11 @@ class LyricsService {
       // 移除中文括號含 official/mv 等的內容（【official music video】）
       .replace(/\s*【.*?(?:official|mv|music video|完整版|官方)[^】]*】/gi, '')
       .replace(/\s*-\s*(official|mv|music video|lyric|lyrics|audio).*$/gi, '')
+      // 常見中文/日文後綴
       .replace(/\s*(official|mv|music video|lyrics?|lyric video)$/gi, '')
+      .replace(/\s*(歌詞版|歌詞MV|完整版|官方MV|官方版|音樂影片|主題曲|片頭曲|片尾曲|插曲)$/gi, '')
+      // Pipe-separated labels at end: "Song | Official Channel"
+      .replace(/\s*[|｜]\s*(official|music video|mv|lyric).*$/gi, '')
       .replace(/[✨🎵🎶💕❤️🔥⭐️🌟💫]/g, '')
       .trim();
 
@@ -747,11 +785,26 @@ class LyricsService {
         console.log(`🤖 [Lyrics] 使用 Gemini 提取歌名: "${title}"`);
         const geminiResult = await extractTrackInfo(title, artist);
         if (geminiResult && geminiResult.title) {
-          console.log(`🤖 [Lyrics] Gemini 提取成功: title="${geminiResult.title}", artist="${geminiResult.artist}"`);
-          return {
-            cleanTitle: geminiResult.title,
-            cleanArtist: geminiResult.artist || (artist ? this.cleanArtistName(artist) : ''),
-          };
+          // Validate: reject if the returned title looks like a raw YouTube title
+          // (too long, contains brackets/suffixes that should have been stripped, or low confidence)
+          const looksLikeRawTitle =
+            geminiResult.title.length > 80 ||
+            /[【】《》\[\]]/.test(geminiResult.title) ||
+            /\b(official|music video|lyric video|歌詞版|完整版)\b/i.test(geminiResult.title) ||
+            geminiResult.confidence === 'low';
+
+          if (looksLikeRawTitle) {
+            console.warn(`⚠️ [Lyrics] Gemini 回傳標題疑似未清理乾淨，回退到 regex: "${geminiResult.title}" (confidence=${geminiResult.confidence})`);
+          } else {
+            // Filter out known aggregator/label channels from artist
+            const rawArtist = geminiResult.artist || '';
+            const cleanArtist = this.isKnownAggregator(rawArtist)
+              ? (artist ? this.cleanArtistName(artist) : '')
+              : (rawArtist || (artist ? this.cleanArtistName(artist) : ''));
+
+            console.log(`🤖 [Lyrics] Gemini 提取成功: title="${geminiResult.title}", artist="${cleanArtist}"`);
+            return { cleanTitle: geminiResult.title, cleanArtist };
+          }
         }
       } catch (err) {
         console.warn('⚠️ [Lyrics] Gemini 提取失敗，回退到 regex:', err);
@@ -765,13 +818,48 @@ class LyricsService {
   }
 
   /**
-   * 清理藝術家名稱
+   * 判斷藝人名稱是否為已知的彙集頻道 / 唱片公司頻道（不是實際藝人）
+   */
+  private isKnownAggregator(artist: string): boolean {
+    if (!artist) return false;
+    const lower = artist.toLowerCase().trim();
+    return (
+      /^various(\s+artists?)?$/i.test(lower) ||
+      /^(smtown|jyp\s?entertainment|big\s?hit|hybe|ygentertainment|yg\s?ent|sm\s?ent)/i.test(lower) ||
+      /^(avex|sony\s?music|universal\s?music|warner\s?music|columbia\s?records?|epic\s?records?)/i.test(lower) ||
+      /\brecords?\b/i.test(lower) ||
+      /\bentertainment\b/i.test(lower) ||
+      /\bmusic\s+group\b/i.test(lower)
+    );
+  }
+
+  /**
+   * 清理藝術家名稱（移除 YouTube 頻道後綴、唱片公司標記）
    */
   private cleanArtistName(artist: string): string {
     return artist
-      .replace(/\s*-\s*topic$/i, '') // YouTube 自動生成的頻道
-      .replace(/\s*vevo$/i, '')
-      .replace(/\s*official$/i, '')
+      .replace(/\s*-\s*topic$/i, '')        // YouTube 自動生成的頻道 "Artist - Topic"
+      .replace(/\s*vevo$/i, '')              // "ArtistVEVO"
+      .replace(/\s*official$/i, '')          // "Artist Official"
+      .replace(/\s*music$/i, '')             // "Artist Music" (label channels)
+      .replace(/\s*records?$/i, '')          // "Artist Records"
+      .replace(/\s*entertainment$/i, '')     // "Artist Entertainment"
+      .replace(/\s*\(official\)$/i, '')      // "Artist (Official)"
+      .replace(/\s*【official】$/i, '')      // "Artist【Official】"
+      .trim();
+  }
+
+  /**
+   * 移除括號內的附加資訊（feat.、remix、live 等），保留核心歌名
+   */
+  private simplifyTitle(title: string): string {
+    return title
+      .replace(/\s*\(feat\.?\s[^)]*\)/gi, '')
+      .replace(/\s*\(ft\.?\s[^)]*\)/gi, '')
+      .replace(/\s*\(with\s[^)]*\)/gi, '')
+      .replace(/\s*\(.*?(?:remix|remaster|remastered|live|cover|acoustic|radio edit|extended)[^)]*\)/gi, '')
+      .replace(/\s*\[.*?(?:remix|remaster|live|cover)[^\]]*\]/gi, '')
+      .replace(/\s*-\s*(?:remix|remastered?|live\s+ver\.?|acoustic\s+ver\.?)\s*$/gi, '')
       .trim();
   }
 

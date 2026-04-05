@@ -5,6 +5,7 @@ import logger from '../utils/logger';
 interface ExtractedTrackInfo {
   title: string;
   artist: string;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 // Gemini API Key 管理
@@ -101,12 +102,35 @@ export async function extractTrackInfo(youtubeTitle: string, channelName?: strin
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
-  const prompt = `從以下 YouTube 影片標題中提取歌曲名稱和藝人名稱。
-標題: "${youtubeTitle}"
-${channelName ? `頻道: "${channelName}"` : ''}
+  const prompt = `You are a music metadata extractor. Extract the song title and artist from this YouTube video title.
 
-只回傳 JSON，不要其他文字:
-{"title": "歌曲名稱", "artist": "藝人名稱"}`;
+Common YouTube title formats to handle:
+1. "Artist - Song Title" → artist="Artist", title="Song Title"
+2. "Song Title - Artist" → artist="Artist", title="Song Title"
+3. "【Song Title】Artist" or "Artist【Song Title】" → Chinese/Japanese style
+4. "「Song Title」- Artist" or "Artist「Song Title」" → Japanese style (extract from brackets)
+5. "Song Title / Artist MV" → slash-separated Japanese style
+6. "Song Title feat. ArtistB" → main artist is ArtistA (from channel hint), feat. is secondary
+7. Anime OP/ED: "[Anime OP] Song Title - Artist" or "「Song Title」from Anime" → extract actual song title, strip anime info
+8. "Artist (English Name) - Song" → use original script name for artist
+9. Korean: "Artist (아티스트명) - Song (곡명)" → use Korean name if available
+10. "Song Title [Official MV] Channel Name" → strip labels, channel may be label not artist
+
+Rules:
+- Return the title in its ORIGINAL language. Do NOT translate (e.g. "愛にできることはまだあるかい" stays as-is, not "What Love Can Still Do")
+- The channel name is a HINT only — it may be a label (e.g. "SMTOWN", "avex"), VEVO, or compilation channel, NOT necessarily the artist
+- If channel ends in " - Topic", the part before " - Topic" is the artist
+- Strip from title: (Official Video), (Official MV), (Lyric Video), (歌詞版), (完整版), (Live), (Audio), [MV], MV, Official Music Video, 音樂影片
+- For covers: artist = the person doing the cover, not the original artist
+- For live versions: artist = the performer
+- If you cannot determine the artist with confidence, return "" for artist
+- Prefer the most specific/native script for names (use 米津玄師 not Kenshi Yonezu, use BTS not 防弾少年団)
+
+Video title: "${youtubeTitle}"
+${channelName ? `Channel name (hint only): "${channelName}"` : ''}
+
+Return ONLY valid JSON, no other text:
+{"title": "song title in original language", "artist": "artist name or empty string", "confidence": "high|medium|low"}`;
 
   let currentKey = apiKey;
   const maxRetries = getMaxRetries();
@@ -117,7 +141,7 @@ ${channelName ? `頻道: "${channelName}"` : ''}
       const model = genai.getGenerativeModel({
         model: 'gemini-2.5-flash',
         generationConfig: {
-          maxOutputTokens: 100,
+          maxOutputTokens: 150,
           temperature: 0,
         },
       });
@@ -133,8 +157,8 @@ ${channelName ? `頻道: "${channelName}"` : ''}
       }
 
       const parsed = JSON.parse(jsonMatch[0]) as ExtractedTrackInfo;
-      if (parsed.title && parsed.artist) {
-        console.log(`🤖 [Gemini] 提取成功: title="${parsed.title}", artist="${parsed.artist}" (原始: "${youtubeTitle}")`);
+      if (parsed.title) {
+        console.log(`🤖 [Gemini] 提取成功: title="${parsed.title}", artist="${parsed.artist || ''}", confidence="${parsed.confidence || 'unknown'}" (原始: "${youtubeTitle}")`);
         return parsed;
       }
       return null;
