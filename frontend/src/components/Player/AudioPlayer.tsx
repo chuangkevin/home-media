@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, Chip, IconButton, Snackbar } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, IconButton, Snackbar } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import CloudIcon from '@mui/icons-material/Cloud';
-import StorageIcon from '@mui/icons-material/Storage';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
