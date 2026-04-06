@@ -148,33 +148,36 @@ export class RecommendationController {
           )
         ),
 
-        // 3. AI 發現推薦（失敗不阻塞）
-        (async () => {
-          try {
-            const profile = await getUserProfile();
-            if (!profile) return null;
+        // 3. AI 發現推薦（失敗不阻塞，5s 硬超時防止 Gemini hang）
+        Promise.race([
+          (async () => {
+            try {
+              const profile = await getUserProfile();
+              if (!profile) return null;
 
-            const listenedArtists = db.prepare(
-              `SELECT DISTINCT channel_name FROM watched_channels ORDER BY watch_count DESC LIMIT 20`
-            ).all().map((r: any) => r.channel_name);
+              const listenedArtists = db.prepare(
+                `SELECT DISTINCT channel_name FROM watched_channels ORDER BY watch_count DESC LIMIT 20`
+              ).all().map((r: any) => r.channel_name);
 
-            const queries = await generateDiscoveryQueries(profile, listenedArtists);
-            if (queries.length === 0) return null;
+              const queries = await generateDiscoveryQueries(profile, listenedArtists);
+              if (queries.length === 0) return null;
 
-            const query = queries[Math.floor(Math.random() * queries.length)];
-            const results = await youtubeService.search(query, 6);
+              const query = queries[Math.floor(Math.random() * queries.length)];
+              const results = await youtubeService.search(query, 6);
 
-            const listenedSet = new Set(listenedArtists.map((a: string) => a.toLowerCase()));
-            const newResults = results.filter(r =>
-              !listenedSet.has((r.channel || '').toLowerCase())
-            ).slice(0, 5);
+              const listenedSet = new Set(listenedArtists.map((a: string) => a.toLowerCase()));
+              const newResults = results.filter(r =>
+                !listenedSet.has((r.channel || '').toLowerCase())
+              ).slice(0, 5);
 
-            return newResults.length > 0 ? newResults : null;
-          } catch (err) {
-            logger.warn('AI discovery recommendations failed:', err);
-            return null;
-          }
-        })(),
+              return newResults.length > 0 ? newResults : null;
+            } catch (err) {
+              logger.warn('AI discovery recommendations failed:', err);
+              return null;
+            }
+          })(),
+          new Promise<null>(resolve => setTimeout(() => resolve(null), 5000)),
+        ]),
       ]);
 
       // 組合相似歌曲
