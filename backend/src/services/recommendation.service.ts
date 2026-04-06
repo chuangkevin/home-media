@@ -97,12 +97,15 @@ class RecommendationService {
             };
           }
 
-          // 獲取新影片
+          // 獲取新影片（3s timeout 防止 YouTube rate-limit 時 hang 住）
           logger.info(`[Recommend] No cache. Fetching videos for channel: ${channel.channelName}`);
-          const videos = await youtubeService.getChannelVideos(
-            channel.channelName,
-            this.VIDEOS_PER_CHANNEL
-          );
+          const videos = await Promise.race([
+            youtubeService.getChannelVideos(channel.channelName, this.VIDEOS_PER_CHANNEL),
+            new Promise<YouTubeSearchResult[]>(resolve => setTimeout(() => {
+              logger.warn(`[Recommend] Timeout fetching videos for channel: ${channel.channelName}`);
+              resolve([]);
+            }, 3000)),
+          ]);
           logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
 
 
