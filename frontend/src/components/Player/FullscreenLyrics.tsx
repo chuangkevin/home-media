@@ -1134,11 +1134,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
-            maxHeight: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
+            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
+            maxHeight: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
             borderTopLeftRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
             borderTopRightRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
-            bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
+            bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
             paddingTop: 'env(safe-area-inset-top, 0px)',
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             display: 'flex',
@@ -1151,10 +1151,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         ModalProps={{
           keepMounted: true,
           sx: {
-            bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
-            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 160px - env(safe-area-inset-bottom, 0px))',
+            bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
+            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
             '& .MuiBackdrop-root': {
-              bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(160px + env(safe-area-inset-bottom, 0px))',
+              bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
             },
           },
         }}
