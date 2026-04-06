@@ -185,7 +185,8 @@ class SocketService {
       console.log('Socket connected:', this.socket?.id);
       this.callbacks.onConnected?.(true);
       this.registerDevice();
-      
+      // 連線後立即拉取電台列表，確保跨裝置能看到已開的電台
+      this.discoverRadioStations();
       // 自動重連電台（刷新後恢復）
       this.autoReconnectRadio();
     });

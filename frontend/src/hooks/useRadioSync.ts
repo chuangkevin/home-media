@@ -4,6 +4,8 @@ import type { RootState } from '../store';
 import { socketService } from '../services/socket.service';
 import type { RadioTrack } from '../services/socket.service';
 import { setPendingTrack, setIsPlaying, seekTo, cancelPendingTrack, setDisplayMode } from '../store/playerSlice';
+import { setCurrentLyrics } from '../store/lyricsSlice';
+import apiService from '../services/api.service';
 import {
   setStations,
   setHostStation,
@@ -35,6 +37,7 @@ export function useRadioSync() {
   const { isHost, isListener, syncTrack, syncTime, syncIsPlaying, syncDisplayMode } = useSelector(
     (state: RootState) => state.radio
   );
+  const currentLyrics = useSelector((state: RootState) => state.lyrics.currentLyrics);
 
   // 追蹤上一次的值
   const prevTrackRef = useRef<string | null>(null);
@@ -246,6 +249,26 @@ export function useRadioSync() {
     }
   }, [isListener, syncTrack, currentTrack, dispatch]);
 
+  // Bug 3 fix：加入電台時若和當前播放曲目相同（不觸發 setPendingTrack），但歌詞尚未載入，主動補載歌詞
+  useEffect(() => {
+    if (!isListener || !syncTrack) return;
+    if (currentTrack?.videoId !== syncTrack.videoId) return; // 不同曲目由 setPendingTrack 流程處理
+    if (currentLyrics) return; // 已有歌詞，不重複載入
+
+    (async () => {
+      try {
+        const lyrics = await apiService.getLyrics(syncTrack.videoId, syncTrack.title, syncTrack.channel);
+        if (lyrics) {
+          console.log('📻 [Listener] Lyrics loaded for same-track join:', syncTrack.title);
+          dispatch(setCurrentLyrics(lyrics));
+        }
+      } catch {
+        // 歌詞載入失敗不影響播放
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isListener, syncTrack?.videoId, currentTrack?.videoId, !!currentLyrics]);
+
   // 載入完成時清除超時（僅在 isLoadingTrack 從 true 變為 false 時觸發）
   useEffect(() => {
     if (isListener && !isLoadingTrack && prevIsLoadingTrackRef.current) {
@@ -316,10 +339,12 @@ export function useRadioSync() {
     if (!isListener) return;
     // 載入中不切換顯示模式，避免觸發音訊重啟
     if (isLoadingTrack) return;
+    // 已是相同模式，不重複 dispatch（避免 AudioPlayer useEffect 無謂觸發造成音訊 lag）
+    if (displayMode === syncDisplayMode) return;
 
     dispatch(setDisplayMode(syncDisplayMode));
     console.log('📻 [Listener] Display mode synced:', syncDisplayMode);
-  }, [isListener, syncDisplayMode, isLoadingTrack, dispatch]);
+  }, [isListener, syncDisplayMode, isLoadingTrack, displayMode, dispatch]);
 
   // 當收到 seek/time-sync 時
   useEffect(() => {
