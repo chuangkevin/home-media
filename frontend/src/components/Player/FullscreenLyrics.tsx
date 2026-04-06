@@ -55,8 +55,8 @@ interface FullscreenLyricsProps {
 
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
   const dispatch = useDispatch();
-  const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px)');
-  const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px)');
+  const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
+  const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px) and (min-height: 360px)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
@@ -1389,17 +1389,46 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               {viewMode === 'video' && renderVideo()}
               {viewMode === 'cover' && renderCover()}
               {viewMode === 'morror' && currentLyrics?.isSynced && (
-                <MorrorLyrics
-                  lines={currentLyrics.lines}
-                  currentLineIndex={currentLineIndex}
-                  track={track}
-                  timeOffset={timeOffset}
-                  onFullscreenChange={setIsMorrorFullscreen}
-                  translations={translations}
-                  translationError={translationError}
-                  isTranslating={isTranslating}
-                  onRetryTranslation={handleRetryTranslation}
-                />
+                <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+                  <MorrorLyrics
+                    lines={currentLyrics.lines}
+                    currentLineIndex={currentLineIndex}
+                    track={track}
+                    timeOffset={timeOffset}
+                    onFullscreenChange={setIsMorrorFullscreen}
+                    translations={translations}
+                    translationError={translationError}
+                    isTranslating={isTranslating}
+                    onRetryTranslation={handleRetryTranslation}
+                  />
+                  {/* 沉浸全螢幕時顯示浮動歌名 */}
+                  {isMorrorFullscreen && (
+                    <Box sx={{
+                      position: 'absolute',
+                      top: 'max(8px, env(safe-area-inset-top, 8px))',
+                      left: 8, zIndex: 4,
+                      display: 'flex', alignItems: 'center', gap: 1,
+                      backgroundColor: 'rgba(0,0,0,0.45)',
+                      borderRadius: 2, px: 1, py: 0.5,
+                      maxWidth: 'calc(100% - 120px)',
+                    }}>
+                      <Box
+                        component="img"
+                        src={track.thumbnail}
+                        alt={track.title}
+                        sx={{ width: 28, height: 28, borderRadius: 0.5, objectFit: 'cover', flexShrink: 0 }}
+                      />
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography noWrap sx={{ color: 'rgba(255,255,255,0.95)', fontSize: '0.78rem', fontWeight: 600, lineHeight: 1.2 }}>
+                          {track.title}
+                        </Typography>
+                        <Typography noWrap sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.65rem', lineHeight: 1.2 }}>
+                          {track.channel}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  )}
+                </Box>
               )}
             </>
           )}

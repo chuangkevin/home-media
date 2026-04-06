@@ -246,11 +246,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     console.log(`🔄 Pending track: ${pendingTrack.title} (${videoId}), preparing...`);
     setIsLoading(true);
+    setIsCached(false); // 立即重置，避免顯示前一首的快取狀態
 
     const loadPendingAudio = async () => {
       try {
-        // 重置快取狀態
-        setIsCached(false);
 
         // 🚀 優先檢查前端 IndexedDB 快取（最快！）
         const browserCached = await audioCacheService.get(videoId);
@@ -290,7 +289,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             // 用 YouTube metadata duration（比 audio.duration 精確，沒有尾部靜音）
             dispatch(setDuration(pendingTrack.duration || audio.duration));
 
-            if (isPlayingRef.current && displayModeRef.current !== 'video') {
+            if (isPlayingRef.current) {
               console.log(`▶️ 快取秒開播放: ${pendingTrack.title}`);
               audio.play().catch((error) => {
                 if (error.name === 'NotAllowedError') {
@@ -421,6 +420,30 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audioRef.current!.load();
         setIsCached(false);
 
+        // 非阻塞載入 SponsorBlock segments（串流路徑也需要跳過非音樂段落）
+        apiService.getSponsorBlockSegments(videoId).then(segments => {
+          if (segments.length > 0 && currentVideoIdRef.current === videoId) {
+            skipSegmentsRef.current = segments;
+            skippedSegmentsRef.current = new Set();
+            console.log(`🚫 [SponsorBlock] Pre-loaded ${segments.length} segments for streaming track`);
+            const introSeg = segments.find((s: any) => s.category === 'music_offtopic' && s.start < 5);
+            if (introSeg && audioRef.current) {
+              const audio = audioRef.current;
+              // 串流路徑：確認 buffer 已準備好再 seek
+              const trySkipIntro = () => {
+                if (currentVideoIdRef.current !== videoId) return;
+                if (audio.buffered.length > 0 && audio.buffered.end(0) >= introSeg.end) {
+                  audio.currentTime = introSeg.end;
+                  skippedSegmentsRef.current.add(segments.indexOf(introSeg));
+                  console.log(`🚫 [SponsorBlock] 串流跳過 intro: 0→${introSeg.end.toFixed(1)}s`);
+                }
+              };
+              if (audio.readyState >= 1) trySkipIntro();
+              else audio.addEventListener('canplay', trySkipIntro, { once: true });
+            }
+          }
+        }).catch(() => {});
+
         // 背景：延遲 2 秒後開始下載到 IndexedDB（確保音訊串流請求先到達後端）
         // 兩者使用同一個 URL，後端的 inFlightStreams 會讓第二個請求等待第一個完成
         // 2 秒延遲確保音訊元素的串流請求先到達，不與背景下載競爭
@@ -495,19 +518,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audio.pause();
         audio.currentTime = 0;
 
-        // 在影片模式下，不設置音訊源（避免音訊和影片同時播放）
-        if (displayModeRef.current === 'video') {
-          console.log(`🎬 影片模式：不設置音訊源，等待 VideoPlayer 初始化`);
-          currentVideoIdRef.current = videoId;
-          currentBlobUrlRef.current = null;
+        // audio.src 已在上面的流程中設定（串流 URL）
+        // 影片模式下 audio element 仍是唯一音源，YouTube iframe 會被靜音
+        currentVideoIdRef.current = videoId;
+        if (audio.src && audio.src.startsWith('blob:')) {
+          currentBlobUrlRef.current = audio.src;
         } else {
-          currentVideoIdRef.current = videoId;
-          // audio.src 已在上面的流程中設定
-          if (audio.src && audio.src.startsWith('blob:')) {
-            currentBlobUrlRef.current = audio.src;
-          } else {
-            currentBlobUrlRef.current = null;
-          }
+          currentBlobUrlRef.current = null;
         }
         pendingBlobUrlRef.current = null;
 
@@ -547,8 +564,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             // apiService.analyzeTrackStyle(videoId, pendingTrack.title, pendingTrack.channel).catch(() => {});
           }
 
-          // 自動播放（影片模式下由 VideoPlayer 控制，不播放音訊）
-          if (shouldPlay && displayModeRef.current !== 'video') {
+          // 自動播放（audio element 是所有模式下唯一音源，影片模式下 iframe 靜音）
+          if (shouldPlay) {
             console.log(`▶️ Auto-playing audio: ${pendingTrack.title}`);
             audio.play().catch((error) => {
               console.error('Failed to auto-play:', error);
@@ -559,8 +576,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 dispatch(setIsPlaying(false));
               }
             });
-          } else if (displayModeRef.current === 'video') {
-            console.log(`🎬 影片模式下不播放音訊，由 VideoPlayer 控制`);
           }
 
           // 🎵 播放成功後才開始搜尋歌詞
