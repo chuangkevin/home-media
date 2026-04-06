@@ -10,7 +10,7 @@ on:
   workflow_dispatch:  # 允許手動觸發
 
 env:
-  DOCKERHUB_USERNAME: kevin950805
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   deploy:
