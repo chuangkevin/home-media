@@ -421,10 +421,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audioRef.current!.load();
         setIsCached(false);
 
-        // 背景：立即開始下載到 IndexedDB → 完成後無痛切換 Blob URL
+        // 背景：延遲 2 秒後開始下載到 IndexedDB（確保音訊串流請求先到達後端）
+        // 兩者使用同一個 URL，後端的 inFlightStreams 會讓第二個請求等待第一個完成
+        // 2 秒延遲確保音訊元素的串流請求先到達，不與背景下載競爭
         const bgVideoId = videoId;
         const bgStreamUrl = apiService.getStreamUrl(videoId);
-        (async () => {
+        setTimeout(() => { (async () => {
           // 直接下載到前端 IndexedDB（不等 backend cache，邊播邊下）
           console.log(`⏬ 背景下載到 IndexedDB: ${pendingTrack.title}`);
           try {
@@ -480,7 +482,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           if (wasPlaying) audio.play().catch(() => {});
           setIsCached(true);
           setCacheToast(true);
-        })();
+        })(); }, 2000);
 
         // 音訊準備好了，現在確認切換
         console.log(`✅ Pending track ready: ${pendingTrack.title}`);
@@ -717,9 +719,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           }
         }, 10000);
 
-        console.log(`🔄 Calling audio.load() for: ${pendingTrack.title}`);
-        audio.load();
-        console.log(`✅ audio.load() completed, readyState: ${audio.readyState}`);
+        // audio.load() was already called when setting audio.src at the start of this path (line 421).
+        // Do NOT call audio.load() again here — it would cancel the in-progress stream request,
+        // causing the browser to re-request AFTER the background fetchAndCache has registered as
+        // the in-flight stream, making the audio element wait for the entire download to complete.
 
       } catch (error) {
         console.error('Failed to load pending audio:', error);
