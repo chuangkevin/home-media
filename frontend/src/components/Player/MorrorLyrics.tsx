@@ -444,29 +444,20 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
         position: 'absolute',
         top: 'max(12px, env(safe-area-inset-top, 12px))',
         right: 8, zIndex: 3,
-        display: 'flex', alignItems: 'center', gap: 0.5,
+        display: 'flex', alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 2, px: 0.5, py: 0.25,
       }}>
-        {/* Effect selector */}
-        <Box sx={{
-          display: 'flex', alignItems: 'center', gap: 0.5,
-          backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 2, px: 0.5, py: 0.25,
-        }}>
-          <IconButton size="small" onClick={() => cycleEffect(-1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
-            <NavigateBeforeIcon fontSize="small" />
-          </IconButton>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', minWidth: 60, textAlign: 'center', fontSize: '0.7rem' }}>
-            {EFFECT_LABELS[effect]}
-          </Typography>
-          <IconButton size="small" onClick={() => cycleEffect(1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
-            <NavigateNextIcon fontSize="small" />
-          </IconButton>
-        </Box>
-        {/* Fullscreen button */}
-        <IconButton size="small" onClick={toggleFullscreen} sx={{
-          color: 'rgba(255,255,255,0.7)', backgroundColor: 'rgba(0,0,0,0.5)',
-          borderRadius: 2, p: 0.5,
-          '&:hover': { backgroundColor: 'rgba(0,0,0,0.7)' },
-        }}>
+        <IconButton size="small" onClick={() => cycleEffect(-1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
+          <NavigateBeforeIcon fontSize="small" />
+        </IconButton>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', minWidth: 56, textAlign: 'center', fontSize: '0.7rem' }}>
+          {EFFECT_LABELS[effect]}
+        </Typography>
+        <IconButton size="small" onClick={() => cycleEffect(1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
+          <NavigateNextIcon fontSize="small" />
+        </IconButton>
+        <Box sx={{ width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.2)', mx: 0.5 }} />
+        <IconButton size="small" onClick={toggleFullscreen} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
           {isFullscreen ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
         </IconButton>
       </Box>
@@ -508,11 +499,11 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
           {/* 當前行翻譯 */}
           {currentLineIndex >= 0 && translations[currentLineIndex] && (
             <Typography sx={{
-              fontSize: { xs: '0.9rem', sm: '1.1rem', md: '1.3rem' },
-              color: `${accentColor}99`,
+              fontSize: { xs: '1.3rem', sm: '1.5rem', md: '1.7rem' },
+              color: `${accentColor}CC`,
               fontWeight: 400, fontStyle: 'italic',
               mt: 0.5, lineHeight: 1.3,
-              textShadow: 'none',
+              textShadow: textShadowLight,
             }}>
               {translations[currentLineIndex]}
             </Typography>
