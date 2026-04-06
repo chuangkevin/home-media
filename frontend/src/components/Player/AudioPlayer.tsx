@@ -1341,19 +1341,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               <Box sx={{ overflow: 'hidden', width: '100%' }}>
                 <Typography
                   variant="subtitle1"
-                  noWrap
                   sx={{
                     fontWeight: 600,
                     width: '100%',
                     textAlign: 'center',
                     display: 'inline-block',
                     whiteSpace: 'nowrap',
-                    animation: displayTrack.title.length > 25 ? 'marquee 12s linear infinite' : 'none',
-                    '@keyframes marquee': {
-                      '0%': { transform: 'translateX(0%)' },
-                      '30%': { transform: 'translateX(0%)' },
-                      '70%': { transform: 'translateX(calc(-100% + 250px))' },
-                      '100%': { transform: 'translateX(0%)' },
+                    animation: displayTrack.title.length > 25 ? 'marquee-embedded 14s ease-in-out infinite' : 'none',
+                    '@keyframes marquee-embedded': {
+                      '0%': { transform: 'translateX(0)' },
+                      '15%': { transform: 'translateX(0)' },
+                      '50%': { transform: 'translateX(calc(-100% + 220px))' },
+                      '65%': { transform: 'translateX(calc(-100% + 220px))' },
+                      '85%': { transform: 'translateX(0)' },
+                      '100%': { transform: 'translateX(0)' },
                     },
                   }}
                 >
@@ -1438,7 +1439,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               <Box sx={{ overflow: 'hidden', width: '100%' }}>
                 <Typography
                   variant="body2"
-                  noWrap
                   sx={{
                     fontWeight: 600,
                     fontFamily: '"Outfit", sans-serif',
@@ -1446,12 +1446,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                     lineHeight: 1.3,
                     display: 'inline-block',
                     whiteSpace: 'nowrap',
-                    animation: displayTrack.title.length > 20 ? 'marquee 12s linear infinite' : 'none',
-                    '@keyframes marquee': {
-                      '0%': { transform: 'translateX(0%)' },
-                      '30%': { transform: 'translateX(0%)' },
-                      '70%': { transform: 'translateX(calc(-100% + 200px))' },
-                      '100%': { transform: 'translateX(0%)' },
+                    animation: displayTrack.title.length > 20 ? 'marquee-mini 14s ease-in-out infinite' : 'none',
+                    '@keyframes marquee-mini': {
+                      '0%': { transform: 'translateX(0)' },
+                      '15%': { transform: 'translateX(0)' },
+                      '50%': { transform: 'translateX(calc(-100% + 150px))' },
+                      '65%': { transform: 'translateX(calc(-100% + 150px))' },
+                      '85%': { transform: 'translateX(0)' },
+                      '100%': { transform: 'translateX(0)' },
                     },
                   }}
                 >

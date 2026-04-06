@@ -1200,23 +1200,25 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               borderBottom: 1,
               borderColor: 'divider',
               px: 2,
-              py: 1,
+              py: isLandscape ? 0.5 : 1,
               flexShrink: 0,
               touchAction: 'none',
             }}
           >
-            {/* 下拉指示器 */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, mb: 0.5, cursor: 'grab' }}>
-              <Box
-                sx={{
-                  width: 40,
-                  height: 4,
-                  backgroundColor: dragOffset > 0 ? 'action.active' : 'action.disabled',
-                  borderRadius: 2,
-                  transition: 'background-color 0.2s',
-                }}
-              />
-            </Box>
+            {/* 下拉指示器 — 橫向時隱藏節省空間 */}
+            {!isLandscape && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, mb: 0.5, cursor: 'grab' }}>
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 4,
+                    backgroundColor: dragOffset > 0 ? 'action.active' : 'action.disabled',
+                    borderRadius: 2,
+                    transition: 'background-color 0.2s',
+                  }}
+                />
+              </Box>
+            )}
 
             {/* 曲目資訊與關閉按鈕 */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1224,7 +1226,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 component="img"
                 src={track.thumbnail}
                 alt={track.title}
-                sx={{ width: 48, height: 48, borderRadius: 1, objectFit: 'cover' }}
+                sx={{ width: isLandscape ? 32 : 48, height: isLandscape ? 32 : 48, borderRadius: 1, objectFit: 'cover' }}
               />
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600 }}>
@@ -1269,7 +1271,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
           {/* 模式切換 — 沉浸全螢幕時隱藏 */}
           {(!isFullscreenLayout || isLandscape) && !isMorrorFullscreen && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: isLandscape ? 0.5 : 1 }}>
               <ToggleButtonGroup
                 value={viewMode}
                 exclusive
@@ -1298,7 +1300,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
           {/* 歌詞微調控制（僅在歌詞模式顯示） */}
           {viewMode === 'lyrics' && currentLyrics?.isSynced && (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: isLandscape ? 0.5 : 1 }}>
               {isFineTuning ? (
                 <>
                   <Typography variant="caption" color="primary">滑動對準:</Typography>

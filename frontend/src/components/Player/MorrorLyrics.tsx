@@ -512,6 +512,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
               color: `${accentColor}99`,
               fontWeight: 400, fontStyle: 'italic',
               mt: 0.5, lineHeight: 1.3,
+              textShadow: 'none',
             }}>
               {translations[currentLineIndex]}
             </Typography>
