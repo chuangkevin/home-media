@@ -15,7 +15,7 @@ const STATIC_CACHE_NAME = 'home-media-static-v1';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
-  '/manifest.json',
+  '/manifest.webmanifest',
 ];
 
 // 安裝事件 - 預緩存核心資源

@@ -3,7 +3,7 @@
   "short_name": "媒體中心",
   "description": "個人音樂串流與播放應用",
   "id": "/home-media",
-  "start_url": "/",
+  "start_url": "/?pwa=radio",
   "scope": "/",
   "display": "standalone",
   "background_color": "#121212",

@@ -1072,51 +1072,64 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     );
   };
 
-  // 渲染影片（從快取播放 HTML5 video）
+  // 渲染影片（從快取播放 HTML5 video 或 YouTube IFrame fallback）
   const renderVideo = () => {
-    if (!videoCached) {
-      return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 2 }}>
-          <CircularProgress />
-          <Typography color="text.secondary">影片下載中...</Typography>
-        </Box>
-      );
-    }
-
     const currentLineText = currentLyrics?.lines?.[currentLineIndex]?.text || '';
     const currentLineTranslation = translations[currentLineIndex] || '';
 
     return (
       <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
-        <video
-          ref={cachedVideoRef}
-          src={apiService.getVideoCacheStreamUrl(track.videoId)}
-          controls
-          autoPlay
-          playsInline
-          style={{ width: '100%', maxHeight: '100%', maxWidth: 960 }}
-          onCanPlay={(e) => {
-            // 可以播放後同步到 audio 位置（只做一次）
-            const videoEl = e.target as HTMLVideoElement;
-            const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
-            if (audioEl && !videoEl.dataset.synced) {
-              videoEl.dataset.synced = '1';
-              videoEl.currentTime = audioEl.currentTime;
-              console.log(`🎬 cached video 同步到 audio: ${audioEl.currentTime.toFixed(1)}s`);
-            }
-          }}
-          onPause={() => {}}
-          muted
-        />
+        {videoCached ? (
+          <video
+            ref={cachedVideoRef}
+            src={apiService.getVideoCacheStreamUrl(track.videoId)}
+            controls
+            autoPlay
+            playsInline
+            style={{ width: '100%', maxHeight: '100%', maxWidth: 960, zIndex: 1 }}
+            onCanPlay={(e) => {
+              // 可以播放後同步到 audio 位置（只做一次）
+              const videoEl = e.target as HTMLVideoElement;
+              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              if (audioEl && !videoEl.dataset.synced) {
+                videoEl.dataset.synced = '1';
+                videoEl.currentTime = audioEl.currentTime;
+                console.log(`🎬 cached video 同步到 audio: ${audioEl.currentTime.toFixed(1)}s`);
+              }
+            }}
+            onPause={() => {}}
+            muted
+          />
+        ) : (
+          <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
+            <div
+              ref={videoContainerRef}
+              style={{
+                width: '100%',
+                height: '100%',
+                zIndex: 1,
+              }}
+            />
+            {!videoReady && (
+              <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'white', zIndex: 2, textAlign: 'center' }}>
+                <CircularProgress color="inherit" />
+                <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+                  {videoDownloading ? videoDownloadProgress || '下載中...' : '載入 YouTube 影片...'}
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        )}
 
+        {/* 字幕疊加層 (Subtitles Overlay) - 對兩種模式皆有效 */}
         {currentLineText && (
           <Box
             sx={{
               position: 'absolute',
               left: 12,
               right: 12,
-              bottom: 18,
-              zIndex: 3,
+              bottom: effectiveFullscreen ? 40 : 18,
+              zIndex: 10, // 確保在 IFrame 之上
               pointerEvents: 'none',
               display: 'flex',
               justifyContent: 'center',
@@ -1136,14 +1149,26 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             >
               <Typography
                 variant="subtitle1"
-                sx={{ color: 'white', fontWeight: 700, lineHeight: 1.35, textShadow: '0 2px 8px rgba(0,0,0,0.7)' }}
+                sx={{
+                  color: 'white',
+                  fontWeight: 700,
+                  lineHeight: 1.35,
+                  textShadow: '0 2px 8px rgba(0,0,0,0.7)',
+                  fontSize: effectiveFullscreen ? '1.4rem' : '1.1rem'
+                }}
               >
-                {currentLineText}
+                {toTraditional(currentLineText)}
               </Typography>
               {currentLineTranslation && (
                 <Typography
                   variant="body2"
-                  sx={{ color: 'rgba(255,255,255,0.82)', mt: 0.35, lineHeight: 1.35, textShadow: '0 2px 8px rgba(0,0,0,0.7)' }}
+                  sx={{
+                    color: 'rgba(255,255,255,0.82)',
+                    mt: 0.35,
+                    lineHeight: 1.35,
+                    textShadow: '0 2px 8px rgba(0,0,0,0.7)',
+                    fontSize: effectiveFullscreen ? '1.1rem' : '0.9rem'
+                  }}
                 >
                   {currentLineTranslation}
                 </Typography>
@@ -1451,7 +1476,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   <LyricsIcon sx={{ mr: 0.5, fontSize: 18 }} />
                   歌詞
                 </ToggleButton>
-                <ToggleButton value="video" disabled={!videoCached}>
+                <ToggleButton value="video">
                   <OndemandVideoIcon sx={{ mr: 0.5, fontSize: 18 }} />
                   {videoDownloading ? videoDownloadProgress || '下載中...' : '影片'}
                 </ToggleButton>
