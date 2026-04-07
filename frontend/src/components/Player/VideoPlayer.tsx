@@ -40,7 +40,24 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recoveryLockRef = useRef(false); // 恢復鎖，防止剛回到前景時過度同步
   const { isPlaying, seekTarget, currentTime } = useSelector((state: RootState) => state.player);
+
+  // 監聽回到前景事件
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('🎬 應用回到前景，暫停同步 2 秒以建立緩衝');
+        recoveryLockRef.current = true;
+        setTimeout(() => {
+          recoveryLockRef.current = false;
+        }, 2000);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   const isSeekingRef = useRef(false);
   // 從 audio element 讀取實際播放位置（比 Redux currentTime 更準確）
   const getAudioTime = () => {
@@ -238,17 +255,24 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
 
         // 定期同步 iframe 位置到 audio element（audio 是唯一音源）
         intervalRef.current = setInterval(() => {
-          if (playerRef.current && playerRef.current.getCurrentTime && playerRef.current.seekTo && isMounted && !isSeekingRef.current) {
+          if (
+            playerRef.current && 
+            playerRef.current.getCurrentTime && 
+            playerRef.current.seekTo && 
+            isMounted && 
+            !isSeekingRef.current &&
+            !recoveryLockRef.current // 鎖屏恢復期間不執行同步
+          ) {
             const videoTime = playerRef.current.getCurrentTime();
             const audioTime = getAudioTime();
             const drift = Math.abs(videoTime - audioTime);
-            // 偏差超過 1 秒就修正
-            if (drift > 1) {
+            // 偏差超過 2 秒就修正（MV 播放下 2 秒是可接受的容差，能減少不必要的 seek）
+            if (drift > 2) {
               playerRef.current.seekTo(audioTime, true);
               console.log(`🎬 影片同步修正: video=${videoTime.toFixed(1)}→audio=${audioTime.toFixed(1)}s (drift=${drift.toFixed(1)}s)`);
             }
           }
-        }, 500);
+        }, 1000); // 降低同步頻率至 1 秒一次，減少系統負荷
       }
     };
 

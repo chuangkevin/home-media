@@ -524,6 +524,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   }, [open, viewMode, videoCached, track.videoId]);
 
   // iOS/PWA 背景時關閉可視影片層，讓 audio 持續播放並降低整頁被回收的機率。
+  const recoveryLockRef = useRef(false);
   useEffect(() => {
     const handleVisibilityChange = () => {
       const videoEl = cachedVideoRef.current;
@@ -536,8 +537,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         return;
       }
 
+      // 回到前景：設定恢復鎖，給予影片 2.5 秒的緩衝時間
+      recoveryLockRef.current = true;
+      console.log('🎬 FullscreenLyrics 回到前景，暫停同步 2.5 秒');
+      setTimeout(() => {
+        recoveryLockRef.current = false;
+      }, 2500);
+
       if (audioEl) {
         try {
+          // 只做一次大跳轉
           videoEl.currentTime = audioEl.currentTime;
         } catch {}
         if (!audioEl.paused) {
@@ -570,6 +579,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     if (!open || viewMode !== 'video' || !videoCached) return;
 
     const syncInterval = setInterval(() => {
+      if (recoveryLockRef.current) return; // 恢復期間不執行同步
+
       const videoEl = document.querySelector('video') as HTMLVideoElement | null;
       const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
       if (videoEl && audioEl && videoEl.readyState >= 2) {
@@ -577,6 +588,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         // 只在偏差超過 3 秒才修正（避免頻繁 seek 造成 buffering 轉圈）
         if (drift > 3) {
           videoEl.currentTime = audioEl.currentTime;
+          console.log(`🎬 cached video 同步修正: drift=${drift.toFixed(1)}s`);
         }
       }
     }, 2000);

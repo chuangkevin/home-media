@@ -359,11 +359,10 @@ function AppContent() {
           </Box>
         </Box>
 
-        {/* 影片播放器 */}
-        {currentTrack && displayMode === 'video' && (
+        {/* 影片播放器 - 僅在歌詞抽屜關閉且模式為影片時顯示 */}
+        {currentTrack && displayMode === 'video' && !lyricsDrawerOpen && (
           <VideoPlayer track={currentTrack} />
         )}
-
         {/* 搜尋列 */}
         <Box sx={{
           position: 'sticky',
