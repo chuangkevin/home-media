@@ -15,8 +15,8 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import type { RefObject } from 'react';
-import type { RootState } from '../store';
+import type { MutableRefObject, RefObject } from 'react';
+import { RootState } from '../store';
 import { setEnabled, setSessionId, setConnected } from '../store/continuousPlayerSlice';
 import {
   setPendingTrack,
@@ -24,7 +24,6 @@ import {
   setIsPlaying,
   setCurrentTime,
   setDuration,
-  cancelPendingTrack,
 } from '../store/playerSlice';
 import { setCurrentLyrics, setIsLoading as setLyricsLoading } from '../store/lyricsSlice';
 import apiService from '../services/api.service';
@@ -33,7 +32,7 @@ import type { LyricsLine } from '../types/lyrics.types';
 
 export interface ContinuousPlayerControls {
   /** AudioPlayer 的 pendingTrack effect 需要讀取此 ref 來區分 SSE update vs 使用者操作 */
-  isSSEUpdateRef: RefObject<boolean>;
+  isSSEUpdateRef: MutableRefObject<boolean>;
   /** 啟用 / 停用 continuous mode（自動管理 session 生命周期） */
   toggle: () => void;
 }
@@ -42,7 +41,7 @@ export function useContinuousPlayer(
   audioRef: RefObject<HTMLAudioElement>,
 ): ContinuousPlayerControls {
   const dispatch = useDispatch();
-  const { isEnabled, sessionId } = useSelector((state: RootState) => state.continuousPlayer);
+  const { isEnabled } = useSelector((state: RootState) => state.continuousPlayer);
   const { playlist, currentIndex, volume } = useSelector((state: RootState) => state.player);
 
   /** true = 下一個 pendingTrack 變化是來自 SSE，AudioPlayer 應直接 confirm 而不載入音訊 */
