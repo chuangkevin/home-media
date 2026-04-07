@@ -182,10 +182,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     doTranslate(gen);
   }, [doTranslate]);
 
-  // 影片快取：開啟 Drawer 時自動開始下載，輪詢狀態
+  // 影片快取：僅在「影片」模式才啟動下載與輪詢
+  // 避免歌詞模式在背景持續輪詢造成 iOS PWA 被回收（黑畫面重載）
   const videoPollingVideoIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!open || !track?.videoId) return;
+    if (!open || !track?.videoId || viewMode !== 'video') return;
     // 避免同一首歌重複觸發 polling
     if (videoPollingVideoIdRef.current === track.videoId && (videoCached || videoDownloading)) return;
     videoPollingVideoIdRef.current = track.videoId;
@@ -230,7 +231,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     return () => {
       cancelled = true;
     };
-  }, [open, track?.videoId]);
+  }, [open, track?.videoId, viewMode]);
 
   // 換歌時才重設影片快取狀態（不在 drawer 開關時重設）
   useEffect(() => {
