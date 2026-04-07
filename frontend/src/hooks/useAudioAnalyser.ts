@@ -32,6 +32,7 @@ interface AnalyserCallbackData {
 // Singleton AudioContext (reused across components)
 let sharedContext: AudioContext | null = null;
 const sourceMap = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+const analyserMap = new WeakMap<HTMLAudioElement, AnalyserNode>();
 
 function getAudioContext(): AudioContext {
   if (!sharedContext || sharedContext.state === 'closed') {
@@ -49,6 +50,30 @@ function getMediaSource(audio: HTMLAudioElement): MediaElementAudioSourceNode {
   source.connect(ctx.destination); // Keep audio audible
   sourceMap.set(audio, source);
   return source;
+}
+
+function getPersistentAnalyser(
+  audio: HTMLAudioElement,
+  fftSize: number,
+  smoothing: number
+): AnalyserNode {
+  if (analyserMap.has(audio)) {
+    const analyser = analyserMap.get(audio)!;
+    if (analyser.fftSize !== fftSize) analyser.fftSize = fftSize;
+    analyser.smoothingTimeConstant = smoothing;
+    return analyser;
+  }
+
+  const ctx = getAudioContext();
+  const source = getMediaSource(audio);
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = fftSize;
+  analyser.smoothingTimeConstant = smoothing;
+
+  // Connect once and keep graph persistent to avoid iOS mode-switch audio hiccups.
+  source.connect(analyser);
+  analyserMap.set(audio, analyser);
+  return analyser;
 }
 
 export default function useAudioAnalyser(
@@ -83,11 +108,7 @@ export default function useAudioAnalyser(
         ctx.resume().catch(() => {});
       }
 
-      const source = getMediaSource(audioElement);
-      analyser = ctx.createAnalyser();
-      analyser.fftSize = fftSize;
-      analyser.smoothingTimeConstant = smoothing;
-      source.connect(analyser);
+      analyser = getPersistentAnalyser(audioElement, fftSize, smoothing);
       analyserRef.current = analyser;
 
       // Allocate data arrays
@@ -142,10 +163,7 @@ export default function useAudioAnalyser(
 
     return () => {
       cancelAnimationFrame(rafRef.current);
-      if (analyserRef.current) {
-        try { analyserRef.current.disconnect(); } catch {}
-        analyserRef.current = null;
-      }
+      analyserRef.current = null;
     };
   }, [audioElement, fftSize, smoothing, enabled]);
 

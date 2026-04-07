@@ -114,6 +114,7 @@ class YouTubeService {
             channel: video.channel?.name || 'Unknown Channel',
             duration: video.duration ? Math.floor(video.duration / 1000) : 0, // ms → seconds
             thumbnail: video.thumbnail?.url || '',
+            uploadedAt: (video as any).uploadedAt || (video as any).publishedAt || (video as any).uploadDate || '',
           }));
 
         const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);

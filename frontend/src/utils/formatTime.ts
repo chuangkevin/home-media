@@ -60,3 +60,34 @@ export function formatDate(timestamp: number): string {
     day: '2-digit',
   });
 }
+
+/**
+ * 格式化上傳日期（支援 yt-dlp 的 YYYYMMDD 與一般字串）
+ */
+export function formatUploadedAt(uploadedAt?: string): string {
+  if (!uploadedAt) return '';
+
+  const value = uploadedAt.trim();
+  if (!value) return '';
+
+  // yt-dlp 常見格式：20240321
+  if (/^\d{8}$/.test(value)) {
+    const year = value.slice(0, 4);
+    const month = value.slice(4, 6);
+    const day = value.slice(6, 8);
+    return `${year}/${month}/${day}`;
+  }
+
+  // 可被 Date 解析的格式（例如 2024-03-21）
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString('zh-TW', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  }
+
+  // 其他格式（例如 "2 years ago"）直接顯示
+  return value;
+}

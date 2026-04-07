@@ -67,6 +67,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
+  const cachedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const videoSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoNudgeResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastHardSeekAtRef = useRef(0);
 
   // 顯示模式
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
@@ -428,6 +432,95 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       // 忽略播放器尚未準備好的錯誤
     }
   }, [audioIsPlaying, videoReady, viewMode]);
+
+  // 快取影片模式：高準度同步（音樂場景目標 < 200ms）
+  // - 每 0.8 秒檢查，避免長時間漂移
+  // - 優先用 playbackRate 鎖相，僅在偏差過大時 hard seek
+  useEffect(() => {
+    const clearSyncTimers = () => {
+      if (videoSyncIntervalRef.current) {
+        clearInterval(videoSyncIntervalRef.current);
+        videoSyncIntervalRef.current = null;
+      }
+      if (videoNudgeResetRef.current) {
+        clearTimeout(videoNudgeResetRef.current);
+        videoNudgeResetRef.current = null;
+      }
+    };
+
+    if (!open || viewMode !== 'video' || !videoCached || !cachedVideoRef.current) {
+      clearSyncTimers();
+      if (cachedVideoRef.current) {
+        cachedVideoRef.current.playbackRate = 1;
+      }
+      return;
+    }
+
+    const syncOnce = () => {
+      const videoEl = cachedVideoRef.current;
+      const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+      if (!videoEl || !audioEl) return;
+
+      // 先對齊播放/暫停狀態
+      if (!audioEl.paused && videoEl.paused) {
+        videoEl.play().catch(() => {});
+      } else if (audioEl.paused && !videoEl.paused) {
+        videoEl.pause();
+        videoEl.playbackRate = 1;
+        return;
+      }
+
+      if (audioEl.paused) return;
+
+      const drift = audioEl.currentTime - videoEl.currentTime;
+      const absDrift = Math.abs(drift);
+
+      // 大偏差：冷卻後才 hard seek，避免一直轉圈
+      if (absDrift >= 0.9) {
+        const now = Date.now();
+        if (now - lastHardSeekAtRef.current > 4500) {
+          try {
+            videoEl.currentTime = audioEl.currentTime;
+            videoEl.playbackRate = 1;
+            lastHardSeekAtRef.current = now;
+            console.log(`🎬 [CachedVideo] hard sync: ${drift.toFixed(2)}s`);
+          } catch {}
+        }
+        return;
+      }
+
+      // 中小偏差：用速度微調，不做 seek
+      if (absDrift >= 0.12) {
+        // 比例控制：偏差越大，調整越強；限制在 0.94~1.06 以減少音高體感
+        const k = 0.08;
+        const unclamped = 1 + drift * k;
+        const targetRate = Math.max(0.94, Math.min(1.06, unclamped));
+        if (Math.abs(videoEl.playbackRate - targetRate) > 0.001) {
+          videoEl.playbackRate = targetRate;
+        }
+        if (videoNudgeResetRef.current) {
+          clearTimeout(videoNudgeResetRef.current);
+        }
+        videoNudgeResetRef.current = setTimeout(() => {
+          if (cachedVideoRef.current) {
+            cachedVideoRef.current.playbackRate = 1;
+          }
+        }, 1200);
+      } else if (Math.abs(videoEl.playbackRate - 1) > 0.001) {
+        videoEl.playbackRate = 1;
+      }
+    };
+
+    syncOnce();
+    videoSyncIntervalRef.current = setInterval(syncOnce, 800);
+
+    return () => {
+      clearSyncTimers();
+      if (cachedVideoRef.current) {
+        cachedVideoRef.current.playbackRate = 1;
+      }
+    };
+  }, [open, viewMode, videoCached, track.videoId]);
 
   // 處理影片 seek 操作（拖動進度條）
   useEffect(() => {
@@ -960,9 +1053,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       );
     }
 
+    const currentLineText = currentLyrics?.lines?.[currentLineIndex]?.text || '';
+    const currentLineTranslation = translations[currentLineIndex] || '';
+
     return (
-      <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
+      <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
         <video
+          ref={cachedVideoRef}
           src={apiService.getVideoCacheStreamUrl(track.videoId)}
           controls
           autoPlay
@@ -982,6 +1079,49 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           onEnded={() => dispatch(playNext())}
           muted
         />
+
+        {currentLineText && (
+          <Box
+            sx={{
+              position: 'absolute',
+              left: 12,
+              right: 12,
+              bottom: 18,
+              zIndex: 3,
+              pointerEvents: 'none',
+              display: 'flex',
+              justifyContent: 'center',
+            }}
+          >
+            <Box
+              sx={{
+                maxWidth: '92%',
+                px: 1.5,
+                py: 0.9,
+                borderRadius: 1.5,
+                backgroundColor: 'rgba(0,0,0,0.62)',
+                backdropFilter: 'blur(4px)',
+                WebkitBackdropFilter: 'blur(4px)',
+                textAlign: 'center',
+              }}
+            >
+              <Typography
+                variant="subtitle1"
+                sx={{ color: 'white', fontWeight: 700, lineHeight: 1.35, textShadow: '0 2px 8px rgba(0,0,0,0.7)' }}
+              >
+                {currentLineText}
+              </Typography>
+              {currentLineTranslation && (
+                <Typography
+                  variant="body2"
+                  sx={{ color: 'rgba(255,255,255,0.82)', mt: 0.35, lineHeight: 1.35, textShadow: '0 2px 8px rgba(0,0,0,0.7)' }}
+                >
+                  {currentLineTranslation}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        )}
       </Box>
     );
   };

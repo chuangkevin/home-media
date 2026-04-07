@@ -6,6 +6,7 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { ChannelRecommendation } from '../../store/recommendationSlice';
 import type { Track } from '../../types/track.types';
+import { formatUploadedAt } from '../../utils/formatTime';
 
 interface ChannelSectionProps {
   channel: ChannelRecommendation;
@@ -234,6 +235,11 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
               >
                 {video.title}
               </Typography>
+              {video.uploadedAt && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                  上傳：{formatUploadedAt(video.uploadedAt)}
+                </Typography>
+              )}
               {video.reason && (
                 <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5, fontSize: '0.7rem' }}>
                   {video.reason}

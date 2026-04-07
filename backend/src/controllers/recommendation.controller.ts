@@ -208,6 +208,8 @@ export class RecommendationController {
               title: t.title,
               thumbnail: t.thumbnail,
               duration: t.duration || 0,
+              channel: t.channelName || t.channel || '',
+              uploadedAt: t.uploadedAt || '',
             })),
             watchCount: 0,
           });
@@ -226,6 +228,7 @@ export class RecommendationController {
             thumbnail: r.thumbnail,
             duration: r.duration || 0,
             channel: r.channel,
+            uploadedAt: r.uploadedAt || '',
           })),
           watchCount: 0,
         });

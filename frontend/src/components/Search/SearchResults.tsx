@@ -17,7 +17,7 @@ import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import CloudIcon from '@mui/icons-material/Cloud';
 import StorageIcon from '@mui/icons-material/Storage';
 import type { Track } from '../../types/track.types';
-import { formatDuration, formatNumber } from '../../utils/formatTime';
+import { formatDuration, formatNumber, formatUploadedAt } from '../../utils/formatTime';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
 import apiService from '../../services/api.service';
 
@@ -188,6 +188,12 @@ export default function SearchResults({
                 {track.views && (
                   <Typography variant="caption" color="text.secondary">
                     {formatNumber(track.views)} 次觀看
+                  </Typography>
+                )}
+
+                {track.uploadedAt && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                    上傳：{formatUploadedAt(track.uploadedAt)}
                   </Typography>
                 )}
               </CardContent>
