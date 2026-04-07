@@ -30,3 +30,9 @@
   - **隨機性**: 在 `YouTubeController.search` 加入 Fisher-Yates Shuffle，隨機化前 15 筆搜尋結果。
   - **數據完整性**: 確保 `YouTubeService.ts` 中 `yt-dlp` 路徑也包含 `uploadedAt` 欄位。
   - **UI 強化**: 在 `SearchResults.tsx` 中使用醒目的標籤與 📅 圖示顯示上傳日期。
+
+## 無限智慧推薦系統 (2026-04-07)
+- **問題**: 首頁推薦內容在捲動後容易枯竭（數據源僅限觀看歷史）。
+- **決策**:
+  - **智慧擴展**: 在 `RecommendationService` 加入 AI 發現模式。當觀看歷史耗盡時，自動請求 Gemini 根據使用者喜好生成發現關鍵字並進行搜尋。
+  - **UI 優化**: 實作 `HomeRecommendations` 的 `IntersectionObserver` 無限捲動，並加入 AI 探索中的視覺提示。

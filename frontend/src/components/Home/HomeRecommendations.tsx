@@ -247,15 +247,25 @@ export default function HomeRecommendations() {
       ))}
 
       {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 6, gap: 2 }}>
+          <CircularProgress size={32} thickness={5} />
+          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', animation: 'pulse 2s infinite' }}>
+            {channelRecommendations.length > 0 ? '✨ 正在探索更多相似藝人...' : '正在為您量身打造推薦清單...'}
+          </Typography>
+          <style>{`
+            @keyframes pulse {
+              0% { opacity: 0.5; }
+              50% { opacity: 1; }
+              100% { opacity: 0.5; }
+            }
+          `}</style>
         </Box>
       )}
 
       {!hasMore && channelRecommendations.length > 0 && (
-        <Box sx={{ textAlign: 'center', py: 4 }}>
+        <Box sx={{ textAlign: 'center', py: 6, opacity: 0.6 }}>
           <Typography variant="body2" color="text.secondary">
-            已顯示所有推薦內容
+            🚀 已經到底了，聽些歌再來探索吧！
           </Typography>
         </Box>
       )}

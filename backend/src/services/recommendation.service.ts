@@ -74,14 +74,23 @@ class RecommendationService {
       scoredChannels.sort((a, b) => b.score - a.score);
       logger.info(`[Recommend] Scored ${scoredChannels.length} channels with randomness.`);
 
-      // 4. 分頁
+      // 4. 判斷是否需要進入 AI 發現模式 (Discovery Mode)
+      // 如果請求的頁碼超出了現有歷史頻道的範圍
+      const historyPageCount = Math.ceil(scoredChannels.length / pageSize);
+      
+      if (page >= historyPageCount) {
+        logger.info(`[Recommend] History exhausted (page ${page} >= ${historyPageCount}). Entering AI Discovery Mode.`);
+        return await this.getDiscoveryRecommendations(page, pageSize, channels.map(c => c.channelName));
+      }
+
+      // 5. 分頁 (觀看歷史路徑)
       const pageChannels = scoredChannels.slice(
         page * pageSize,
         (page + 1) * pageSize
       );
       logger.info(`[Recommend] Sliced channels for current page. Found ${pageChannels.length} channels for this page.`);
 
-      // 5. 為每個頻道獲取影片（並發請求）
+      // 6. 為每個頻道獲取影片（並發請求）
       const recommendations = await Promise.all(
         pageChannels.map(async (channel) => {
           logger.info(`[Recommend] Processing channel: ${channel.channelName}`);
@@ -128,7 +137,7 @@ class RecommendationService {
 
       logger.info('[Recommend] Finished processing all channels for the page.');
 
-      // 5. 過濾掉沒有影片的頻道
+      // 7. 過濾掉沒有影片的頻道
       const validRecommendations = recommendations.filter(r => r.videos.length > 0);
 
       logger.info(`[Recommend] Found ${validRecommendations.length} valid recommendations.`);
@@ -136,7 +145,80 @@ class RecommendationService {
       return validRecommendations;
     } catch (error) {
       logger.error('Failed to get channel recommendations:', error);
-      throw error; // 重新拋出錯誤，讓 controller 捕捉並返回 500
+      throw error;
+    }
+  }
+
+  /**
+   * AI 發現模式：使用 Gemini 生成推薦
+   */
+  private async getDiscoveryRecommendations(
+    page: number,
+    pageSize: number,
+    listenedArtists: string[]
+  ): Promise<ChannelRecommendation[]> {
+    try {
+      const gemini = require('./gemini.service');
+      
+      // 生成探索個人檔案（基於最近播放）
+      const recentHistory = db.prepare(`
+        SELECT DISTINCT artist FROM cached_tracks 
+        ORDER BY last_played DESC LIMIT 10
+      `).all().map((r: any) => r.artist).filter(Boolean);
+
+      // 如果歷史太少，補一些熱門種子
+      const seedArtists = recentHistory.length >= 3 ? recentHistory : [...listenedArtists, '米津玄師', 'BTS', 'Taylor Swift'].slice(0, 5);
+
+      // 生成發現關鍵字
+      logger.info(`[Recommend] Generating discovery queries via Gemini using seeds: ${seedArtists.join(', ')}`);
+      const queries = await gemini.generateDiscoveryQueries({
+        preferredMoods: { 'energetic': 5, 'chill': 3 },
+        preferredGenres: { 'Pop': 5, 'J-Pop': 3 }
+      }, seedArtists);
+      
+      const effectiveQueries = (queries && queries.length > 0) ? queries : ['Trending music 2024', 'Recommended artists'];
+
+      // 根據頁碼輪詢關鍵字
+      const targetQuery = effectiveQueries[page % effectiveQueries.length];
+      logger.info(`[Recommend] Discovery mode - Page ${page} using query: "${targetQuery}"`);
+
+      // 執行搜尋
+      const tracks = await youtubeService.search(targetQuery, pageSize * 4);
+      
+      // 將搜尋結果按頻道分組，並過濾掉已聽過的頻道
+      const listenedSet = new Set(listenedArtists);
+      const channelGroups = new Map<string, YouTubeSearchResult[]>();
+      
+      tracks.forEach(t => {
+        if (listenedSet.has(t.channel)) return; // 跳過已聽過的
+        if (!channelGroups.has(t.channel)) {
+          channelGroups.set(t.channel, []);
+        }
+        if (channelGroups.get(t.channel)!.length < this.VIDEOS_PER_CHANNEL) {
+          channelGroups.get(t.channel)!.push(t);
+        }
+      });
+
+      // 轉換為 ChannelRecommendation 格式
+      const results: ChannelRecommendation[] = [];
+      const sortedChannels = Array.from(channelGroups.entries())
+        .sort(() => Math.random() - 0.5); // 打亂順序增加隨機感
+
+      for (const [name, videos] of sortedChannels) {
+        if (results.length >= pageSize) break;
+        results.push({
+          channelName: name,
+          channelThumbnail: videos[0]?.thumbnail || '',
+          videos: videos,
+          watchCount: 0 // 標識為發現模式
+        });
+      }
+
+      logger.info(`[Recommend] Discovery mode produced ${results.length} new channel recommendations.`);
+      return results;
+    } catch (error) {
+      logger.error('[Recommend] Discovery Mode failed:', error);
+      return [];
     }
   }
 
