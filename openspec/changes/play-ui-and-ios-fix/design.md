@@ -30,6 +30,11 @@
 ### 4. 喚回屬權宣告 (visibilitychange)
 - **理由**：當使用者從鎖定畫面「嘗試回到 App」時，如果系統誤喚回 `portal`，表示 `portal` 的 PWA 攔截了該事件。我們需要在 `radio` 被開啟或回到前景時，強制觸發一次 `navigator.mediaSession.metadata` 更新，以宣告「目前的主控權在我這」。
 
+### 5. 影片同步效能優化 (Performance Sync)
+- **容差放寬**：將同步漂移容差從 1s 放寬至 2-3s。減少因網路微小波動導致的頻繁 `seekTo`（即跳轉轉圈）。
+- **恢復保護 (Recovery Lock)**：在 `visibilitychange` 偵測到應用程式回到前景時，暫停影片同步 2.5 秒。這給予 YouTube IFrame 與系統資源足夠的緩衝期來穩定連線，避免喚醒時的持續卡頓。
+- **渲染隔離**：在 `App.tsx` 中監聽 `lyricsDrawerOpen`，當歌詞抽屜打開時主動卸載底層 `VideoPlayer` 組件，確保同一時間全域僅有一個 YouTube IFrame 實例，節省 CPU 與頻寬。
+
 ## Risks / Trade-offs
 
 - [Risk]：全區域點擊可能導致誤觸。
