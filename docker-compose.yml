@@ -13,6 +13,7 @@ services:
     container_name: home-media-backend
     # 不暴露外部 port，由 nginx 透過內部網路代理
     environment:
+      - TZ=Asia/Taipei
       - NODE_ENV=production
       - DB_PATH=/app/data/db/home-media.sqlite
       - CACHE_DIR=/app/data/cache
@@ -40,6 +41,8 @@ services:
 
   frontend:
     image: kevin950805/home-media-frontend:latest
+    environment:
+      - TZ=Asia/Taipei
     build:
       context: ./frontend
       dockerfile: Dockerfile
