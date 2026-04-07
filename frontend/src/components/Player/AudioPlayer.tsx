@@ -6,7 +6,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
-import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack } from '../../store/playerSlice';
+import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack, setDisplayMode } from '../../store/playerSlice';
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
@@ -36,6 +36,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const pendingBlobUrlRef = useRef<string | null>(null);
   const wasCompletedRef = useRef(false);
   const completeSentRef = useRef(false);
+
+  const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
   // Refs for latest playlist/index — kept in sync so handleTimeUpdate closure stays fresh
   const playlistRef = useRef(playlist);
   const currentIndexRef = useRef(currentIndex);
@@ -1264,8 +1267,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           });
         }
       } else {
-        // PWA 進入背景時，記錄當前時間和位置，用於後續檢查
-        console.log('📱 [PWA] 應用進入背景，記錄當前進度');
+        // iOS/PWA: 背景保留 YouTube/Video layer 容易被系統回收整頁，
+        // 導致回前台黑畫面重載與自動下一首中斷。背景時降級為 visualizer 保活 audio。
+        if (isIOSDevice && displayModeRef.current === 'video') {
+          console.log('📱 [PWA] 背景降級到 visualizer，避免 iOS 回收頁面');
+          dispatch(setDisplayMode('visualizer'));
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
