@@ -1429,10 +1429,28 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     updatePositionState();
     const positionInterval = setInterval(updatePositionState, 1000);
 
+    // 回到前景時主動宣告 MediaSession 屬權，協助 iOS 區分 PWA 來源
+    const handleVisibilityAssert = () => {
+      if (!document.hidden && 'mediaSession' in navigator && currentTrack) {
+        console.log('📱 [PWA] 回到前景，主動宣告 MediaSession 屬權:', currentTrack.title);
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: currentTrack.title,
+          artist: currentTrack.channel,
+          album: 'Home Media',
+          artwork: [
+            { src: currentTrack.thumbnail, sizes: '512x512', type: 'image/png' },
+          ],
+        });
+        navigator.mediaSession.playbackState = isPlayingRef.current ? 'playing' : 'paused';
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityAssert);
+
     console.log('🎵 Media Session API 已設定:', currentTrack.title);
 
     return () => {
       clearInterval(positionInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityAssert);
       // 清理 action handlers
       try {
         navigator.mediaSession.setActionHandler('play', null);

@@ -4,6 +4,7 @@ import {
   Card,
   CardContent,
   CardMedia,
+  CardActionArea,
   Typography,
   IconButton,
   Grid,
@@ -80,6 +81,7 @@ export default function SearchResults({
   }, [handleObserver]);
 
   const handleOpenPlaylistMenu = (event: React.MouseEvent<HTMLElement>, track: Track) => {
+    event.stopPropagation();
     setPlaylistMenuAnchor(event.currentTarget);
     setSelectedTrack(track);
   };
@@ -87,6 +89,11 @@ export default function SearchResults({
   const handleClosePlaylistMenu = () => {
     setPlaylistMenuAnchor(null);
     setSelectedTrack(null);
+  };
+
+  const handleAddToQueue = (event: React.MouseEvent, track: Track) => {
+    event.stopPropagation();
+    onAddToQueue?.(track);
   };
 
   if (results.length === 0) {
@@ -130,73 +137,75 @@ export default function SearchResults({
                 }),
               }}
             >
-              <Box sx={{ position: 'relative' }}>
-                <CardMedia
-                  component="img"
-                  height="180"
-                  image={track.thumbnail}
-                  alt={track.title}
-                  sx={{ objectFit: 'cover' }}
-                />
-                <Chip
-                  icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
-                  label={cacheStatus[track.videoId] ? '快取' : '網路'}
-                  size="small"
-                  sx={{
-                    position: 'absolute',
-                    top: 8,
-                    left: 8,
-                    backgroundColor: cacheStatus[track.videoId] ? 'rgba(46, 125, 50, 0.9)' : 'rgba(25, 118, 210, 0.9)',
-                    color: 'white',
-                    '& .MuiChip-icon': { color: 'white' },
-                  }}
-                />
-                <Chip
-                  label={formatDuration(track.duration)}
-                  size="small"
-                  sx={{
-                    position: 'absolute',
-                    bottom: 8,
-                    right: 8,
-                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                    color: 'white',
-                  }}
-                />
-              </Box>
+              <CardActionArea onClick={() => onPlay(track)} sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+                <Box sx={{ position: 'relative' }}>
+                  <CardMedia
+                    component="img"
+                    height="180"
+                    image={track.thumbnail}
+                    alt={track.title}
+                    sx={{ objectFit: 'cover' }}
+                  />
+                  <Chip
+                    icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
+                    label={cacheStatus[track.videoId] ? '快取' : '網路'}
+                    size="small"
+                    sx={{
+                      position: 'absolute',
+                      top: 8,
+                      left: 8,
+                      backgroundColor: cacheStatus[track.videoId] ? 'rgba(46, 125, 50, 0.9)' : 'rgba(25, 118, 210, 0.9)',
+                      color: 'white',
+                      '& .MuiChip-icon': { color: 'white' },
+                    }}
+                  />
+                  <Chip
+                    label={formatDuration(track.duration)}
+                    size="small"
+                    sx={{
+                      position: 'absolute',
+                      bottom: 8,
+                      right: 8,
+                      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                      color: 'white',
+                    }}
+                  />
+                </Box>
 
-              <CardContent sx={{ flexGrow: 1, pb: 1 }}>
-                <Typography
-                  variant="subtitle1"
-                  component="div"
-                  sx={{
-                    fontWeight: 600,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    mb: 1,
-                  }}
-                >
-                  {track.title}
-                </Typography>
-
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  {track.channel}
-                </Typography>
-
-                {track.views && (
-                  <Typography variant="caption" color="text.secondary">
-                    {formatNumber(track.views)} 次觀看
+                <CardContent sx={{ flexGrow: 1, pb: 1 }}>
+                  <Typography
+                    variant="subtitle1"
+                    component="div"
+                    sx={{
+                      fontWeight: 600,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      mb: 1,
+                    }}
+                  >
+                    {track.title}
                   </Typography>
-                )}
 
-                {track.uploadedAt && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                    上傳：{formatUploadedAt(track.uploadedAt)}
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    {track.channel}
                   </Typography>
-                )}
-              </CardContent>
+
+                  {track.views && (
+                    <Typography variant="caption" color="text.secondary">
+                      {formatNumber(track.views)} 次觀看
+                    </Typography>
+                  )}
+
+                  {track.uploadedAt && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                      上傳：{formatUploadedAt(track.uploadedAt)}
+                    </Typography>
+                  )}
+                </CardContent>
+              </CardActionArea>
 
               <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, pt: 0 }}>
                 <IconButton
@@ -215,7 +224,7 @@ export default function SearchResults({
                 {onAddToQueue && (
                   <IconButton
                     color="default"
-                    onClick={() => onAddToQueue(track)}
+                    onClick={(e) => handleAddToQueue(e, track)}
                     title="加入佇列"
                   >
                     <AddIcon />
