@@ -1327,9 +1327,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       } catch { /* 部分瀏覽器不支援 */ }
     };
 
-    // 初始設定 + 定期更新（鎖屏進度條）
+    // 初始設定 + 定期更新（鎖屏進度條），每秒更新讓進度條流暢
     updatePositionState();
-    const positionInterval = setInterval(updatePositionState, 5000);
+    const positionInterval = setInterval(updatePositionState, 1000);
 
     console.log('🎵 Media Session API 已設定:', currentTrack.title);
 
@@ -1347,13 +1347,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
   }, [currentTrack, dispatch]);
 
+  // 同步 playbackState — iOS 鎖螢幕靠此判斷是否維持 audio session
+  useEffect(() => {
+    if (embedded || !('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  }, [isPlaying, embedded]);
+
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
   if (!currentTrack && !pendingTrack) {
     if (embedded) return null;
     return (<>
-      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
-      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
+      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
+      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
     </>);
   }
 
@@ -1363,8 +1369,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   if (!displayTrack) {
     if (embedded) return null;
     return (<>
-      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
-      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
+      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
+      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
     </>);
   }
 
@@ -1568,9 +1574,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       {/* 隱藏的 audio 元素 - 放在 CardContent 外面確保不受條件渲染影響 */}
       {/* embedded 模式不渲染 audio 元素，避免多音訊同時播放 */}
       {!embedded && (<>
-        <audio ref={audioRef} preload="auto" crossOrigin="anonymous" />
+        <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline />
         {/* 🔊 Secondary audio element for crossfade */}
-        <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" />
+        <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline />
       </>)}
 
       {/* 加入播放清單選單 */}
