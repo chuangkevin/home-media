@@ -1249,7 +1249,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
 
     return (
-      <List dense sx={{ py: 0 }}>
+      <List dense={!isUltrawide} sx={{ py: 0 }}>
         {playlist.map((item, idx) => {
           // 跳過幽靈歌曲（未載入完的 placeholder）
           if (!item.title || item.title === '載入中...') return null;
@@ -1261,8 +1261,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               disablePadding
               secondaryAction={
                 !isCurrent ? (
-                  <IconButton edge="end" size="small" onClick={() => handlePlayFromList(item)}>
-                    <PlayArrowIcon fontSize="small" />
+                  <IconButton edge="end" size={isUltrawide ? "large" : "small"} onClick={() => handlePlayFromList(item)}>
+                    <PlayArrowIcon fontSize={isUltrawide ? "medium" : "small"} />
                   </IconButton>
                 ) : undefined
               }
@@ -1270,16 +1270,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               <ListItemButton
                 onClick={() => !isCurrent && handlePlayFromList(item)}
                 sx={{
-                  py: 0.5,
+                  py: isUltrawide ? 1.5 : 0.5,
+                  px: isUltrawide ? 3 : 2,
                   opacity: isPlayed ? 0.45 : 1,
                   backgroundColor: isCurrent ? 'rgba(255,255,255,0.08)' : 'transparent',
+                  height: isUltrawide ? 80 : 'auto',
                 }}
               >
-                <ListItemAvatar sx={{ minWidth: 48 }}>
+                <ListItemAvatar sx={{ minWidth: isUltrawide ? 72 : 48 }}>
                   <Avatar
                     variant="rounded"
                     src={item.thumbnail}
-                    sx={{ width: 40, height: 40, opacity: isPlayed ? 0.5 : 1 }}
+                    sx={{ width: isUltrawide ? 60 : 40, height: isUltrawide ? 60 : 40, opacity: isPlayed ? 0.5 : 1 }}
                   />
                 </ListItemAvatar>
                 <ListItemText
@@ -1288,7 +1290,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                       variant="body2"
                       noWrap
                       sx={{
-                        fontSize: '0.85rem',
+                        fontSize: isUltrawide ? '1.15rem' : '0.85rem',
                         fontWeight: isCurrent ? 700 : 400,
                         color: isCurrent ? 'primary.main' : 'text.primary',
                       }}
@@ -1297,7 +1299,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                     </Typography>
                   }
                   secondary={
-                    <Typography variant="caption" color="text.secondary" noWrap>
+                    <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: isUltrawide ? '0.95rem' : '0.75rem' }}>
                       {item.channel}
                     </Typography>
                   }

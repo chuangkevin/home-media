@@ -11,6 +11,7 @@ import {
   Chip,
   CircularProgress,
   alpha,
+  useMediaQuery,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AddIcon from '@mui/icons-material/Add';
@@ -37,6 +38,7 @@ export default function SearchResults({
   onAddToQueue,
   currentTrackId,
 }: SearchResultsProps) {
+  const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
   const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({});
@@ -114,13 +116,13 @@ export default function SearchResults({
 
   return (
     <>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <Typography variant={isUltrawide ? "h6" : "body2"} color="text.secondary" sx={{ mb: 2, fontWeight: isUltrawide ? 600 : 400 }}>
         找到 {results.length} 筆結果
       </Typography>
 
-      <Grid container spacing={2}>
+      <Grid container spacing={isUltrawide ? 3 : 2}>
         {visibleResults.map((track) => (
-          <Grid item xs={12} sm={6} md={4} lg={3} key={track.id}>
+          <Grid item xs={12} sm={6} md={4} lg={isUltrawide ? 4 : 3} key={track.id}>
             <Card
               sx={{
                 display: 'flex',
@@ -132,8 +134,8 @@ export default function SearchResults({
                   boxShadow: '0 14px 44px rgba(0,0,0,0.42), 0 0 0 1px rgba(245,166,35,0.14)',
                 },
                 ...(currentTrackId === track.videoId && {
-                  border: '1px solid rgba(245,166,35,0.55) !important',
-                  boxShadow: '0 0 0 1px rgba(245,166,35,0.55), 0 8px 24px rgba(0,0,0,0.35)',
+                  border: '2px solid rgba(245,166,35,0.75) !important',
+                  boxShadow: '0 0 0 2px rgba(245,166,35,0.75), 0 8px 32px rgba(0,0,0,0.45)',
                 }),
               }}
             >
@@ -141,74 +143,79 @@ export default function SearchResults({
                 <Box sx={{ position: 'relative' }}>
                   <CardMedia
                     component="img"
-                    height="180"
+                    height={isUltrawide ? "240" : "180"}
                     image={track.thumbnail}
                     alt={track.title}
                     sx={{ objectFit: 'cover' }}
                   />
                   <Chip
-                    icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: 14 }} /> : <CloudIcon sx={{ fontSize: 14 }} />}
+                    icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: isUltrawide ? 18 : 14 }} /> : <CloudIcon sx={{ fontSize: isUltrawide ? 18 : 14 }} />}
                     label={cacheStatus[track.videoId] ? '快取' : '網路'}
-                    size="small"
+                    size={isUltrawide ? "medium" : "small"}
                     sx={{
                       position: 'absolute',
-                      top: 8,
-                      left: 8,
+                      top: 12,
+                      left: 12,
                       backgroundColor: cacheStatus[track.videoId] ? 'rgba(46, 125, 50, 0.9)' : 'rgba(25, 118, 210, 0.9)',
                       color: 'white',
+                      fontSize: isUltrawide ? '0.9rem' : '0.75rem',
                       '& .MuiChip-icon': { color: 'white' },
                     }}
                   />
                   <Chip
                     label={formatDuration(track.duration)}
-                    size="small"
+                    size={isUltrawide ? "medium" : "small"}
                     sx={{
                       position: 'absolute',
-                      bottom: 8,
-                      right: 8,
+                      bottom: 12,
+                      right: 12,
                       backgroundColor: 'rgba(0, 0, 0, 0.7)',
                       color: 'white',
+                      fontSize: isUltrawide ? '0.9rem' : '0.75rem',
                     }}
                   />
                 </Box>
 
-                <CardContent sx={{ flexGrow: 1, pb: 1 }}>
+                <CardContent sx={{ flexGrow: 1, pb: 1, px: isUltrawide ? 3 : 2, pt: isUltrawide ? 2 : 1 }}>
                   <Typography
-                    variant="subtitle1"
+                    variant={isUltrawide ? "h6" : "subtitle1"}
                     component="div"
                     sx={{
-                      fontWeight: 600,
+                      fontWeight: 700,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       display: '-webkit-box',
                       WebkitLineClamp: 2,
                       WebkitBoxOrient: 'vertical',
                       mb: 1,
+                      lineHeight: 1.3,
                     }}
                   >
                     {track.title}
                   </Typography>
 
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  <Typography variant={isUltrawide ? "subtitle1" : "body2"} color="text.secondary" sx={{ mb: 1.5 }}>
                     {track.channel}
                   </Typography>
 
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center' }}>
                     {track.views !== undefined && (
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant={isUltrawide ? "body2" : "caption"} color="text.secondary">
                         {formatNumber(track.views)} 次觀看
                       </Typography>
                     )}
 
                     {track.uploadedAt && (
                       <Typography 
-                        variant="caption" 
+                        variant={isUltrawide ? "body2" : "caption"} 
                         sx={{ 
                           color: 'primary.main', 
-                          fontWeight: 500,
+                          fontWeight: 600,
                           backgroundColor: (t) => alpha(t.palette.primary.main, 0.1),
-                          px: 0.5,
-                          borderRadius: 0.5
+                          px: 1,
+                          py: 0.25,
+                          borderRadius: 1,
+                          fontSize: isUltrawide ? '0.9rem' : 'inherit'
                         }}
                       >
                         📅 {formatUploadedAt(track.uploadedAt)}
@@ -218,35 +225,38 @@ export default function SearchResults({
                 </CardContent>
               </CardActionArea>
 
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1, pt: 0 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', p: isUltrawide ? 2 : 1, pt: 0 }}>
                 <IconButton
                   color="primary"
                   onClick={() => onPlay(track)}
                   sx={{
                     flexGrow: 1,
                     borderRadius: 2,
+                    py: isUltrawide ? 1.5 : 1,
                     backgroundColor: (t) => alpha(t.palette.primary.main, 0.08),
                     '&:hover': { backgroundColor: (t) => alpha(t.palette.primary.main, 0.18) },
                     transition: 'all 0.18s ease',
                   }}
                 >
-                  <PlayArrowIcon />
+                  <PlayArrowIcon sx={{ fontSize: isUltrawide ? 32 : 24 }} />
                 </IconButton>
                 {onAddToQueue && (
                   <IconButton
                     color="default"
                     onClick={(e) => handleAddToQueue(e, track)}
                     title="加入佇列"
+                    size={isUltrawide ? "large" : "medium"}
                   >
-                    <AddIcon />
+                    <AddIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />
                   </IconButton>
                 )}
                 <IconButton
                   color="default"
                   onClick={(e) => handleOpenPlaylistMenu(e, track)}
                   title="加入播放清單"
+                  size={isUltrawide ? "large" : "medium"}
                 >
-                  <PlaylistAddIcon />
+                  <PlaylistAddIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />
                 </IconButton>
               </Box>
             </Card>
