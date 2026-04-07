@@ -299,6 +299,7 @@ export class RecommendationController {
   async refreshRecommendations(_req: Request, res: Response): Promise<void> {
     try {
       recommendationService.refreshRecommendations();
+      mixedCache = null;
 
       res.json({
         success: true,

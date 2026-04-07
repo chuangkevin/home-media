@@ -91,7 +91,10 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
         )}
         {onHideChannel && (
           <IconButton
-            onClick={() => onHideChannel(channel.channelName)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onHideChannel(channel.channelName);
+            }}
             size="small"
             sx={{
               ml: 1,

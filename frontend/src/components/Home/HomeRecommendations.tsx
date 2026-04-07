@@ -20,12 +20,21 @@ export default function HomeRecommendations() {
 
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [cacheStatus, setCacheStatus] = useState<Map<string, boolean>>(new Map());
+  const [hiddenChannels, setHiddenChannels] = useState<Set<string>>(new Set());
+
+  const visibleRecommendations = channelRecommendations.filter(
+    (channel) => !hiddenChannels.has(channel.channelName)
+  );
 
   useEffect(() => {
     if (channelRecommendations.length === 0) {
       dispatch(fetchChannelRecommendations({ page: 0, pageSize: 5, mixed: true }));
     }
   }, [dispatch, channelRecommendations.length]);
+
+  useEffect(() => {
+    setHiddenChannels(new Set());
+  }, [channelRecommendations]);
 
   // 檢查所有影片的快取狀態 + 自動預載未快取的音樂和歌詞
   useEffect(() => {
@@ -169,11 +178,17 @@ export default function HomeRecommendations() {
 
   const handleHideChannel = async (channelName: string) => {
     try {
+      setHiddenChannels((prev) => new Set(prev).add(channelName));
       await apiService.hideChannel(channelName);
       console.log(`🚫 已隱藏頻道: ${channelName}`);
       // 刷新推薦列表
       dispatch(refreshRecommendations());
     } catch (error) {
+      setHiddenChannels((prev) => {
+        const next = new Set(prev);
+        next.delete(channelName);
+        return next;
+      });
       console.error('隱藏頻道失敗:', error);
     }
   };
@@ -217,10 +232,10 @@ export default function HomeRecommendations() {
         </Button>
       </Box>
 
-      {channelRecommendations.map((channel, index) => (
+      {visibleRecommendations.map((channel, index) => (
         <div
           key={`${channel.channelName}-${index}`}
-          ref={index === channelRecommendations.length - 1 ? lastChannelRef : null}
+          ref={index === visibleRecommendations.length - 1 ? lastChannelRef : null}
         >
           <ChannelSection
             channel={channel}
