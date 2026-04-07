@@ -1308,7 +1308,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             borderTopLeftRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
             borderTopRightRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
             bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
-            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingTop: 'max(8px, env(safe-area-inset-top, 8px))',
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             display: 'flex',
             flexDirection: isLandscape ? 'row' : 'column',
@@ -1363,7 +1363,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             onTouchEnd={handleHeaderTouchEnd}
             sx={{
               position: 'sticky',
-              top: 0,
+              top: 'max(0px, env(safe-area-inset-top, 0px))',
               zIndex: 10,
               backgroundColor: 'background.paper',
               borderBottom: 1,

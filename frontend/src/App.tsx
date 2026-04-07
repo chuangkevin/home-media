@@ -313,6 +313,7 @@ function AppContent() {
       display: 'flex', flexDirection: 'column',
       height: '100dvh', // dvh 處理 Safari address bar
       overflow: 'hidden',
+      pt: 'max(8px, env(safe-area-inset-top, 8px))',
     }}>
       {/* 可滾動內容區 */}
       <Box ref={scrollContainerRef} sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch' }}>
