@@ -1518,49 +1518,66 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
           {/* 歌詞微調控制（僅在歌詞模式顯示） */}
           {viewMode === 'lyrics' && currentLyrics?.isSynced && (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: isLandscape ? 0.5 : 1 }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: isUltrawide ? 2 : 0.5, 
+              mt: isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1),
+              mb: isUltrawide ? 0.5 : 0
+            }}>
               {isFineTuning ? (
                 <>
-                  <Typography variant="caption" color="primary">滑動對準:</Typography>
+                  <Typography variant={isUltrawide ? "body2" : "caption"} color="primary" sx={{ fontWeight: isUltrawide ? 600 : 400 }}>滑動對準:</Typography>
                   <Chip
                     label={fineTuneOffset === 0 ? '0s' : `${fineTuneOffset > 0 ? '+' : ''}${fineTuneOffset.toFixed(1)}s`}
-                    size="small"
+                    size={isUltrawide ? "medium" : "small"}
                     color="primary"
-                    sx={{ height: 20, minWidth: 50 }}
+                    sx={{ 
+                      height: isUltrawide ? 32 : 20, 
+                      minWidth: isUltrawide ? 80 : 50,
+                      fontSize: isUltrawide ? '1rem' : 'inherit'
+                    }}
                   />
-                  <IconButton size="small" onClick={handleConfirmFineTune} color="success">
-                    <CheckIcon sx={{ fontSize: 18 }} />
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleConfirmFineTune} color="success">
+                    <CheckIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
                   </IconButton>
-                  <IconButton size="small" onClick={handleCancelFineTune} color="error">
-                    <CloseIcon sx={{ fontSize: 18 }} />
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleCancelFineTune} color="error">
+                    <CloseIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
                   </IconButton>
                 </>
               ) : (
                 <>
-                  <IconButton size="small" onClick={handleOffsetDecrease}
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetDecrease}
                     onPointerDown={() => startHold(-0.5)} onPointerUp={stopHold} onPointerLeave={stopHold}
                   >
-                    <RemoveIcon sx={{ fontSize: 18 }} />
+                    <RemoveIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
                   </IconButton>
                   <Chip
                     label={timeOffset === 0 ? '0s' : `${timeOffset > 0 ? '+' : ''}${timeOffset.toFixed(1)}s`}
-                    size="small"
+                    size={isUltrawide ? "medium" : "small"}
                     onClick={handleOffsetReset}
                     color={timeOffset === 0 ? 'default' : 'primary'}
-                    sx={{ height: 24, minWidth: 55, cursor: 'pointer', fontWeight: 600 }}
+                    sx={{ 
+                      height: isUltrawide ? 36 : 24, 
+                      minWidth: isUltrawide ? 90 : 55, 
+                      cursor: 'pointer', 
+                      fontWeight: 700,
+                      fontSize: isUltrawide ? '1.1rem' : 'inherit'
+                    }}
                   />
-                  <IconButton size="small" onClick={handleOffsetIncrease}
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetIncrease}
                     onPointerDown={() => startHold(0.5)} onPointerUp={stopHold} onPointerLeave={stopHold}
                   >
-                    <AddIcon sx={{ fontSize: 18 }} />
+                    <AddIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
                   </IconButton>
                   {timeOffset !== 0 && (
-                    <IconButton size="small" onClick={handleOffsetReset}>
-                      <RestartAltIcon sx={{ fontSize: 18 }} />
+                    <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetReset}>
+                      <RestartAltIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
                     </IconButton>
                   )}
-                  <IconButton size="small" onClick={handleEnterFineTune} color="primary">
-                    <TuneIcon sx={{ fontSize: 18 }} />
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleEnterFineTune} color="primary">
+                    <TuneIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
                   </IconButton>
                 </>
               )}

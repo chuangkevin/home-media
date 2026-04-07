@@ -21,8 +21,10 @@
 - **決策**:
   - 定義 `isUltrawide` 斷點：`(min-width: 1200px) and (max-height: 800px)`。
   - **字體**: 歌詞 Active 提升至 `3.8rem`，Normal 提升至 `2.4rem`。
-  - **佈局**: 縮減 `py` 間距，壓縮 `BottomNavigation` 高度至 48px。
-  - **觸控**: 關鍵按鈕尺寸改為 `large` 並增加點擊間距。
+  - 佈局: 縮減 `py` 間距，壓縮 `BottomNavigation` 高度至 48px。
+  - 觸控: 關鍵按鈕尺寸改為 `large` 並增加點擊間距。
+  - **歌詞微調**: 在 `isUltrawide` 模式下，將 `IconButton` 尺寸從 `small` 提升至 `large`，Icon 升級至 28px，時間 Chip 提升至 36px/1.1rem，並將按鈕間距 `gap` 提升至 2。
+
 
 ## 搜尋隨機性與上傳日期優化 (2026-04-07)
 - **問題**: 搜尋結果順序固定（因 24h 快取），且曲目上傳日期未顯示或不夠醒目。
