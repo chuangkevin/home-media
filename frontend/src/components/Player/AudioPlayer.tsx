@@ -424,6 +424,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         }
 
         // 沒有前端 cache：直接從 server 串流（邊播邊快取）
+        // 先取消可能正在進行的預載下載，避免 backend inFlightStreams 讓 audio element 等待整首下載完才能串流
+        audioCacheService.abortDownload(videoId);
         console.log(`🎵 串流播放: ${pendingTrack.title}`);
         const streamUrl = apiService.getStreamUrl(videoId);
         audioRef.current!.src = streamUrl;
