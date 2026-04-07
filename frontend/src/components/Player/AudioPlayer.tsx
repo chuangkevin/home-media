@@ -955,7 +955,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         if (!endFallbackTimeout && currentTrack?.duration) {
           const remainingMs = (currentTrack.duration - audio.currentTime + 3) * 1000;
           endFallbackTimeout = setTimeout(() => {
-            if (!wasCompletedRef.current && displayMode !== 'video') {
+            if (!wasCompletedRef.current) {
               console.log('⏰ iOS fallback: timeupdate 未觸發結尾偵測，強制跳下一首');
               wasCompletedRef.current = true;
               dispatch(playNext());
@@ -1007,7 +1007,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           console.log(`⏭️ 到達 YouTube 原始長度 ${trackDuration}s，跳下一首（audio.duration=${audio.duration.toFixed(1)}s）`);
           wasCompletedRef.current = true;
           if (endFallbackTimeout) { clearTimeout(endFallbackTimeout); endFallbackTimeout = null; }
-          if (displayMode !== 'video') dispatch(playNext());
+          dispatch(playNext());
           return;
         }
       }
@@ -1054,10 +1054,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         completeSentRef.current = true;
         apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
       }
-      // 影片模式時由 VideoPlayer 處理播放結束
-      if (displayMode !== 'video') {
-        dispatch(playNext());
-      }
+      dispatch(playNext());
     };
 
     const handleError = async (e: Event) => {
@@ -1256,10 +1253,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             completeSentRef.current = true;
             apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
           }
-          if (displayMode !== 'video') {
-            dispatch(playNext());
-            return;
-          }
+          dispatch(playNext());
+          return;
         }
         // 恢復暫停的播放
         if (isPlayingRef.current && audio.paused && audio.src) {
@@ -1369,12 +1364,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               completeSentRef.current = true;
               apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
             }
-            // 在下次 setInterval 觸發時跳下一首（不在這裡直接 dispatch，避免在 Media Session callback 中干撃 state）
+            // 在下次 setInterval 觸發時跳下一首（不在這裡直接 dispatch，避免在 Media Session callback 中干擾 state）
             setTimeout(() => {
               if (!wasCompletedRef.current) return; // 已被重置
-              if (displayMode !== 'video') {
-                dispatch(playNext());
-              }
+              dispatch(playNext());
             }, 100);
           }
         }

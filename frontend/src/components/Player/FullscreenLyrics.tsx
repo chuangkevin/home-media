@@ -27,7 +27,7 @@ import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget, playNext } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -521,6 +521,35 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       }
     };
   }, [open, viewMode, videoCached, track.videoId]);
+
+  // iOS/PWA 背景時關閉可視影片層，讓 audio 持續播放並降低整頁被回收的機率。
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const videoEl = cachedVideoRef.current;
+      const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+      if (!videoEl || viewMode !== 'video') return;
+
+      if (document.hidden) {
+        videoEl.pause();
+        videoEl.playbackRate = 1;
+        return;
+      }
+
+      if (audioEl) {
+        try {
+          videoEl.currentTime = audioEl.currentTime;
+        } catch {}
+        if (!audioEl.paused) {
+          videoEl.play().catch(() => {});
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [viewMode]);
 
   // 處理影片 seek 操作（拖動進度條）
   useEffect(() => {
@@ -1076,7 +1105,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             }
           }}
           onPause={() => {}}
-          onEnded={() => dispatch(playNext())}
           muted
         />
 

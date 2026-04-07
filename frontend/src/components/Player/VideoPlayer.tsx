@@ -5,7 +5,7 @@ import MusicVideoIcon from '@mui/icons-material/MusicVideo';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import type { Track } from '../../types/track.types';
-import { setDuration, clearSeekTarget, playNext, setDisplayMode } from '../../store/playerSlice';
+import { setDuration, clearSeekTarget, setDisplayMode } from '../../store/playerSlice';
 import { RootState } from '../../store';
 
 interface VideoPlayerProps {
@@ -190,9 +190,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
               const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
               const audioTime = audioEl?.currentTime || 0;
 
-              if (event.data === 0) {
-                dispatch(playNext());
-              } else if (event.data === 1) {
+              if (event.data === 1) {
                 // iframe 開始播放 — 立即同步到 audio 位置
                 const videoTime = event.target.getCurrentTime();
                 if (Math.abs(videoTime - audioTime) > 1) {
@@ -357,9 +355,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             onStateChange: (event: any) => {
               const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
               const audioTime = audioEl?.currentTime || 0;
-              if (event.data === 0) {
-                dispatch(playNext());
-              } else if (event.data === 1) {
+              if (event.data === 1) {
                 const videoTime = event.target.getCurrentTime();
                 if (Math.abs(videoTime - audioTime) > 1) {
                   event.target.seekTo(audioTime, true);
