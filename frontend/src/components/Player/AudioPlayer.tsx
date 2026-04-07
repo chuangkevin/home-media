@@ -36,6 +36,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const pendingBlobUrlRef = useRef<string | null>(null);
   const wasCompletedRef = useRef(false);
   const completeSentRef = useRef(false);
+  // Refs for latest playlist/index — kept in sync so handleTimeUpdate closure stays fresh
+  const playlistRef = useRef(playlist);
+  const currentIndexRef = useRef(currentIndex);
+  const preload80TriggeredRef = useRef(false);
 
   // 🎵 自動播放佇列 - 當接近播放清單尾端時自動加入推薦歌曲
   useAutoQueue(!embedded);
@@ -196,6 +200,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   useEffect(() => {
     displayModeRef.current = displayMode;
   }, [displayMode]);
+
+  // Keep playlist/index refs fresh so closures inside handleTimeUpdate stay current
+  useEffect(() => { playlistRef.current = playlist; }, [playlist]);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  // Reset 80% preload flag when track changes
+  useEffect(() => { preload80TriggeredRef.current = false; }, [currentTrack?.videoId]);
 
   // SponsorBlock: 載入跳過片段
   useEffect(() => {
@@ -906,6 +916,31 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       dispatch(setCurrentTime(clampedTime));
       // Record complete when 90% reached (用 YouTube metadata duration)
       const completeDur = currentTrack?.duration || audio.duration;
+      // 80% preload: reinforce prefetch of next tracks in case earlier attempt failed
+      if (!preload80TriggeredRef.current && completeDur > 0 && audio.currentTime >= completeDur * 0.8) {
+        preload80TriggeredRef.current = true;
+        const pl = playlistRef.current;
+        const ci = currentIndexRef.current;
+        const PRELOAD_AHEAD = 3;
+        for (let i = 1; i <= PRELOAD_AHEAD; i++) {
+          const idx = ci + i;
+          if (idx >= pl.length) break;
+          const track = pl[idx];
+          apiService.preloadAudio(track.videoId).catch(() => {});
+          audioCacheService.get(track.videoId).then(cached => {
+            if (!cached) {
+              const streamUrl = apiService.getStreamUrl(track.videoId);
+              audioCacheService.fetchAndCache(track.videoId, streamUrl, {
+                title: track.title,
+                channel: track.channel,
+                thumbnail: track.thumbnail,
+                duration: track.duration,
+              }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+        console.log(`⏬ [80%] 觸發預載接下來 ${Math.min(PRELOAD_AHEAD, pl.length - ci - 1)} 首`);
+      }
       if (!completeSentRef.current && completeDur > 0 && audio.currentTime >= completeDur * 0.9) {
         completeSentRef.current = true;
         // Note: wasCompletedRef is NOT set here — it gates the time-based end detection

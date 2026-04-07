@@ -15,6 +15,7 @@ export interface RadioStation {
   stationName: string;
   listeners: Set<string>; // socket IDs
   currentTrack: RadioTrack | null;
+  playlist: RadioTrack[]; // full DJ playlist for listener prefetch
   currentTime: number;
   isPlaying: boolean;
   displayMode: DisplayMode;
@@ -82,6 +83,7 @@ class RadioService {
       stationName: stationName || `${hostName} 的電台`,
       listeners: new Set(),
       currentTrack: null,
+      playlist: [],
       currentTime: 0,
       isPlaying: false,
       displayMode: 'visualizer',
@@ -288,6 +290,7 @@ class RadioService {
     socketId: string,
     update: {
       currentTrack?: RadioTrack | null;
+      playlist?: RadioTrack[];
       currentTime?: number;
       isPlaying?: boolean;
       displayMode?: DisplayMode;
@@ -309,6 +312,9 @@ class RadioService {
     if (update.currentTrack !== undefined) {
       station.currentTrack = update.currentTrack;
       hasStateChange = true;
+    }
+    if (update.playlist !== undefined) {
+      station.playlist = update.playlist;
     }
     if (update.currentTime !== undefined) {
       station.currentTime = update.currentTime;

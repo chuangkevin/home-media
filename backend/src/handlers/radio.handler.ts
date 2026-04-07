@@ -114,12 +114,13 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
     // 加入電台房間
     socket.join(`radio:${station.id}`);
 
-    // 回傳當前狀態給新聽眾
+    // 回傳當前狀態給新聽眾（含完整播放清單供預載）
     socket.emit('radio:joined', {
       stationId: station.id,
       stationName: station.stationName,
       hostName: station.hostName,
       currentTrack: station.currentTrack,
+      playlist: station.playlist,
       currentTime: station.currentTime,
       isPlaying: station.isPlaying,
       displayMode: station.displayMode,
@@ -193,6 +194,25 @@ export function setupRadioHandlers(io: Server, socket: Socket): void {
       io.emit('radio:list', radioService.getStationList());
 
       logger.debug(`📻 [Radio] Track changed: ${data.track?.title || 'null'}`);
+    }
+  });
+
+  /**
+   * 主播同步播放清單（供聽眾預載）
+   */
+  socket.on('radio:playlist-update', (data: { playlist: RadioTrack[] }) => {
+    const station = radioService.updateStationState(socket.id, {
+      playlist: data.playlist,
+    });
+
+    if (station) {
+      socket.to(`radio:${station.id}`).emit('radio:sync', {
+        type: 'playlist-update',
+        playlist: data.playlist,
+        syncVersion: station.syncVersion,
+      });
+
+      logger.debug(`📻 [Radio] Playlist updated: ${data.playlist.length} tracks`);
     }
   });
 

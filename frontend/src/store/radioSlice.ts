@@ -37,6 +37,7 @@ interface RadioState {
   hostGracePeriod: number; // 主播離線寬限期倒計時（秒）
   // 同步播放狀態
   syncTrack: RadioTrack | null;
+  syncPlaylist: RadioTrack[]; // DJ 完整播放清單（供聽眾預載）
   syncTime: number;
   syncIsPlaying: boolean;
   syncDisplayMode: DisplayMode;
@@ -56,6 +57,7 @@ const initialState: RadioState = {
   hostDisconnected: false,
   hostGracePeriod: 0,
   syncTrack: null,
+  syncPlaylist: [],
   syncTime: 0,
   syncIsPlaying: false,
   syncDisplayMode: 'visualizer',
@@ -95,6 +97,7 @@ const radioSlice = createSlice({
         stationName: string;
         hostName: string;
         currentTrack: RadioTrack | null;
+        playlist?: RadioTrack[];
         currentTime: number;
         isPlaying: boolean;
         displayMode?: DisplayMode;
@@ -107,6 +110,7 @@ const radioSlice = createSlice({
       state.hostName = action.payload.hostName;
       state.hostDisconnected = false;
       state.syncTrack = action.payload.currentTrack;
+      state.syncPlaylist = action.payload.playlist ?? [];
       state.syncTime = action.payload.currentTime;
       state.syncIsPlaying = action.payload.isPlaying;
       state.syncDisplayMode = action.payload.displayMode ?? 'visualizer';
@@ -121,6 +125,7 @@ const radioSlice = createSlice({
       state.hostDisconnected = false;
       state.hostGracePeriod = 0;
       state.syncTrack = null;
+      state.syncPlaylist = [];
       state.syncTime = 0;
       state.syncIsPlaying = false;
       state.syncDisplayMode = 'visualizer';
@@ -135,6 +140,7 @@ const radioSlice = createSlice({
       state.hostDisconnected = false;
       state.hostGracePeriod = 0;
       state.syncTrack = null;
+      state.syncPlaylist = [];
       state.syncTime = 0;
       state.syncIsPlaying = false;
       state.syncDisplayMode = 'visualizer';
@@ -144,8 +150,9 @@ const radioSlice = createSlice({
     syncState(
       state,
       action: PayloadAction<{
-        type: 'track-change' | 'play-state' | 'time-sync' | 'seek' | 'display-mode';
+        type: 'track-change' | 'play-state' | 'time-sync' | 'seek' | 'display-mode' | 'playlist-update';
         track?: RadioTrack | null;
+        playlist?: RadioTrack[];
         currentTime?: number;
         isPlaying?: boolean;
         displayMode?: DisplayMode;
@@ -184,6 +191,9 @@ const radioSlice = createSlice({
           break;
         case 'display-mode':
           state.syncDisplayMode = action.payload.displayMode ?? state.syncDisplayMode;
+          break;
+        case 'playlist-update':
+          state.syncPlaylist = action.payload.playlist ?? state.syncPlaylist;
           break;
       }
     },
