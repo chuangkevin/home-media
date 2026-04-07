@@ -21,6 +21,7 @@ interface PlayerControlsProps {
 export default function PlayerControls({ embedded = false, isCompact = false }: PlayerControlsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekValue, setSeekValue] = useState(0);
 
@@ -70,13 +71,13 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
   if (isCompact && !embedded) {
     // ===== 迷你模式：進度條 + 按鈕在同一行 =====
     return (
-      <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: isUltrawide ? 2 : 0.5 }}>
         <Typography
           variant="caption"
           sx={{
             minWidth: 32,
             textAlign: 'right',
-            fontSize: '0.67rem',
+            fontSize: isUltrawide ? '0.85rem' : '0.67rem',
             fontFamily: '"Outfit", sans-serif',
             fontVariantNumeric: 'tabular-nums',
             color: 'text.secondary',
@@ -85,34 +86,34 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
           {formatDuration(Math.floor(currentTime))}
         </Typography>
         <Slider
-          size="small"
+          size={isUltrawide ? "medium" : "small"}
           value={isSeeking ? seekValue : currentTime}
           max={duration || 100}
           onChange={onSeekChange}
           onChangeCommitted={onSeekCommit}
           sx={{ flex: 1, mx: 0.5 }}
         />
-        <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious} sx={{ p: 0.5 }}>
-          <SkipPreviousIcon fontSize="small" />
+        <IconButton size={isUltrawide ? "large" : "small"} onClick={handlePrevious} disabled={!hasPrevious} sx={{ p: 0.5 }}>
+          <SkipPreviousIcon fontSize={isUltrawide ? "medium" : "small"} />
         </IconButton>
         <IconButton
           onClick={onPlayPause}
           color="primary"
-          size="small"
+          size={isUltrawide ? "large" : "small"}
           sx={{
-            p: 0.5,
+            p: isUltrawide ? 1.5 : 0.5,
             backgroundColor: (t) => alpha(t.palette.primary.main, 0.13),
             '&:hover': { backgroundColor: (t) => alpha(t.palette.primary.main, 0.24) },
             transition: 'all 0.18s ease',
           }}
         >
-          {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
+          {isPlaying ? <PauseIcon fontSize={isUltrawide ? "large" : "medium"} /> : <PlayArrowIcon fontSize={isUltrawide ? "large" : "medium"} />}
         </IconButton>
-        <IconButton size="small" onClick={handleNext} disabled={!hasNext} sx={{ p: 0.5 }}>
-          <SkipNextIcon fontSize="small" />
+        <IconButton size={isUltrawide ? "large" : "small"} onClick={handleNext} disabled={!hasNext} sx={{ p: 0.5 }}>
+          <SkipNextIcon fontSize={isUltrawide ? "medium" : "small"} />
         </IconButton>
-        <IconButton size="small" onClick={toggleMute} sx={{ p: 0.5 }}>
-          <VolumeIcon fontSize="small" />
+        <IconButton size={isUltrawide ? "large" : "small"} onClick={toggleMute} sx={{ p: 0.5 }}>
+          <VolumeIcon fontSize={isUltrawide ? "medium" : "small"} />
         </IconButton>
         <CastButton />
       </Box>
@@ -121,9 +122,9 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
 
   // ===== 標準模式（embedded 全螢幕歌詞用）=====
   return (
-    <Box sx={{ width: '100%', mt: 1 }}>
+    <Box sx={{ width: '100%', mt: isUltrawide ? 0 : 1 }}>
       {/* 進度條 */}
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: isUltrawide ? 0.5 : 1 }}>
         <Typography
           variant="caption"
           sx={{
@@ -132,13 +133,13 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
             fontFamily: '"Outfit", sans-serif',
             fontVariantNumeric: 'tabular-nums',
             color: 'text.secondary',
-            fontSize: '0.72rem',
+            fontSize: isUltrawide ? '0.85rem' : '0.72rem',
           }}
         >
           {formatDuration(Math.floor(currentTime))}
         </Typography>
         <Slider
-          size="small"
+          size={isUltrawide ? "medium" : "small"}
           value={isSeeking ? seekValue : currentTime}
           max={duration || 100}
           onChange={onSeekChange}
@@ -152,7 +153,7 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
             fontFamily: '"Outfit", sans-serif',
             fontVariantNumeric: 'tabular-nums',
             color: 'text.secondary',
-            fontSize: '0.72rem',
+            fontSize: isUltrawide ? '0.85rem' : '0.72rem',
           }}
         >
           {formatDuration(Math.floor(duration))}
@@ -160,34 +161,35 @@ export default function PlayerControls({ embedded = false, isCompact = false }: 
       </Stack>
 
       {/* 控制按鈕 */}
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <IconButton size="small" onClick={handlePrevious} disabled={!hasPrevious}>
-            <SkipPreviousIcon />
+      <Stack direction="row" spacing={isUltrawide ? 3 : 1} alignItems="center">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: isUltrawide ? 2 : 0.5 }}>
+          <IconButton size={isUltrawide ? "large" : "small"} onClick={handlePrevious} disabled={!hasPrevious}>
+            <SkipPreviousIcon fontSize={isUltrawide ? "large" : "medium"} />
           </IconButton>
           <IconButton
             onClick={onPlayPause}
             color="primary"
             size="large"
             sx={{
+              p: isUltrawide ? 2 : 1,
               backgroundColor: (t) => alpha(t.palette.primary.main, 0.13),
               '&:hover': { backgroundColor: (t) => alpha(t.palette.primary.main, 0.24) },
               transition: 'all 0.18s ease',
             }}
           >
-            {isPlaying ? <PauseIcon fontSize="large" /> : <PlayArrowIcon fontSize="large" />}
+            {isPlaying ? <PauseIcon sx={{ fontSize: isUltrawide ? 48 : 32 }} /> : <PlayArrowIcon sx={{ fontSize: isUltrawide ? 48 : 32 }} />}
           </IconButton>
-          <IconButton size="small" onClick={handleNext} disabled={!hasNext}>
-            <SkipNextIcon />
+          <IconButton size={isUltrawide ? "large" : "small"} onClick={handleNext} disabled={!hasNext}>
+            <SkipNextIcon fontSize={isUltrawide ? "large" : "medium"} />
           </IconButton>
         </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto' }}>
-          <IconButton size="small" onClick={toggleMute}>
-            <VolumeIcon />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: isUltrawide ? 2 : 1, ml: 'auto' }}>
+          <IconButton size={isUltrawide ? "large" : "small"} onClick={toggleMute}>
+            <VolumeIcon fontSize={isUltrawide ? "medium" : "medium"} />
           </IconButton>
           {(!isMobile || embedded) && (
-            <Slider size="small" value={volume} min={0} max={1} step={0.01} onChange={onVolumeChange} sx={{ width: embedded ? 100 : 80 }} />
+            <Slider size={isUltrawide ? "medium" : "small"} value={volume} min={0} max={1} step={0.01} onChange={onVolumeChange} sx={{ width: isUltrawide ? 150 : (embedded ? 100 : 80) }} />
           )}
           <CastButton />
         </Box>

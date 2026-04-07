@@ -10,6 +10,7 @@ import {
   BottomNavigation,
   BottomNavigationAction,
   Paper,
+  useMediaQuery,
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
@@ -106,6 +107,7 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+  const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
 
   const getNavValue = () => {
     if (location.pathname === '/playlists') return '/playlists';
@@ -128,7 +130,7 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
     <Paper
       sx={{
         flexShrink: 0,
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        paddingBottom: isUltrawide ? 0 : 'env(safe-area-inset-bottom, 0px)',
         borderTop: '1px solid',
         borderColor: 'divider',
         background: (theme) =>
@@ -143,25 +145,28 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
       <BottomNavigation
         value={getNavValue()}
         showLabels
-        sx={{ minHeight: 60, background: 'transparent' }}
+        sx={{ minHeight: isUltrawide ? 48 : 60, height: isUltrawide ? 48 : 60, background: 'transparent' }}
       >
         <BottomNavigationAction
           label="首頁"
           value="/"
-          icon={<HomeIcon />}
+          icon={<HomeIcon sx={{ fontSize: isUltrawide ? 20 : 24 }} />}
           onClick={() => handleClick('/')}
+          sx={{ py: isUltrawide ? 0.5 : 1 }}
         />
         <BottomNavigationAction
           label="播放清單"
           value="/playlists"
           onClick={() => handleClick('/playlists')}
-          icon={<QueueMusicIcon />}
+          icon={<QueueMusicIcon sx={{ fontSize: isUltrawide ? 20 : 24 }} />}
+          sx={{ py: isUltrawide ? 0.5 : 1 }}
         />
         <BottomNavigationAction
           label="設定"
           value="/admin"
-          icon={<SettingsIcon />}
+          icon={<SettingsIcon sx={{ fontSize: isUltrawide ? 20 : 24 }} />}
           onClick={() => handleClick('/admin')}
+          sx={{ py: isUltrawide ? 0.5 : 1 }}
         />
       </BottomNavigation>
     </Paper>
@@ -172,6 +177,7 @@ function AppContent() {
   const dispatch = useDispatch();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
   const { currentTrack, displayMode } = useSelector(
     (state: RootState) => state.player
   );
@@ -313,18 +319,18 @@ function AppContent() {
       display: 'flex', flexDirection: 'column',
       height: '100dvh', // dvh 處理 Safari address bar
       overflow: 'hidden',
-      pt: 'max(8px, env(safe-area-inset-top, 8px))',
+      pt: isUltrawide ? 0.5 : 'max(8px, env(safe-area-inset-top, 8px))',
     }}>
       {/* 可滾動內容區 */}
       <Box ref={scrollContainerRef} sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch' }}>
-      <Container maxWidth="lg" sx={{ py: 4, pb: 2 }}>
+      <Container maxWidth="lg" sx={{ py: isUltrawide ? 1 : 4, pb: 2 }}>
         {/* Header */}
-        <Box sx={{ textAlign: 'center', mb: 4 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+        <Box sx={{ textAlign: 'center', mb: isUltrawide ? 1 : 4 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.5 }}>
             <RadioButton />
           </Box>
           <Typography
-            variant="h3"
+            variant={isUltrawide ? "h4" : "h3"}
             component="h1"
             gutterBottom
             sx={{
@@ -340,21 +346,23 @@ function AppContent() {
           >
             {siteTitle}
           </Typography>
-          <Typography
-            variant="subtitle1"
-            color="text.secondary"
-            sx={{
-              fontFamily: '"Outfit", sans-serif',
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              fontSize: '0.72rem',
-              opacity: 0.55,
-            }}
-          >
-            搜尋並播放 YouTube 音樂
-          </Typography>
+          {!isUltrawide && (
+            <Typography
+              variant="subtitle1"
+              color="text.secondary"
+              sx={{
+                fontFamily: '"Outfit", sans-serif',
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                fontSize: '0.72rem',
+                opacity: 0.55,
+              }}
+            >
+              搜尋並播放 YouTube 音樂
+            </Typography>
+          )}
           {/* 電台收聽指示器 */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: isUltrawide ? 0.5 : 2 }}>
             <RadioIndicator />
           </Box>
         </Box>

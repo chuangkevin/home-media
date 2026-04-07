@@ -56,6 +56,7 @@ interface FullscreenLyricsProps {
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
   const dispatch = useDispatch();
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
+  const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
   const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px) and (min-height: 360px)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
@@ -994,12 +995,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     return (
       <Box sx={{ 
         px: isLandscapeFullscreen ? 6 : 2,
-        maxWidth: isLandscapeFullscreen ? '900px' : 'none',
+        maxWidth: isLandscapeFullscreen ? '1200px' : 'none',
         mx: 'auto',
         width: '100%',
       }}>
-        {/* 頂部填充 */}
-        <Box sx={{ height: isShortViewport ? '10vh' : '25vh' }} />
+        {/* 頂部填充 - Ultrawide 縮減填充 */}
+        <Box sx={{ height: isUltrawide ? '5vh' : (isShortViewport ? '10vh' : '25vh') }} />
         {currentLyrics.lines.map((line, index) => {
           const isActive = currentLyrics.isSynced && index === currentLineIndex;
           const isPassed = currentLyrics.isSynced && index < currentLineIndex;
@@ -1010,7 +1011,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               ref={(el: HTMLDivElement | null) => (lineRefs.current[index] = el)}
               onClick={() => currentLyrics.isSynced && handleLyricClick(line.time, index)}
               sx={{
-                py: isLandscapeFullscreen ? 3 : 2,
+                py: isUltrawide ? 1 : (isLandscapeFullscreen ? 3 : 2),
                 px: 2,
                 textAlign: 'center',
                 transition: 'all 0.3s ease',
@@ -1025,9 +1026,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               <Typography
                 sx={{
                   fontWeight: isActive ? 700 : 400,
-                  fontSize: isLandscapeFullscreen 
-                    ? (isActive ? '2.8rem' : '1.8rem')
-                    : (isActive ? '1.6rem' : '1.2rem'),
+                  fontSize: isUltrawide
+                    ? (isActive ? '3.8rem' : '2.4rem')
+                    : (isLandscapeFullscreen 
+                      ? (isActive ? '2.8rem' : '1.8rem')
+                      : (isActive ? '1.6rem' : '1.2rem')),
                   color: isActive
                     ? 'primary.main'
                     : isPassed
@@ -1035,7 +1038,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                     : 'text.primary',
                   opacity: isPassed ? 0.5 : 1,
                   transition: 'all 0.3s ease',
-                  lineHeight: isLandscapeFullscreen ? 1.4 : 1.5,
+                  lineHeight: isLandscapeFullscreen ? 1.2 : 1.5,
                 }}
               >
                 {toTraditional(line.text)}
@@ -1044,13 +1047,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               {translations[index] && translations[index] !== toTraditional(line.text) && (
                 <Typography
                   sx={{
-                    fontSize: isLandscapeFullscreen
-                      ? (isActive ? '1.4rem' : '1rem')
-                      : (isActive ? '0.95rem' : '0.8rem'),
+                    fontSize: isUltrawide
+                      ? (isActive ? '1.8rem' : '1.2rem')
+                      : (isLandscapeFullscreen
+                        ? (isActive ? '1.4rem' : '1rem')
+                        : (isActive ? '0.95rem' : '0.8rem')),
                     color: isActive ? 'primary.light' : 'text.disabled',
                     opacity: isPassed ? 0.4 : 0.7,
-                    mt: 0.3,
-                    lineHeight: 1.3,
+                    mt: isUltrawide ? 0.1 : 0.3,
+                    lineHeight: 1.2,
                     fontStyle: 'italic',
                   }}
                 >
@@ -1079,7 +1084,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
         )}
         {/* 底部填充 */}
-        <Box sx={{ height: isShortViewport ? '10vh' : '25vh' }} />
+        <Box sx={{ height: isUltrawide ? '10vh' : (isShortViewport ? '10vh' : '25vh') }} />
       </Box>
     );
   };
@@ -1406,7 +1411,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               borderBottom: 1,
               borderColor: 'divider',
               px: 2,
-              py: isLandscape ? 0.5 : 1,
+              py: isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1),
               flexShrink: 0,
               touchAction: 'none',
             }}
@@ -1432,14 +1437,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 component="img"
                 src={track.thumbnail}
                 alt={track.title}
-                sx={{ width: isLandscape ? 32 : 48, height: isLandscape ? 32 : 48, borderRadius: 1, objectFit: 'cover' }}
+                sx={{ width: (isUltrawide || isLandscape) ? 32 : 48, height: (isUltrawide || isLandscape) ? 32 : 48, borderRadius: 1, objectFit: 'cover' }}
               />
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600 }}>
+                <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600, fontSize: isUltrawide ? '1rem' : '0.875rem' }}>
                   {track.title}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary" noWrap>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: isUltrawide ? '0.85rem' : '0.75rem' }}>
                     {track.channel}
                   </Typography>
                   {currentLyrics && (
@@ -1449,7 +1454,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                         currentLyrics.source === 'lrclib' ? 'LRC' :
                         currentLyrics.source === 'genius' ? 'G' : '?'}
                     size="small"
-                    sx={{ height: 16, fontSize: '0.65rem' }}
+                    sx={{ height: isUltrawide ? 20 : 16, fontSize: isUltrawide ? '0.75rem' : '0.65rem' }}
                   />
                 )}
               </Box>
@@ -1457,8 +1462,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             {viewMode === 'lyrics' && (
               <>
                 <Tooltip title="搜尋其他歌詞">
-                  <IconButton size="small" onClick={handleOpenSearch}>
-                    <EditIcon fontSize="small" />
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOpenSearch}>
+                    <EditIcon fontSize={isUltrawide ? "medium" : "small"} />
                   </IconButton>
                 </Tooltip>
                 {!isLandscape && (
@@ -1470,34 +1475,41 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 )}
               </>
             )}
-            <IconButton onClick={onClose}>
+            <IconButton onClick={onClose} size={isUltrawide ? "large" : "medium"}>
               <KeyboardArrowDownIcon />
             </IconButton>
           </Box>
 
           {/* 模式切換 — 沉浸全螢幕時隱藏 */}
           {(!isFullscreenLayout || isLandscape) && !isMorrorFullscreen && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: isLandscape ? 0.5 : 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1) }}>
               <ToggleButtonGroup
                 value={viewMode}
                 exclusive
                 onChange={(_, newMode) => { if (newMode) { setViewMode(newMode); setIsMorrorFullscreen(false); } }}
-                size="small"
+                size={isUltrawide ? "large" : "small"}
+                sx={{ 
+                  '& .MuiToggleButton-root': { 
+                    px: isUltrawide ? 4 : 2,
+                    py: isUltrawide ? 1 : 0.5,
+                    fontSize: isUltrawide ? '1rem' : 'inherit'
+                  } 
+                }}
               >
                 <ToggleButton value="lyrics">
-                  <LyricsIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                  <LyricsIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
                   歌詞
                 </ToggleButton>
                 <ToggleButton value="video">
-                  <OndemandVideoIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                  <OndemandVideoIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
                   {videoDownloading ? videoDownloadProgress || '下載中...' : '影片'}
                 </ToggleButton>
                 <ToggleButton value="cover">
-                  <AlbumIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                  <AlbumIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
                   封面
                 </ToggleButton>
                 <ToggleButton value="morror" disabled={!currentLyrics?.isSynced}>
-                  <AutoAwesomeIcon sx={{ mr: 0.5, fontSize: 18 }} />
+                  <AutoAwesomeIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
                   沉浸
                 </ToggleButton>
               </ToggleButtonGroup>

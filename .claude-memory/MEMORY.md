@@ -15,3 +15,12 @@
   - 放寬同步容差至 2-3 秒，避免微小漂移導致的不斷跳轉。
   - 實作「恢復鎖 (Recovery Lock)」：回到前景前 2.5 秒暫停同步，讓 Buffer 穩定。
   - 資源隔離：當歌詞抽屜開啟時，主動卸載底層 `VideoPlayer` 組件。
+
+## Ultrawide (1920*720) UI 優化 (2026-04-07)
+- **問題**: 矮螢幕且寬解析度下，字體過小且垂直空間被 Header/Footer 佔滿。
+- **決策**:
+  - 定義 `isUltrawide` 斷點：`(min-width: 1200px) and (max-height: 800px)`。
+  - **字體**: 歌詞 Active 提升至 `3.8rem`，Normal 提升至 `2.4rem`。
+  - **佈局**: 縮減 `py` 間距，壓縮 `BottomNavigation` 高度至 48px。
+  - **觸控**: 關鍵按鈕尺寸改為 `large` 並增加點擊間距。
+
