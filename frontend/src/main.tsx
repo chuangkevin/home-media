@@ -188,7 +188,7 @@ function createPremiumTheme(mode: 'light' | 'dark') {
             '& .MuiOutlinedInput-root': {
               borderRadius: 28,
               fontFamily: '"Outfit", sans-serif',
-              fontSize: '0.95rem',
+              fontSize: '1rem', // 確保不小於 16px 防止 iOS 自動縮放
               ...(isDark && {
                 backgroundColor: 'rgba(255, 255, 255, 0.04)',
                 '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.06)' },
