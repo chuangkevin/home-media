@@ -1111,6 +1111,31 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     let fakePlaybackRetryCount = 0;
     const MAX_FAKE_PLAYBACK_RETRIES = 3;
 
+    // iOS 後台播放 fallback：即使在鎖屏時也定期檢查是否到達結尾
+    // （因為 iOS 鎖屏時 timeupdate 事件會停止，ended 事件也不可靠）
+    const iosBackgroundCheckInterval = setInterval(() => {
+      if (displayMode === 'video' || !audio.src || !isPlayingRef.current) return;
+
+      const trackDur = currentTrack?.duration || audio.duration;
+      if (!trackDur || trackDur <= 0) return;
+
+      const currentTime = audio.currentTime;
+      // 如果已經超過或接近結尾（給 0.5s 容差），且還沒標記為完成
+      if (currentTime >= trackDur - 0.5 && !wasCompletedRef.current && currentVideoIdRef.current) {
+        console.log(`📱 [iOS Background] 偵測到歌曲已結尾 (${currentTime.toFixed(1)}s >= ${trackDur}s)，跳下一首`);
+        wasCompletedRef.current = true;
+        
+        // 記錄完成（如果還沒記錄）
+        if (!completeSentRef.current) {
+          completeSentRef.current = true;
+          apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
+        }
+
+        // 觸發下一首
+        dispatch(playNext());
+      }
+    }, 3000); // 3 秒檢查一次，iOS 鎖屏仍能運行
+
     const checkFakePlayback = setInterval(() => {
       if (!audio.paused && isPlaying && displayMode !== 'video') {
         const timeSinceUpdate = Date.now() - lastTimeUpdate;
@@ -1184,10 +1209,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // iOS 鎖屏恢復：頁面回到前台時自動恢復播放 + 檢查是否已超過歌曲結尾
     const handleVisibilityChange = () => {
       if (!document.hidden) {
+        console.log('📱 [PWA] 應用回到前台');
         // 檢查是否已超過 trackDuration（iOS 背景中 timeupdate 可能被暫停）
         const trackDur = currentTrack?.duration;
         if (trackDur && trackDur > 0 && audio.currentTime >= trackDur - 0.5 && !wasCompletedRef.current) {
-          console.log('📱 回到前台：偵測到已超過歌曲結尾，跳下一首');
+          console.log('📱 [PWA] 回到前台：偵測到已超過歌曲結尾，跳下一首');
           wasCompletedRef.current = true;
           if (!completeSentRef.current && currentVideoIdRef.current) {
             completeSentRef.current = true;
@@ -1200,11 +1226,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         }
         // 恢復暫停的播放
         if (isPlayingRef.current && audio.paused && audio.src) {
-          console.log('📱 頁面回到前台，恢復音訊播放');
+          console.log('📱 [PWA] 頁面回到前台，恢復音訊播放');
           audio.play().catch((err) => {
             console.warn('恢復播放失敗:', err);
           });
         }
+      } else {
+        // PWA 進入背景時，記錄當前時間和位置，用於後續檢查
+        console.log('📱 [PWA] 應用進入背景，記錄當前進度');
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1213,6 +1242,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       if (stalledTimeout) clearTimeout(stalledTimeout);
       if (endFallbackTimeout) clearTimeout(endFallbackTimeout);
       clearInterval(checkFakePlayback);
+      clearInterval(iosBackgroundCheckInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('durationchange', handleDurationChange);
@@ -1280,19 +1310,41 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // 設定正確的播放位置與時長（覆蓋 audio.duration 的尾部靜音）
     const updatePositionState = () => {
       try {
+        const audio = audioRef.current;
+        if (!audio) return;
+
         const duration = currentTrack.duration && currentTrack.duration > 0
-          ? currentTrack.duration : audioRef.current?.duration || 0;
-        if (duration > 0 && audioRef.current) {
+          ? currentTrack.duration : audio.duration || 0;
+        
+        if (duration > 0) {
+          const position = Math.min(audio.currentTime, duration);
           navigator.mediaSession.setPositionState({
             duration,
-            playbackRate: audioRef.current.playbackRate || 1,
-            position: Math.min(audioRef.current.currentTime, duration),
+            playbackRate: audio.playbackRate || 1,
+            position,
           });
+
+          // PWA/iOS 進度檢查：即使 timeupdate 被暫停，也在此檢查結尾
+          if (isPlayingRef.current && position >= duration - 0.5 && !wasCompletedRef.current && currentVideoIdRef.current) {
+            console.log(`📱 [PWA] Media Session 進度檢查：歌曲已結尾 (${position.toFixed(1)}s >= ${duration}s)`);
+            wasCompletedRef.current = true;
+            if (!completeSentRef.current) {
+              completeSentRef.current = true;
+              apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
+            }
+            // 在下次 setInterval 觸發時跳下一首（不在這裡直接 dispatch，避免在 Media Session callback 中干撃 state）
+            setTimeout(() => {
+              if (!wasCompletedRef.current) return; // 已被重置
+              if (displayMode !== 'video') {
+                dispatch(playNext());
+              }
+            }, 100);
+          }
         }
       } catch { /* 部分瀏覽器不支援 */ }
     };
 
-    // 初始設定 + 定期更新（鎖屏進度條）
+    // 初始設定 + 定期更新（鎖屏進度條、PWA 進度檢查）
     updatePositionState();
     const positionInterval = setInterval(updatePositionState, 5000);
 
