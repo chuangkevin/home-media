@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, IconButton, Snackbar } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, IconButton, Snackbar, Tooltip } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
+import AllInclusiveIcon from '@mui/icons-material/AllInclusive';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack, setDisplayMode } from '../../store/playerSlice';
@@ -13,6 +14,7 @@ import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { useAutoQueue } from '../../hooks/useAutoQueue';
 import { useCrossfade } from '../../hooks/useCrossfade';
+import { useContinuousPlayer } from '../../hooks/useContinuousPlayer';
 import { socketService } from '../../services/socket.service';
 import type { Track } from '../../types/track.types';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
@@ -28,6 +30,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const secondaryAudioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const { isHost } = useSelector((state: RootState) => state.radio);
+  const { isEnabled: continuousMode, sessionId: continuousSessionId } = useSelector((state: RootState) => state.continuousPlayer);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
@@ -49,6 +52,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
   const prevDisplayModeRef = useRef(displayMode);
+  const continuousModeRef = useRef(continuousMode);
+  const continuousSessionIdRef = useRef(continuousSessionId);
 
   // 🔊 Crossfade engine
   // Use a ref to store getSecondaryBlobUrl/clearSecondaryBlobUrl to avoid circular dependency
@@ -145,6 +150,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   });
   crossfadeRef.current = crossfade;
 
+  // 🔁 Continuous stream mode (server-side sequential audio for iOS lock-screen)
+  const { isSSEUpdateRef, toggle: toggleContinuousMode } = useContinuousPlayer(audioRef);
+
+  // Keep continuous mode refs in sync for handleTimeUpdate / other closures
+  useEffect(() => { continuousModeRef.current = continuousMode; }, [continuousMode]);
+  useEffect(() => { continuousSessionIdRef.current = continuousSessionId; }, [continuousSessionId]);
+
   // 🔊 Warm up secondary audio element on first user interaction
   useEffect(() => {
     if (embedded) return;
@@ -229,6 +241,24 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   useEffect(() => {
     if (embedded) return;
     if (!pendingTrack || !audioRef.current) return;
+
+    // ── Continuous mode ──────────────────────────────────────────────────────
+    // SSE update: just confirm (audio is already playing via continuous stream).
+    // User-initiated (e.g. playNext dispatched by PlayerControls): cancel and
+    // tell the server to skip instead — SSE will then send the real track-change.
+    if (continuousMode) {
+      if (isSSEUpdateRef.current) {
+        // Legitimate SSE track-change — already confirmed by the hook; reset flag.
+        isSSEUpdateRef.current = false;
+      } else {
+        // User pressed next/prev or some other client-side navigation.
+        dispatch(cancelPendingTrack());
+        const sid = continuousSessionIdRef.current;
+        if (sid) apiService.continuousNext(sid).catch(() => {});
+      }
+      return;
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // 🔊 Cancel any active crossfade when a new track is requested (DJ skip during crossfade)
     if (crossfade.crossfadeActiveRef.current) {
@@ -831,11 +861,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 當需要 seek 時（所有模式，audio element 是唯一音源）
   useEffect(() => {
     if (embedded) return;
-    if (seekTarget !== null && audioRef.current && !isLoadingTrack) {
+    if (seekTarget === null) return;
+
+    // Continuous mode: tell the server to seek; it restarts ffmpeg from new position.
+    if (continuousMode && continuousSessionId) {
+      apiService.continuousSeek(continuousSessionId, seekTarget).catch(() => {});
+      dispatch(clearSeekTarget());
+      return;
+    }
+
+    if (audioRef.current && !isLoadingTrack) {
       audioRef.current.currentTime = seekTarget;
       dispatch(clearSeekTarget());
     }
-  }, [seekTarget, displayMode, isLoadingTrack, dispatch]);
+  }, [seekTarget, displayMode, isLoadingTrack, continuousMode, continuousSessionId, dispatch]);
 
   // 定期檢查快取狀態（串流播放中，背景下載完成後更新 tag）
   useEffect(() => {
@@ -914,6 +953,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const STREAM_RETRY_DELAYS = [1000, 3000, 7000]; // exponential backoff
 
     const handleTimeUpdate = () => {
+      // Continuous mode: position is tracked by useContinuousPlayer via SSE.
+      // audio.currentTime is stream-relative (not track-relative) here, so we
+      // skip all local tracking — end detection, crossfade, and setCurrentTime.
+      if (continuousModeRef.current) return;
+
       // audio element 是唯一音源，所有模式都更新時間
       // 用 trackDuration clamp，避免尾部靜音時進度條跑超過
       const td = currentTrack?.duration;
@@ -1617,6 +1661,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 <IconButton size="small" onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)} sx={{ color: 'text.secondary' }}>
                   <PlaylistAddIcon fontSize="small" />
                 </IconButton>
+                <Tooltip title={continuousMode ? '關閉連續串流模式' : '啟用連續串流（解決 iOS 鎖螢幕自動播下一首）'}>
+                  <IconButton
+                    size="small"
+                    onClick={toggleContinuousMode}
+                    sx={{ color: continuousMode ? 'primary.main' : 'text.secondary' }}
+                  >
+                    <AllInclusiveIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               </>
             )}
           </Box>

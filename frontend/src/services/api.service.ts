@@ -650,6 +650,47 @@ class ApiService {
       return [];
     }
   }
+
+  // ==================== Continuous Stream ====================
+
+  /** 建立 continuous stream session */
+  async createContinuousSession(): Promise<{ sessionId: string }> {
+    const res = await this.api.post<{ sessionId: string }>('/stream/continuous');
+    return res.data;
+  }
+
+  /** 加歌到 session queue */
+  async queueContinuousTracks(
+    sessionId: string,
+    tracks: Array<{ videoId: string; title: string; artist: string; thumbnail: string; duration: number }>,
+  ): Promise<void> {
+    await this.api.post(`/stream/continuous/${sessionId}/queue`, { tracks });
+  }
+
+  /** 連續音訊串流 URL */
+  getContinuousStreamUrl(sessionId: string): string {
+    return `${API_BASE_URL}/stream/continuous/${sessionId}`;
+  }
+
+  /** SSE events URL */
+  getContinuousEventsUrl(sessionId: string): string {
+    return `${API_BASE_URL}/stream/continuous/${sessionId}/events`;
+  }
+
+  /** 手動跳下一首 */
+  async continuousNext(sessionId: string): Promise<void> {
+    await this.api.post(`/stream/continuous/${sessionId}/next`);
+  }
+
+  /** Seek 到指定時間（秒） */
+  async continuousSeek(sessionId: string, position: number): Promise<void> {
+    await this.api.post(`/stream/continuous/${sessionId}/seek`, { position });
+  }
+
+  /** 結束 session */
+  async deleteContinuousSession(sessionId: string): Promise<void> {
+    await this.api.delete(`/stream/continuous/${sessionId}`);
+  }
 }
 
 // 播放清單型別
