@@ -115,6 +115,7 @@ class YouTubeService {
             duration: video.duration ? Math.floor(video.duration / 1000) : 0, // ms → seconds
             thumbnail: video.thumbnail?.url || '',
             uploadedAt: (video as any).uploadedAt || (video as any).publishedAt || (video as any).uploadDate || '',
+            views: (video as any).views || 0,
           }));
 
         const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -147,8 +148,8 @@ class YouTubeService {
           channel: video.channel || video.uploader || 'Unknown Channel',
           duration: video.duration || 0,
           thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
-          views: video.view_count,
-          uploadedAt: video.upload_date,
+          views: video.view_count || 0,
+          uploadedAt: video.upload_date || video.uploadedAt || '',
           tags: video.tags || [],
           categories: video.categories || [],
           description: video.description || '',

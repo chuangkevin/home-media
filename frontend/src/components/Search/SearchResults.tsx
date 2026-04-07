@@ -193,17 +193,28 @@ export default function SearchResults({
                     {track.channel}
                   </Typography>
 
-                  {track.views && (
-                    <Typography variant="caption" color="text.secondary">
-                      {formatNumber(track.views)} 次觀看
-                    </Typography>
-                  )}
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+                    {track.views !== undefined && (
+                      <Typography variant="caption" color="text.secondary">
+                        {formatNumber(track.views)} 次觀看
+                      </Typography>
+                    )}
 
-                  {track.uploadedAt && (
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                      上傳：{formatUploadedAt(track.uploadedAt)}
-                    </Typography>
-                  )}
+                    {track.uploadedAt && (
+                      <Typography 
+                        variant="caption" 
+                        sx={{ 
+                          color: 'primary.main', 
+                          fontWeight: 500,
+                          backgroundColor: (t) => alpha(t.palette.primary.main, 0.1),
+                          px: 0.5,
+                          borderRadius: 0.5
+                        }}
+                      >
+                        📅 {formatUploadedAt(track.uploadedAt)}
+                      </Typography>
+                    )}
+                  </Box>
                 </CardContent>
               </CardActionArea>
 

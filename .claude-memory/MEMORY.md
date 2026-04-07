@@ -24,3 +24,9 @@
   - **佈局**: 縮減 `py` 間距，壓縮 `BottomNavigation` 高度至 48px。
   - **觸控**: 關鍵按鈕尺寸改為 `large` 並增加點擊間距。
 
+## 搜尋隨機性與上傳日期優化 (2026-04-07)
+- **問題**: 搜尋結果順序固定（因 24h 快取），且曲目上傳日期未顯示或不夠醒目。
+- **決策**:
+  - **隨機性**: 在 `YouTubeController.search` 加入 Fisher-Yates Shuffle，隨機化前 15 筆搜尋結果。
+  - **數據完整性**: 確保 `YouTubeService.ts` 中 `yt-dlp` 路徑也包含 `uploadedAt` 欄位。
+  - **UI 強化**: 在 `SearchResults.tsx` 中使用醒目的標籤與 📅 圖示顯示上傳日期。
