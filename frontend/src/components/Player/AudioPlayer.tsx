@@ -36,6 +36,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const pendingBlobUrlRef = useRef<string | null>(null);
   const wasCompletedRef = useRef(false);
   const completeSentRef = useRef(false);
+  // Refs for latest playlist/index — kept in sync so handleTimeUpdate closure stays fresh
+  const playlistRef = useRef(playlist);
+  const currentIndexRef = useRef(currentIndex);
+  const preload80TriggeredRef = useRef(false);
 
   // 🎵 自動播放佇列 - 當接近播放清單尾端時自動加入推薦歌曲
   useAutoQueue(!embedded);
@@ -196,6 +200,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   useEffect(() => {
     displayModeRef.current = displayMode;
   }, [displayMode]);
+
+  // Keep playlist/index refs fresh so closures inside handleTimeUpdate stay current
+  useEffect(() => { playlistRef.current = playlist; }, [playlist]);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  // Reset 80% preload flag when track changes
+  useEffect(() => { preload80TriggeredRef.current = false; }, [currentTrack?.videoId]);
 
   // SponsorBlock: 載入跳過片段
   useEffect(() => {
@@ -414,6 +424,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         }
 
         // 沒有前端 cache：直接從 server 串流（邊播邊快取）
+        // 先取消可能正在進行的預載下載，避免 backend inFlightStreams 讓 audio element 等待整首下載完才能串流
+        audioCacheService.abortDownload(videoId);
         console.log(`🎵 串流播放: ${pendingTrack.title}`);
         const streamUrl = apiService.getStreamUrl(videoId);
         audioRef.current!.src = streamUrl;
@@ -906,6 +918,31 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       dispatch(setCurrentTime(clampedTime));
       // Record complete when 90% reached (用 YouTube metadata duration)
       const completeDur = currentTrack?.duration || audio.duration;
+      // 80% preload: reinforce prefetch of next tracks in case earlier attempt failed
+      if (!preload80TriggeredRef.current && completeDur > 0 && audio.currentTime >= completeDur * 0.8) {
+        preload80TriggeredRef.current = true;
+        const pl = playlistRef.current;
+        const ci = currentIndexRef.current;
+        const PRELOAD_AHEAD = 3;
+        for (let i = 1; i <= PRELOAD_AHEAD; i++) {
+          const idx = ci + i;
+          if (idx >= pl.length) break;
+          const track = pl[idx];
+          apiService.preloadAudio(track.videoId).catch(() => {});
+          audioCacheService.get(track.videoId).then(cached => {
+            if (!cached) {
+              const streamUrl = apiService.getStreamUrl(track.videoId);
+              audioCacheService.fetchAndCache(track.videoId, streamUrl, {
+                title: track.title,
+                channel: track.channel,
+                thumbnail: track.thumbnail,
+                duration: track.duration,
+              }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+        console.log(`⏬ [80%] 觸發預載接下來 ${Math.min(PRELOAD_AHEAD, pl.length - ci - 1)} 首`);
+      }
       if (!completeSentRef.current && completeDur > 0 && audio.currentTime >= completeDur * 0.9) {
         completeSentRef.current = true;
         // Note: wasCompletedRef is NOT set here — it gates the time-based end detection
@@ -1344,9 +1381,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       } catch { /* 部分瀏覽器不支援 */ }
     };
 
-    // 初始設定 + 定期更新（鎖屏進度條、PWA 進度檢查）
+    // 初始設定 + 定期更新（鎖屏進度條、PWA 進度檢查），每秒更新讓進度條流暢
     updatePositionState();
-    const positionInterval = setInterval(updatePositionState, 5000);
+    const positionInterval = setInterval(updatePositionState, 1000);
 
     console.log('🎵 Media Session API 已設定:', currentTrack.title);
 
@@ -1364,13 +1401,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
   }, [currentTrack, dispatch]);
 
+  // 同步 playbackState — iOS 鎖螢幕靠此判斷是否維持 audio session
+  useEffect(() => {
+    if (embedded || !('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  }, [isPlaying, embedded]);
+
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
   if (!currentTrack && !pendingTrack) {
     if (embedded) return null;
     return (<>
-      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
-      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
+      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
+      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
     </>);
   }
 
@@ -1380,8 +1423,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   if (!displayTrack) {
     if (embedded) return null;
     return (<>
-      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
-      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" style={{ display: 'none' }} />
+      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
+      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
     </>);
   }
 
@@ -1585,9 +1628,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       {/* 隱藏的 audio 元素 - 放在 CardContent 外面確保不受條件渲染影響 */}
       {/* embedded 模式不渲染 audio 元素，避免多音訊同時播放 */}
       {!embedded && (<>
-        <audio ref={audioRef} preload="auto" crossOrigin="anonymous" />
+        <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline />
         {/* 🔊 Secondary audio element for crossfade */}
-        <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" />
+        <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline />
       </>)}
 
       {/* 加入播放清單選單 */}

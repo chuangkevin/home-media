@@ -6,6 +6,7 @@ import type { RadioTrack } from '../services/socket.service';
 import { setPendingTrack, setIsPlaying, seekTo, cancelPendingTrack, setDisplayMode } from '../store/playerSlice';
 import { setCurrentLyrics } from '../store/lyricsSlice';
 import apiService from '../services/api.service';
+import audioCacheService from '../services/audio-cache.service';
 import {
   setStations,
   setHostStation,
@@ -31,10 +32,10 @@ const SEEK_COOLDOWN_MS = 8000; // seek 後的冷卻時間（8 秒，等待緩衝
  */
 export function useRadioSync() {
   const dispatch = useDispatch();
-  const { currentTrack, pendingTrack, isPlaying, currentTime, isLoadingTrack, displayMode } = useSelector(
+  const { currentTrack, pendingTrack, isPlaying, currentTime, isLoadingTrack, displayMode, playlist } = useSelector(
     (state: RootState) => state.player
   );
-  const { isHost, isListener, syncTrack, syncTime, syncIsPlaying, syncDisplayMode } = useSelector(
+  const { isHost, isListener, syncTrack, syncPlaylist, syncTime, syncIsPlaying, syncDisplayMode } = useSelector(
     (state: RootState) => state.radio
   );
   const currentLyrics = useSelector((state: RootState) => state.lyrics.currentLyrics);
@@ -196,6 +197,27 @@ export function useRadioSync() {
     }
   }, [isHost, displayMode]);
 
+  // 主播：同步完整播放清單（供聽眾預載）
+  const prevPlaylistKeyRef = useRef<string>('');
+  useEffect(() => {
+    if (!isHost || playlist.length === 0) return;
+
+    // Only emit when playlist actually changes (by videoId sequence)
+    const key = playlist.map(t => t.videoId).join(',');
+    if (key === prevPlaylistKeyRef.current) return;
+    prevPlaylistKeyRef.current = key;
+
+    const radioPlaylist: RadioTrack[] = playlist.map(t => ({
+      videoId: t.videoId,
+      title: t.title,
+      channel: t.channel,
+      thumbnail: t.thumbnail,
+      duration: t.duration,
+    }));
+    socketService.radioPlaylistUpdate(radioPlaylist);
+    console.log('📻 [Host] Playlist synced:', playlist.length, 'tracks');
+  }, [isHost, playlist]);
+
   // 主播 seek 同步
   const hostSeek = useCallback((time: number) => {
     if (isHost) {
@@ -298,6 +320,47 @@ export function useRadioSync() {
       }
     };
   }, []);
+
+  // 聽眾：收到 DJ 播放清單時，預載後續曲目到 IndexedDB
+  useEffect(() => {
+    if (!isListener || syncPlaylist.length === 0 || !syncTrack) return;
+
+    const currentIdx = syncPlaylist.findIndex(t => t.videoId === syncTrack.videoId);
+    if (currentIdx < 0) return;
+
+    const PRELOAD_AHEAD = 3;
+    let cancelled = false;
+
+    for (let i = 1; i <= PRELOAD_AHEAD; i++) {
+      const idx = currentIdx + i;
+      if (idx >= syncPlaylist.length) break;
+      const track = syncPlaylist[idx];
+
+      (async () => {
+        try {
+          const cached = await audioCacheService.get(track.videoId);
+          if (cached || cancelled) return;
+
+          console.log(`📻⏬ [Listener] 預載 +${i}: ${track.title}`);
+          apiService.preloadAudio(track.videoId).catch(() => {});
+          const streamUrl = apiService.getStreamUrl(track.videoId);
+          await audioCacheService.fetchAndCache(track.videoId, streamUrl, {
+            title: track.title,
+            channel: track.channel,
+            thumbnail: track.thumbnail,
+            duration: track.duration,
+          });
+          if (!cancelled) {
+            console.log(`📻✅ [Listener] 預載完成 +${i}: ${track.title}`);
+          }
+        } catch {
+          // non-critical
+        }
+      })();
+    }
+
+    return () => { cancelled = true; };
+  }, [isListener, syncTrack?.videoId, syncPlaylist]);
 
   // 當收到播放狀態變更時
   useEffect(() => {

@@ -34,6 +34,7 @@ class AudioCacheService {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
   private inFlightDownloads = new Map<string, Promise<string>>();
+  private inFlightControllers = new Map<string, AbortController>();
 
   // 快取設置（預設值）
   private MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB 最大快取
@@ -476,10 +477,26 @@ class AudioCacheService {
    * 注意：我們不再返回 Blob URL，因為瀏覽器 audio 元素的 Range 請求
    * 在 Blob URL 上不支持。改用伺服器端快取優先策略。
    */
+  /**
+   * 取消正在進行的預載下載（讓 audio element 可以立即串流）
+   */
+  abortDownload(videoId: string): void {
+    const controller = this.inFlightControllers.get(videoId);
+    if (controller) {
+      console.log(`🚫 Aborting preload download for ${videoId} (immediate playback requested)`);
+      controller.abort();
+      this.inFlightControllers.delete(videoId);
+      this.inFlightDownloads.delete(videoId);
+    }
+  }
+
   async fetchAndCache(videoId: string, streamUrl: string, metadata?: CachedAudioMetadata): Promise<string> {
     if (this.inFlightDownloads.has(videoId)) {
       return this.inFlightDownloads.get(videoId)!;
     }
+
+    const controller = new AbortController();
+    this.inFlightControllers.set(videoId, controller);
 
     const downloadPromise = (async () => {
       try {
@@ -491,6 +508,7 @@ class AudioCacheService {
           redirect: 'follow',
           mode: 'cors',
           credentials: 'omit',
+          signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -517,10 +535,15 @@ class AudioCacheService {
         // 伺服器端快取會在下次請求時自動使用
         return streamUrl;
       } catch (error) {
-        console.error(`Failed to fetch audio for ${videoId}:`, error);
+        if ((error as Error).name === 'AbortError') {
+          console.log(`⏹️ Download aborted for ${videoId}`);
+        } else {
+          console.error(`Failed to fetch audio for ${videoId}:`, error);
+        }
         throw error;
       } finally {
         this.inFlightDownloads.delete(videoId);
+        this.inFlightControllers.delete(videoId);
       }
     })();
 

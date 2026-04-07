@@ -70,17 +70,19 @@ interface RadioJoinedData {
   stationName: string;
   hostName: string;
   currentTrack: RadioTrack | null;
+  playlist?: RadioTrack[];
   currentTime: number;
   isPlaying: boolean;
   displayMode?: DisplayMode;
 }
 
 interface RadioSyncData {
-  type: 'track-change' | 'play-state' | 'time-sync' | 'seek' | 'display-mode';
+  type: 'track-change' | 'play-state' | 'time-sync' | 'seek' | 'display-mode' | 'playlist-update';
   track?: RadioTrack | null;
   currentTime?: number;
   isPlaying?: boolean;
   displayMode?: DisplayMode;
+  playlist?: RadioTrack[];
 }
 
 interface RadioClosedData {
@@ -444,6 +446,11 @@ class SocketService {
   // 主播：crossfade 開始
   radioCrossfadeStart(nextTrack: RadioTrack, crossfadeDuration: number, elapsedMs: number): void {
     this.socket?.emit('radio:crossfade-start', { nextTrack, crossfadeDuration, elapsedMs });
+  }
+
+  // 主播：同步播放清單
+  radioPlaylistUpdate(playlist: RadioTrack[]): void {
+    this.socket?.emit('radio:playlist-update', { playlist });
   }
 
   // ===== Lyrics sync methods =====
