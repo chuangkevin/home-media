@@ -7,7 +7,7 @@ import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import AllInclusiveIcon from '@mui/icons-material/AllInclusive';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
-import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack, setDisplayMode } from '../../store/playerSlice';
+import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack } from '../../store/playerSlice';
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
@@ -16,6 +16,7 @@ import { useAutoQueue } from '../../hooks/useAutoQueue';
 import { useCrossfade } from '../../hooks/useCrossfade';
 import { useContinuousPlayer } from '../../hooks/useContinuousPlayer';
 import { socketService } from '../../services/socket.service';
+import { setEnabled as setContinuousModeEnabled } from '../../store/continuousPlayerSlice';
 import type { Track } from '../../types/track.types';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
 
@@ -29,7 +30,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const audioRef = useRef<HTMLAudioElement>(null);
   const secondaryAudioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
-  const { isHost } = useSelector((state: RootState) => state.radio);
+  const { isHost, isListener } = useSelector((state: RootState) => state.radio);
   const { isEnabled: continuousMode, sessionId: continuousSessionId } = useSelector((state: RootState) => state.continuousPlayer);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
@@ -42,6 +43,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
+  const isStandalonePWA = window.matchMedia('(display-mode: standalone)').matches
+    || (navigator as any).standalone === true;
+  const isIOSStandalonePWA = isIOSDevice && isStandalonePWA;
+  const autoEnabledContinuousRef = useRef(false);
   // Refs for latest playlist/index — kept in sync so handleTimeUpdate closure stays fresh
   const playlistRef = useRef(playlist);
   const currentIndexRef = useRef(currentIndex);
@@ -156,6 +161,25 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // Keep continuous mode refs in sync for handleTimeUpdate / other closures
   useEffect(() => { continuousModeRef.current = continuousMode; }, [continuousMode]);
   useEffect(() => { continuousSessionIdRef.current = continuousSessionId; }, [continuousSessionId]);
+
+  // iPhone PWA 預設啟用 continuous mode，從根本避開背景切歌掉音。
+  useEffect(() => {
+    if (embedded || autoEnabledContinuousRef.current || continuousMode) return;
+    if (!isIOSStandalonePWA || isHost || isListener) return;
+    if (!currentTrack || playlist.length === 0) return;
+
+    autoEnabledContinuousRef.current = true;
+    dispatch(setContinuousModeEnabled(true));
+  }, [
+    embedded,
+    continuousMode,
+    isIOSStandalonePWA,
+    isHost,
+    isListener,
+    currentTrack?.videoId,
+    playlist.length,
+    dispatch,
+  ]);
 
   // 🔊 Warm up secondary audio element on first user interaction
   useEffect(() => {
@@ -1310,13 +1334,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             console.warn('恢復播放失敗:', err);
           });
         }
-      } else {
-        // iOS/PWA: 背景保留 YouTube/Video layer 容易被系統回收整頁，
-        // 導致回前台黑畫面重載與自動下一首中斷。背景時降級為 visualizer 保活 audio。
-        if (isIOSDevice && displayModeRef.current === 'video') {
-          console.log('📱 [PWA] 背景降級到 visualizer，避免 iOS 回收頁面');
-          dispatch(setDisplayMode('visualizer'));
-        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1719,6 +1736,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         onClose={() => setCacheToast(false)}
         message="✅ 已切換到快取播放"
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={isIOSStandalonePWA ? { top: 'max(12px, env(safe-area-inset-top, 12px)) !important' } : undefined}
       />
       <Snackbar
         open={!!skipToast}
@@ -1726,6 +1744,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         onClose={() => setSkipToast('')}
         message={`🚫 ${skipToast}`}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={isIOSStandalonePWA ? { top: 'max(12px, env(safe-area-inset-top, 12px)) !important' } : undefined}
       />
     </Card>
   );

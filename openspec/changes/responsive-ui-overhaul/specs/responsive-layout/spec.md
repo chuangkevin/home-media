@@ -43,3 +43,19 @@ The LyricsView container SHALL NOT use a fixed 500px height. It SHALL use a view
 #### Scenario: Desktop (1080px viewport)
 - **WHEN** viewport height is 1080px
 - **THEN** LyricsView height is capped at 500px
+
+### Requirement: iPhone lyrics header MUST honor top safe area once
+The fullscreen lyrics drawer SHALL apply top safe-area spacing from a single header layer on iPhone portrait, and SHALL NOT duplicate the same inset on both the drawer container and the sticky header.
+
+#### Scenario: iPhone portrait with Dynamic Island
+- **WHEN** fullscreen lyrics is opened on an iPhone portrait viewport
+- **THEN** the top controls sit directly below the safe area boundary
+- **AND** the drawer does not reserve extra blank space above the header
+
+### Requirement: Top status toasts MUST avoid the Dynamic Island area
+Top-aligned playback feedback, including SponsorBlock skip toasts, SHALL offset using `safe-area-inset-top` on iPhone PWA viewports.
+
+#### Scenario: SponsorBlock skip toast on iPhone PWA
+- **WHEN** a top snackbar is shown while lyrics drawer is open on iPhone PWA
+- **THEN** the toast is rendered below the Dynamic Island safe area
+- **AND** it does not overlap the lyrics header controls
