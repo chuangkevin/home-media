@@ -1,5 +1,19 @@
 # Home Media - Technical Memory
 
+## iPhone Dynamic Island / Safe Area UI (2026-04-08)
+- **問題**: 回退播放器修正後，iPhone PWA 的主畫面與歌詞 Drawer 再次頂到靈動島，且鎖屏回前景後 `100dvh` 有機會沿用過期高度。
+- **決策**:
+  - 只做純 UI 修正，不碰 `AudioPlayer`、`MediaSession`、`continuous stream`、`crossfade`。
+  - 在 `App.tsx` 用 `visualViewport` 驅動 `--app-dvh`，並在 `resize/pageshow/visibilitychange/orientationchange` 後重算高度。
+  - 在 `FullscreenLyrics.tsx` 改為由 sticky header 單點承擔 top safe area，Drawer 容器不再重複吃 `safe-area-inset-top`。
+  - iPhone 直式下壓縮 header、模式列、微調列的垂直間距，讓內容貼近靈動島下界。
+
+## Video Tab Background Caveat (2026-04-08)
+- **問題**: 鎖屏前停在 `影片` tab 時，回前景常看到影片轉圈，且背景保活比純音訊模式更脆弱。
+- **原因**:
+  - `FullscreenLyrics` 在前景恢復時會主動恢復可視影片層（`seekTo` / `playVideo` / cached `<video>.play()`），即使影片是靜音的，仍可能進入 buffering spinner。
+  - `AudioPlayer` 目前部分背景 fallback 直接略過 `displayMode === 'video'`，因此鎖屏前停在 `影片` tab 時，自動下一首與背景保活比純音訊模式更弱。
+
 ## iOS PWA & MediaSession (2026-04-07)
 - **問題**: 同一域名 (.sisihome.org) 下多個 PWA 導致鎖定畫面喚回衝突。
 - **決策**: 

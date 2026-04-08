@@ -59,6 +59,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
   const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px) and (min-height: 360px)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
+  const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
+  const isIOSPortrait = isIOSDevice && !isLandscape;
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
@@ -1347,12 +1350,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
-            maxHeight: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
+            height: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
+            maxHeight: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
             borderTopLeftRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
             borderTopRightRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
             bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
-            paddingTop: 'max(8px, env(safe-area-inset-top, 8px))',
+            paddingTop: 0,
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             display: 'flex',
             flexDirection: isLandscape ? 'row' : 'column',
@@ -1365,7 +1368,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           keepMounted: true,
           sx: {
             bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
-            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
+            height: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
             '& .MuiBackdrop-root': {
               bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
             },
@@ -1407,20 +1410,21 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             onTouchEnd={handleHeaderTouchEnd}
             sx={{
               position: 'sticky',
-              top: 'max(0px, env(safe-area-inset-top, 0px))',
+              top: 0,
               zIndex: 10,
               backgroundColor: 'background.paper',
               borderBottom: 1,
               borderColor: 'divider',
               px: 2,
-              py: isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1),
+              pt: isIOSPortrait ? 'max(8px, env(safe-area-inset-top, 8px))' : 0,
+              pb: isIOSPortrait ? 0.5 : (isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1)),
               flexShrink: 0,
               touchAction: 'none',
             }}
           >
             {/* 下拉指示器 — 橫向時隱藏節省空間 */}
             {!isLandscape && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, mb: 0.5, cursor: 'grab' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: isIOSPortrait ? 0.5 : 1, mb: 0.5, cursor: 'grab' }}>
                 <Box
                   sx={{
                     width: 40,
@@ -1439,14 +1443,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 component="img"
                 src={track.thumbnail}
                 alt={track.title}
-                sx={{ width: (isUltrawide || isLandscape) ? 32 : 48, height: (isUltrawide || isLandscape) ? 32 : 48, borderRadius: 1, objectFit: 'cover' }}
+                sx={{ width: (isUltrawide || isLandscape || isIOSPortrait) ? 32 : 48, height: (isUltrawide || isLandscape || isIOSPortrait) ? 32 : 48, borderRadius: 1, objectFit: 'cover' }}
               />
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600, fontSize: isUltrawide ? '1rem' : '0.875rem' }}>
+                <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600, fontSize: (isUltrawide || isIOSPortrait) ? '1rem' : '0.875rem' }}>
                   {track.title}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: isUltrawide ? '0.85rem' : '0.75rem' }}>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: (isUltrawide || isIOSPortrait) ? '0.85rem' : '0.75rem' }}>
                     {track.channel}
                   </Typography>
                   {currentLyrics && (
@@ -1456,7 +1460,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                         currentLyrics.source === 'lrclib' ? 'LRC' :
                         currentLyrics.source === 'genius' ? 'G' : '?'}
                     size="small"
-                    sx={{ height: isUltrawide ? 20 : 16, fontSize: isUltrawide ? '0.75rem' : '0.65rem' }}
+                    sx={{ height: (isUltrawide || isIOSPortrait) ? 20 : 16, fontSize: (isUltrawide || isIOSPortrait) ? '0.75rem' : '0.65rem' }}
                   />
                 )}
               </Box>
@@ -1484,7 +1488,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
           {/* 模式切換 — 沉浸全螢幕時隱藏 */}
           {(!isFullscreenLayout || isLandscape) && !isMorrorFullscreen && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1) }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: isIOSPortrait ? 0.25 : (isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1)) }}>
               <ToggleButtonGroup
                 value={viewMode}
                 exclusive
@@ -1493,8 +1497,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 sx={{ 
                   '& .MuiToggleButton-root': { 
                     px: isUltrawide ? 4 : 2,
-                    py: isUltrawide ? 1 : 0.5,
-                    fontSize: isUltrawide ? '1rem' : 'inherit'
+                    py: (isUltrawide || isIOSPortrait) ? 1 : 0.5,
+                    fontSize: (isUltrawide || isIOSPortrait) ? '1rem' : 'inherit'
                   } 
                 }}
               >
@@ -1524,8 +1528,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center', 
-              gap: isUltrawide ? 2 : 0.5, 
-              mt: isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1),
+              gap: isUltrawide ? 2 : (isIOSPortrait ? 1 : 0.5), 
+              mt: isIOSPortrait ? 0.25 : (isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1)),
               mb: isUltrawide ? 0.5 : 0
             }}>
               {isFineTuning ? (
