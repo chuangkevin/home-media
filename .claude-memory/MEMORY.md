@@ -7,10 +7,11 @@
   - 影片模式在背景/回前景時同時受到 `AudioPlayer` 強制切模式與 `FullscreenLyrics` 影片同步控制，容易出現抖動與 lag。
 - **後續修正**:
   - 不可在「使用者剛點歌、前景主播放流程正在載入 `pendingTrack`」時自動切進 `continuous mode`。這會和既有 `audio.src` 切換流程競爭，造成展開歌詞但未自動播放、音訊亂跳或直接失聲。
-  - 正確切入點是 `visibilitychange -> hidden`：當 iPhone standalone PWA 已在正常播放中、且即將進背景時，才用 `currentTrack + 後續 playlist` 啟動 continuous stream，並從當前 `audio.currentTime` 接管。
-  - continuous SSE 若回報的仍是同一首歌，只更新時間/metadata，不要重新走 `setPendingTrack -> confirmPendingTrack`，避免 UI 與播放被重設。
+  - 針對 iPhone standalone PWA，本地播放改用現有雙 `audio` crossfade 引擎，在歌曲尾段預載下一首到 secondary audio，並在最後 5 秒做音量交接，取代背景時切另一條 continuous stream 路徑。
+  - `影片` 模式維持不啟用 crossfade；影片 iframe / cached video 必須保持 `muted`，全域主音源仍是音訊播放器。
 - **決策**:
-  - 在 `AudioPlayer` 中，針對 `iPhone + standalone PWA` 且為本地播放情境，偵測到已有曲目/播放清單時自動啟用 `continuous mode`，從根本避開 iOS 背景切歌掉音。
+  - 在 `AudioPlayer` 中，前景播放維持單一主播放流程，不再自動接管到 continuous stream。
+  - 在 `useCrossfade` 中，針對 `iPhone + standalone PWA` 且非 radio 模式，自動啟用尾段 crossfade，減少結尾硬切造成的跳音與失聲。
   - 移除 `AudioPlayer` 在背景時把 `displayMode` 從 `video` 強制切到 `visualizer` 的策略，避免和影片恢復流程互相搶狀態。
   - `FullscreenLyrics` 改為由 sticky header 單點承擔頂部 safe-area，Drawer 本體不再重複加 top padding；iPhone 直式額外壓縮 header / 模式列 / 微調列間距。
   - 頂部 `Snackbar`（例如 SponsorBlock 跳過提示）在 iPhone PWA 需額外套用 `safe-area-inset-top`，避免覆蓋靈動島與歌詞 header。
