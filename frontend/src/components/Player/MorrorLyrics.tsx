@@ -309,10 +309,6 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
   const [animKey, setAnimKey] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [effectsReady, setEffectsReady] = useState(false);
-  const isIOSStandalonePWA = (/iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1))
-    && (window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true);
 
   const toggleFullscreen = () => {
     const next = !isFullscreen;
@@ -326,19 +322,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
     const el = document.querySelector('audio') as HTMLAudioElement | null;
     if (el) setAudioEl(el);
   }, []);
-  const { subscribe } = useAudioAnalyser(audioEl, {
-    fftSize: 256,
-    enabled: effectsReady && !document.hidden && !isIOSStandalonePWA,
-  });
-
-  // 沉浸模式先用靜態畫面，延後再掛重型效果，避免切換瞬間卡住主音訊。
-  useEffect(() => {
-    setEffectsReady(false);
-    const timer = setTimeout(() => {
-      requestAnimationFrame(() => setEffectsReady(true));
-    }, isIOSStandalonePWA ? 280 : 120);
-    return () => clearTimeout(timer);
-  }, [track.videoId, isIOSStandalonePWA]);
+  const { subscribe } = useAudioAnalyser(audioEl, { fftSize: 256, enabled: true });
 
   // Save effect choice
   useEffect(() => {
@@ -348,7 +332,6 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
   // Fetch mood color or extract from thumbnail
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
     async function loadColor() {
       try {
         const res = await apiService.getTrackStyle(track.videoId);
@@ -364,11 +347,8 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
       }
       if (!cancelled) setAccentColor(DEFAULT_COLOR);
     }
-    timer = setTimeout(loadColor, isIOSStandalonePWA ? 200 : 0);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
+    loadColor();
+    return () => { cancelled = true; };
   }, [track.videoId, track.thumbnail]);
 
   // Reset animation when line changes

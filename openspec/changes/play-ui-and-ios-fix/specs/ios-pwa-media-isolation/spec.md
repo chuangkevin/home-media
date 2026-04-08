@@ -31,12 +31,6 @@ In iPhone standalone PWA mode, local playback SHALL avoid relying on a last-mome
 - **THEN** the app preloads the next track before the current one ends
 - **AND** it hands off playback through the shared audio pipeline without a hard end-of-track cut
 
-#### Scenario: Background handoff preserves lock-screen audio
-- **WHEN** Home Media is already playing on iPhone standalone PWA and the page transitions to background
-- **THEN** the app hands the current track and remaining playlist to continuous stream mode
-- **AND** the handoff starts from the current playback position
-- **AND** lock-screen playback does not depend solely on foreground `timeupdate` or client timers continuing to run
-
 #### Scenario: Radio sessions keep their own transport model
 - **WHEN** the user is acting as a radio host or radio listener
 - **THEN** the local iPhone PWA fallback does not override the radio playback flow
@@ -62,12 +56,3 @@ Home Media SHALL recalculate viewport-dependent heights after iPhone PWA returns
 - **THEN** the app recomputes the viewport height from the active visual viewport
 - **AND** the main layout and lyrics drawer height use the refreshed value
 - **AND** the drawer does not overflow or explode past the visible screen
-
-### Requirement: Morror mode MUST avoid heavy audio-reactive initialization hiccups on iPhone PWA
-When entering Morror mode on iPhone standalone PWA, Home Media SHALL avoid blocking the shared audio pipeline with immediate heavy visual initialization.
-
-#### Scenario: Entering Morror mode during playback
-- **WHEN** the user switches from lyrics or cover mode into Morror mode on iPhone standalone PWA
-- **THEN** the app defers non-critical visual effects until after the mode switch settles
-- **AND** it does not require Web Audio analyser startup on that transition
-- **AND** the shared audio playback does not audibly drop out during the mode change
