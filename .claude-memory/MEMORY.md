@@ -14,16 +14,6 @@
   - `FullscreenLyrics` 在前景恢復時會主動恢復可視影片層（`seekTo` / `playVideo` / cached `<video>.play()`），即使影片是靜音的，仍可能進入 buffering spinner。
   - `AudioPlayer` 目前部分背景 fallback 直接略過 `displayMode === 'video'`，因此鎖屏前停在 `影片` tab 時，自動下一首與背景保活比純音訊模式更弱。
 
-## iPhone PWA Background Audio Handoff (2026-04-08)
-- **問題**: 鎖屏數首後會出現「鎖屏進度條仍在動，但沒有聲音；回到 PWA 又恢復」的假播放狀態。
-- **原因**:
-  - 前景主播放流程依賴 `timeupdate` / `ended` / timer / fake-playback recovery，但 iPhone PWA 鎖屏後這些前端事件與計時器會逐漸不可靠。
-  - `MediaSession` 仍可維持進度條與播放狀態顯示，造成 UI 看似在播、實際音訊 session 已掉線。
-- **決策**:
-  - 只在 `iPhone + standalone PWA + document.hidden` 時接管到 `continuous stream`，前景點歌與前景切歌完全不切換播放管線。
-  - continuous handoff 時，需把「當前曲目 + 後續 playlist」與目前播放秒數一起帶入；同一首歌切進 continuous 時不可重設 `pendingTrack/currentTrack`。
-  - continuous mode 啟用後，停用本地 `timeupdate` 驅動的 end detection、background check 與 fake-playback recovery，避免兩套機制互相干擾。
-
 ## iOS PWA & MediaSession (2026-04-07)
 - **問題**: 同一域名 (.sisihome.org) 下多個 PWA 導致鎖定畫面喚回衝突。
 - **決策**: 

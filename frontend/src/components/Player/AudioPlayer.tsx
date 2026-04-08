@@ -42,9 +42,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
-  const isStandalonePWA = window.matchMedia('(display-mode: standalone)').matches
-    || (navigator as any).standalone === true;
-  const isIOSStandalonePWA = isIOSDevice && isStandalonePWA;
   // Refs for latest playlist/index — kept in sync so handleTimeUpdate closure stays fresh
   const playlistRef = useRef(playlist);
   const currentIndexRef = useRef(currentIndex);
@@ -154,7 +151,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   crossfadeRef.current = crossfade;
 
   // 🔁 Continuous stream mode (server-side sequential audio for iOS lock-screen)
-  const { isSSEUpdateRef, toggle: toggleContinuousMode, enable: enableContinuousMode } = useContinuousPlayer(audioRef);
+  const { isSSEUpdateRef, toggle: toggleContinuousMode } = useContinuousPlayer(audioRef);
 
   // Keep continuous mode refs in sync for handleTimeUpdate / other closures
   useEffect(() => { continuousModeRef.current = continuousMode; }, [continuousMode]);
@@ -866,6 +863,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     if (embedded) return;
     if (seekTarget === null) return;
 
+    // Continuous mode: tell the server to seek; it restarts ffmpeg from new position.
     if (continuousMode && continuousSessionId) {
       apiService.continuousSeek(continuousSessionId, seekTarget).catch(() => {});
       dispatch(clearSeekTarget());
@@ -1197,7 +1195,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // iOS 後台播放 fallback：即使在鎖屏時也定期檢查是否到達結尾
     // （因為 iOS 鎖屏時 timeupdate 事件會停止，ended 事件也不可靠）
     const iosBackgroundCheckInterval = setInterval(() => {
-      if (continuousModeRef.current || displayMode === 'video' || !audio.src || !isPlayingRef.current) return;
+      if (displayMode === 'video' || !audio.src || !isPlayingRef.current) return;
 
       const trackDur = currentTrack?.duration || audio.duration;
       if (!trackDur || trackDur <= 0) return;
@@ -1220,8 +1218,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }, 3000); // 3 秒檢查一次，iOS 鎖屏仍能運行
 
     const checkFakePlayback = setInterval(() => {
-      if (continuousModeRef.current) return;
-
       if (!audio.paused && isPlaying && displayMode !== 'video') {
         const timeSinceUpdate = Date.now() - lastTimeUpdate;
         // 如果超過 4 秒沒有時間更新，可能是假播放
@@ -1293,31 +1289,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     // iOS 鎖屏恢復：頁面回到前台時自動恢復播放 + 檢查是否已超過歌曲結尾
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        if (
-          isIOSStandalonePWA
-          && !continuousModeRef.current
-          && !isHost
-          && isPlayingRef.current
-          && currentTrack
-          && audio.src
-          && !crossfade.crossfadeActiveRef.current
-        ) {
-          const nextTracks = currentIndex >= 0 ? playlist.slice(currentIndex + 1) : [];
-          enableContinuousMode({
-            tracks: [currentTrack, ...nextTracks],
-            startPosition: audio.currentTime,
-          });
-        }
-
-        // 背景時不再強制切模式，也不依賴本地 JS timer 持續運作。
-        if (isIOSDevice && displayModeRef.current === 'video') {
-          console.log('📱 [PWA] 背景降級到 visualizer，避免 iOS 回收頁面');
-          dispatch(setDisplayMode('visualizer'));
-        }
-        return;
-      }
-
       if (!document.hidden) {
         console.log('📱 [PWA] 應用回到前台');
         // 檢查是否已超過 trackDuration（iOS 背景中 timeupdate 可能被暫停）
@@ -1339,6 +1310,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             console.warn('恢復播放失敗:', err);
           });
         }
+      } else {
+        // iOS/PWA: 背景保留 YouTube/Video layer 容易被系統回收整頁，
+        // 導致回前台黑畫面重載與自動下一首中斷。背景時降級為 visualizer 保活 audio。
+        if (isIOSDevice && displayModeRef.current === 'video') {
+          console.log('📱 [PWA] 背景降級到 visualizer，避免 iOS 回收頁面');
+          dispatch(setDisplayMode('visualizer'));
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1358,7 +1336,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       audio.removeEventListener('playing', handlePlaying);
       audio.removeEventListener('seeked', handleSeeked);
     };
-  }, [currentTrack, currentIndex, playlist, displayMode, isPlaying, isHost, isIOSDevice, isIOSStandalonePWA, enableContinuousMode, dispatch]);
+  }, [currentTrack, displayMode, isPlaying, dispatch]);
 
   // Media Session API - 支援手機鎖屏播放控制與背景播放
   useEffect(() => {
