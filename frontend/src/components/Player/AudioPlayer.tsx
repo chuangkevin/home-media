@@ -13,6 +13,7 @@ import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { useAutoQueue } from '../../hooks/useAutoQueue';
 import { useCrossfade } from '../../hooks/useCrossfade';
+import { useContinuousPlayer } from '../../hooks/useContinuousPlayer';
 import { socketService } from '../../services/socket.service';
 import type { Track } from '../../types/track.types';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
@@ -28,6 +29,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const secondaryAudioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const { isHost } = useSelector((state: RootState) => state.radio);
+  const { isEnabled: continuousMode, sessionId: continuousSessionId } = useSelector((state: RootState) => state.continuousPlayer);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
@@ -52,6 +54,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
   const prevDisplayModeRef = useRef(displayMode);
+  const continuousModeRef = useRef(continuousMode);
+  const continuousSessionIdRef = useRef(continuousSessionId);
   // 🔊 Crossfade engine
   // Use a ref to store getSecondaryBlobUrl/clearSecondaryBlobUrl to avoid circular dependency
   const crossfadeRef = useRef<ReturnType<typeof useCrossfade> | null>(null);
@@ -147,6 +151,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   });
   crossfadeRef.current = crossfade;
 
+  const { isSSEUpdateRef, enable: enableContinuousMode } = useContinuousPlayer(audioRef);
+
   // 🔊 Warm up secondary audio element on first user interaction
   useEffect(() => {
     if (embedded) return;
@@ -201,6 +207,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  useEffect(() => {
+    continuousModeRef.current = continuousMode;
+  }, [continuousMode]);
+
+  useEffect(() => {
+    continuousSessionIdRef.current = continuousSessionId;
+  }, [continuousSessionId]);
+
   // 保持 displayModeRef 同步
   useEffect(() => {
     displayModeRef.current = displayMode;
@@ -231,6 +245,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   useEffect(() => {
     if (embedded) return;
     if (!pendingTrack || !audioRef.current) return;
+
+    // ── Continuous mode ──────────────────────────────────────────────────────
+    // SSE update: just confirm (audio is already playing via continuous stream).
+    // User-initiated next/prev: let server advance the endless stream instead of
+    // replacing audio.src locally.
+    if (continuousMode) {
+      if (isSSEUpdateRef.current) {
+        isSSEUpdateRef.current = false;
+      } else {
+        dispatch(cancelPendingTrack());
+        const sid = continuousSessionIdRef.current;
+        if (sid) apiService.continuousNext(sid).catch(() => {});
+      }
+      return;
+    }
 
     // 🔊 Cancel any active crossfade when a new track is requested (DJ skip during crossfade)
     if (crossfade.crossfadeActiveRef.current) {
@@ -835,11 +864,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     if (embedded) return;
     if (seekTarget === null) return;
 
+    if (continuousMode && continuousSessionId) {
+      apiService.continuousSeek(continuousSessionId, seekTarget).catch(() => {});
+      dispatch(clearSeekTarget());
+      return;
+    }
+
     if (audioRef.current && !isLoadingTrack) {
       audioRef.current.currentTime = seekTarget;
       dispatch(clearSeekTarget());
     }
-  }, [seekTarget, displayMode, isLoadingTrack, dispatch]);
+  }, [seekTarget, displayMode, isLoadingTrack, continuousMode, continuousSessionId, dispatch]);
 
   // 定期檢查快取狀態（串流播放中，背景下載完成後更新 tag）
   useEffect(() => {
@@ -918,6 +953,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const STREAM_RETRY_DELAYS = [1000, 3000, 7000]; // exponential backoff
 
     const handleTimeUpdate = () => {
+      if (continuousModeRef.current) return;
+
       // audio element 是唯一音源，所有模式都更新時間
       // 用 trackDuration clamp，避免尾部靜音時進度條跑超過
       const td = currentTrack?.duration;
@@ -1270,6 +1307,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             console.warn('恢復播放失敗:', err);
           });
         }
+      } else if (
+        isIOSStandalonePWA
+        && !continuousModeRef.current
+        && !isHost
+        && isPlayingRef.current
+        && currentTrack
+        && audio.src
+      ) {
+        const nextTracks = currentIndex >= 0 ? playlist.slice(currentIndex + 1) : [];
+        enableContinuousMode({
+          tracks: [currentTrack, ...nextTracks],
+          startPosition: audio.currentTime,
+        });
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1289,7 +1339,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       audio.removeEventListener('playing', handlePlaying);
       audio.removeEventListener('seeked', handleSeeked);
     };
-  }, [currentTrack, displayMode, isPlaying, dispatch]);
+  }, [currentTrack, currentIndex, playlist, displayMode, isPlaying, isHost, isIOSStandalonePWA, enableContinuousMode, dispatch]);
 
   // Media Session API - 支援手機鎖屏播放控制與背景播放
   useEffect(() => {

@@ -17,14 +17,6 @@ const CROSSFADE_PRELOAD_LEAD = 5; // seconds before crossfade to preload
 const CROSSFADE_INTERVAL_MS = 16; // ~60fps volume animation
 const LOCALSTORAGE_KEY = 'radio-crossfade-enabled';
 
-function isIOSStandalonePWA(): boolean {
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
-  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-    || (navigator as any).standalone === true;
-  return isIOS && isStandalone;
-}
-
 export interface CrossfadeState {
   isActive: boolean;
   /** The incoming track during crossfade */
@@ -86,15 +78,11 @@ export function useCrossfade({
     }
   }, []);
 
-  /**
-   * Crossfade 啟用條件：
-   * - Radio 模式：沿用使用者 toggle
-   * - iPhone standalone PWA 本地播放：自動啟用，避免硬切造成跳音
-   */
+  /** Check if crossfade should be active (radio mode + enabled + not video) */
   const shouldCrossfade = useCallback((): boolean => {
-    const localIosPlayback = isIOSStandalonePWA() && !isHost && !isListener;
     return (
-      (localIosPlayback || (crossfadeEnabledRef.current && (isHost || isListener))) &&
+      crossfadeEnabledRef.current &&
+      (isHost || isListener) &&
       displayMode !== 'video'
     );
   }, [isHost, isListener, displayMode]);

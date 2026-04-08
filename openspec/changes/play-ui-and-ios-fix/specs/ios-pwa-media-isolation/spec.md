@@ -16,22 +16,23 @@ The player SHALL reassert MediaSession ownership whenever playback becomes activ
 - **THEN** the app refreshes MediaSession metadata and playback state
 - **AND** the active playback remains associated with Home Media instead of a sibling PWA
 
-### Requirement: iPhone standalone playback SHALL avoid hard end-of-track cuts
-In iPhone standalone PWA mode, local playback SHALL avoid relying on a last-moment hard switch that replaces `audio.src` exactly at track end.
+### Requirement: iPhone standalone playback SHALL use continuous streaming for lock-screen autoplay
+In iPhone standalone PWA mode, local playback SHALL switch to continuous streaming before background playback depends on client-side track transitions.
 
-#### Scenario: Tail-end handoff on iPhone PWA
+#### Scenario: Lock-screen playback across multiple songs
 - **WHEN** an iPhone user starts playback in standalone PWA mode with a local playlist
-- **AND** the current track is approaching its final seconds
-- **THEN** the app preloads the next track before the current one ends
-- **AND** it hands off playback through the shared audio pipeline without a hard end-of-track cut
+- **AND** the app is transitioning to the background while local audio is already playing
+- **THEN** the app enables continuous stream mode using the current track and remaining playlist
+- **AND** it resumes from the current playback position instead of restarting the track
+- **AND** lock-screen playback can continue across multiple tracks without reopening the app
 
 #### Scenario: Radio sessions keep their own transport model
 - **WHEN** the user is acting as a radio host or radio listener
-- **THEN** the local iPhone PWA fallback does not override the radio playback flow
+- **THEN** the automatic continuous-stream fallback does not override the radio playback flow
 
 #### Scenario: Foreground track start stays on the primary audio path
 - **WHEN** the user taps a track and the normal foreground `pendingTrack` load is in progress
-- **THEN** the app does not switch that same interaction onto an alternate playback pipeline mid-load
+- **THEN** the app does not switch that same interaction onto continuous stream mid-load
 - **AND** the primary shared audio element remains the only active audio source during startup
 
 ### Requirement: iPhone video resume MUST use a single recovery path
