@@ -1314,39 +1314,34 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       artwork,
     });
 
-    const applyMediaSessionHandlers = () => {
-      navigator.mediaSession.setActionHandler('play', () => {
-        dispatch(setIsPlaying(true));
-        if (displayModeRef.current !== 'video') {
-          audioRef.current?.play();
-        }
-      });
-
-      navigator.mediaSession.setActionHandler('pause', () => {
-        dispatch(setIsPlaying(false));
-        audioRef.current?.pause();
-      });
-
-      navigator.mediaSession.setActionHandler('previoustrack', () => {
-        dispatch(playPrevious());
-      });
-
-      navigator.mediaSession.setActionHandler('nexttrack', () => {
-        dispatch(playNext());
-      });
-
-      // iOS 鎖屏若丟失上下首 handlers，會回退成前後 10 秒。
-      // 回前景與 metadata 重宣告時一併強制清空 seek 類 handlers。
-      try {
-        navigator.mediaSession.setActionHandler('seekbackward', null);
-        navigator.mediaSession.setActionHandler('seekforward', null);
-        navigator.mediaSession.setActionHandler('seekto', null);
-      } catch {
-        // 部分瀏覽器不支援設為 null
+    // 設定播放控制按鈕回調
+    navigator.mediaSession.setActionHandler('play', () => {
+      dispatch(setIsPlaying(true));
+      if (displayModeRef.current !== 'video') {
+        audioRef.current?.play();
       }
-    };
+    });
 
-    applyMediaSessionHandlers();
+    navigator.mediaSession.setActionHandler('pause', () => {
+      dispatch(setIsPlaying(false));
+      audioRef.current?.pause();
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      dispatch(playPrevious());
+    });
+
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      dispatch(playNext());
+    });
+
+    // 明確移除 seekbackward/seekforward，iOS 才會顯示上/下首按鈕而非前進後退 10 秒
+    try {
+      navigator.mediaSession.setActionHandler('seekbackward', null);
+      navigator.mediaSession.setActionHandler('seekforward', null);
+    } catch {
+      // 部分瀏覽器不支援設為 null
+    }
 
     // 設定正確的播放位置與時長（覆蓋 audio.duration 的尾部靜音）
     const updatePositionState = () => {
@@ -1400,33 +1395,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           ],
         });
         navigator.mediaSession.playbackState = isPlayingRef.current ? 'playing' : 'paused';
-        applyMediaSessionHandlers();
-      }
-    };
-    const handlePageShowAssert = () => {
-      if ('mediaSession' in navigator && currentTrack) {
-        navigator.mediaSession.playbackState = isPlayingRef.current ? 'playing' : 'paused';
-        applyMediaSessionHandlers();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityAssert);
-    window.addEventListener('pageshow', handlePageShowAssert);
 
     console.log('🎵 Media Session API 已設定:', currentTrack.title);
 
     return () => {
       clearInterval(positionInterval);
       document.removeEventListener('visibilitychange', handleVisibilityAssert);
-      window.removeEventListener('pageshow', handlePageShowAssert);
       // 清理 action handlers
       try {
         navigator.mediaSession.setActionHandler('play', null);
         navigator.mediaSession.setActionHandler('pause', null);
         navigator.mediaSession.setActionHandler('previoustrack', null);
         navigator.mediaSession.setActionHandler('nexttrack', null);
-        navigator.mediaSession.setActionHandler('seekbackward', null);
-        navigator.mediaSession.setActionHandler('seekforward', null);
-        navigator.mediaSession.setActionHandler('seekto', null);
       } catch {
         // 忽略清理錯誤
       }

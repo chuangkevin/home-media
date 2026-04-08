@@ -281,37 +281,6 @@ function AppContent() {
     });
   }, []);
 
-  // iPhone Safari/PWA 鎖屏回前景後，100dvh/100% 有時不會立刻重算。
-  // 改用 visualViewport 驅動的 CSS 變數，讓主版面與 Drawer 一起刷新高度。
-  useEffect(() => {
-    const applyViewportHeight = () => {
-      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      document.documentElement.style.setProperty('--app-dvh', `${viewportHeight}px`);
-    };
-
-    applyViewportHeight();
-    const handleVisible = () => {
-      requestAnimationFrame(() => {
-        applyViewportHeight();
-        setTimeout(applyViewportHeight, 120);
-      });
-    };
-
-    window.addEventListener('resize', applyViewportHeight);
-    window.visualViewport?.addEventListener('resize', applyViewportHeight);
-    window.addEventListener('orientationchange', handleVisible);
-    window.addEventListener('pageshow', handleVisible);
-    document.addEventListener('visibilitychange', handleVisible);
-
-    return () => {
-      window.removeEventListener('resize', applyViewportHeight);
-      window.visualViewport?.removeEventListener('resize', applyViewportHeight);
-      window.removeEventListener('orientationchange', handleVisible);
-      window.removeEventListener('pageshow', handleVisible);
-      document.removeEventListener('visibilitychange', handleVisible);
-    };
-  }, []);
-
   const handleSearch = async (query: string) => {
     setLoading(true);
     setError(null);
@@ -348,7 +317,7 @@ function AppContent() {
   return (
     <Box sx={{
       display: 'flex', flexDirection: 'column',
-      height: 'var(--app-dvh, 100dvh)',
+      height: '100dvh', // dvh 處理 Safari address bar
       overflow: 'hidden',
       pt: isUltrawide ? 0.5 : 'max(8px, env(safe-area-inset-top, 8px))',
     }}>

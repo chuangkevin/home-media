@@ -3,8 +3,6 @@
 ## iPhone PWA 鎖屏續播與影片恢復穩定化 (2026-04-08)
 - **問題**:
   - iPhone PWA 在鎖屏連播數首後容易掉音，因為預設路徑仍依賴前端 `playNext()` 與每首重設 `audio.src`。
-  - iPhone PWA 鎖屏後回到前景時，Safari 可能不會立刻重算 `100dvh/100%`，導致主畫面與歌詞 Drawer 直接爆版。
-  - iOS 鎖屏媒體控制在回前景/回鎖屏後可能丟失 `previoustrack` / `nexttrack` handlers，退回顯示前後 10 秒按鈕。
   - 歌詞 Drawer 頂部同時在容器與 header 吃 `safe-area-inset-top`，造成靈動島下方空間浪費，提示訊息也容易卡住頂部內容。
   - 影片模式在背景/回前景時同時受到 `AudioPlayer` 強制切模式與 `FullscreenLyrics` 影片同步控制，容易出現抖動與 lag。
 - **後續修正**:
@@ -14,8 +12,6 @@
 - **決策**:
   - 在 `AudioPlayer` 中，前景播放維持單一主播放流程，不再自動接管到 continuous stream。
   - 在 `useCrossfade` 中，針對 `iPhone + standalone PWA` 且非 radio 模式，自動啟用尾段 crossfade，減少結尾硬切造成的跳音與失聲。
-  - 在 `App` 中使用 `visualViewport` 驅動 `--app-dvh`，並在 `resize/pageshow/visibilitychange/orientationchange` 後重算；所有 iPhone 高度敏感區塊改吃這個 CSS 變數。
-  - 在 `AudioPlayer` 的 Media Session 邏輯中，回前景時除了重設 metadata/playbackState，也要重套 `play/pause/previoustrack/nexttrack` handlers，並強制清空 `seekbackward/seekforward/seekto` handlers，避免 iOS 回退成前後 10 秒控制。
   - 移除 `AudioPlayer` 在背景時把 `displayMode` 從 `video` 強制切到 `visualizer` 的策略，避免和影片恢復流程互相搶狀態。
   - `FullscreenLyrics` 改為由 sticky header 單點承擔頂部 safe-area，Drawer 本體不再重複加 top padding；iPhone 直式額外壓縮 header / 模式列 / 微調列間距。
   - 頂部 `Snackbar`（例如 SponsorBlock 跳過提示）在 iPhone PWA 需額外套用 `safe-area-inset-top`，避免覆蓋靈動島與歌詞 header。

@@ -16,12 +16,6 @@ The player SHALL reassert MediaSession ownership whenever playback becomes activ
 - **THEN** the app refreshes MediaSession metadata and playback state
 - **AND** the active playback remains associated with Home Media instead of a sibling PWA
 
-#### Scenario: Returning to lock screen keeps previous/next controls
-- **WHEN** Home Media restores from background and reasserts MediaSession ownership
-- **THEN** the app reapplies `previoustrack` and `nexttrack` handlers
-- **AND** it clears `seekbackward`, `seekforward`, and `seekto` handlers
-- **AND** iOS lock screen shows previous/next track controls instead of 10-second skip controls
-
 ### Requirement: iPhone standalone playback SHALL avoid hard end-of-track cuts
 In iPhone standalone PWA mode, local playback SHALL avoid relying on a last-moment hard switch that replaces `audio.src` exactly at track end.
 
@@ -47,12 +41,3 @@ iPhone PWA video mode SHALL avoid running competing resume strategies that repea
 - **WHEN** the app returns to the foreground while video mode is active
 - **THEN** the visible video layer performs a single recovery sync against the audio authority
 - **AND** the app does not oscillate between video and visualizer modes during recovery
-
-### Requirement: iPhone PWA layout MUST re-evaluate viewport height after lock-screen resume
-Home Media SHALL recalculate viewport-dependent heights after iPhone PWA returns from lock screen or page restore, instead of relying on stale `100dvh` / `100%` measurements.
-
-#### Scenario: Lyrics drawer returns from lock screen
-- **WHEN** the user unlocks iPhone and returns to Home Media with the lyrics drawer open
-- **THEN** the app recomputes the viewport height from the active visual viewport
-- **AND** the main layout and lyrics drawer height use the refreshed value
-- **AND** the drawer does not overflow or explode past the visible screen

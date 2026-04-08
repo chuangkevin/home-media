@@ -1361,8 +1361,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         onClose={onClose}
         PaperProps={{
           sx: {
-            height: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
-            maxHeight: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
+            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
+            maxHeight: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
             borderTopLeftRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
             borderTopRightRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
             bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
@@ -1379,7 +1379,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           keepMounted: true,
           sx: {
             bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
-            height: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
+            height: (effectiveFullscreen || isMorrorFullscreen) ? '100%' : 'calc(100% - 172px - env(safe-area-inset-bottom, 0px))',
             '& .MuiBackdrop-root': {
               bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
             },
