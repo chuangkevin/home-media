@@ -40,3 +40,16 @@ Home Media SHALL recompute viewport-dependent heights after iPhone PWA returns f
 - **WHEN** the user unlocks iPhone and returns to Home Media with fullscreen lyrics open
 - **THEN** the app recalculates the viewport height from the current visual viewport
 - **AND** layout sections using viewport height render within the visible screen bounds
+
+### Requirement: Background playback handoff MUST avoid fake-playing audio on iPhone PWA
+When iPhone standalone PWA transitions to background during active playback, Home Media SHALL hand off playback to a background-safe transport rather than relying only on foreground `timeupdate`, `ended`, or timer callbacks.
+
+#### Scenario: Lock screen playback after multiple tracks
+- **WHEN** Home Media is already playing on iPhone standalone PWA and the page becomes hidden
+- **THEN** the app hands off the current track, remaining playlist, and current playback position to continuous stream mode
+- **AND** lock-screen playback continuity does not depend solely on local foreground timers continuing to run
+
+#### Scenario: Same-track handoff does not reset visible playback state
+- **WHEN** the current track is handed off to continuous stream while the same song is still playing
+- **THEN** Home Media keeps the same visible current track in the UI
+- **AND** it does not reset playback by treating that same track as a new pending track
