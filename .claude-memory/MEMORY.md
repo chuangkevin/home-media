@@ -5,6 +5,10 @@
   - iPhone PWA 在鎖屏連播數首後容易掉音，因為預設路徑仍依賴前端 `playNext()` 與每首重設 `audio.src`。
   - 歌詞 Drawer 頂部同時在容器與 header 吃 `safe-area-inset-top`，造成靈動島下方空間浪費，提示訊息也容易卡住頂部內容。
   - 影片模式在背景/回前景時同時受到 `AudioPlayer` 強制切模式與 `FullscreenLyrics` 影片同步控制，容易出現抖動與 lag。
+- **後續修正**:
+  - 不可在「使用者剛點歌、前景主播放流程正在載入 `pendingTrack`」時自動切進 `continuous mode`。這會和既有 `audio.src` 切換流程競爭，造成展開歌詞但未自動播放、音訊亂跳或直接失聲。
+  - 正確切入點是 `visibilitychange -> hidden`：當 iPhone standalone PWA 已在正常播放中、且即將進背景時，才用 `currentTrack + 後續 playlist` 啟動 continuous stream，並從當前 `audio.currentTime` 接管。
+  - continuous SSE 若回報的仍是同一首歌，只更新時間/metadata，不要重新走 `setPendingTrack -> confirmPendingTrack`，避免 UI 與播放被重設。
 - **決策**:
   - 在 `AudioPlayer` 中，針對 `iPhone + standalone PWA` 且為本地播放情境，偵測到已有曲目/播放清單時自動啟用 `continuous mode`，從根本避開 iOS 背景切歌掉音。
   - 移除 `AudioPlayer` 在背景時把 `displayMode` 從 `video` 強制切到 `visualizer` 的策略，避免和影片恢復流程互相搶狀態。

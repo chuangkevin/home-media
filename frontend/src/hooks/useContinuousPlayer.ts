@@ -35,6 +35,8 @@ export interface ContinuousPlayerControls {
   isSSEUpdateRef: MutableRefObject<boolean>;
   /** 啟用 / 停用 continuous mode（自動管理 session 生命周期） */
   toggle: () => void;
+  /** 啟用 continuous mode，必要時可帶入目前曲目與起始位置 */
+  enable: (options?: { tracks?: Track[]; startPosition?: number }) => void;
 }
 
 export function useContinuousPlayer(
@@ -42,7 +44,7 @@ export function useContinuousPlayer(
 ): ContinuousPlayerControls {
   const dispatch = useDispatch();
   const { isEnabled } = useSelector((state: RootState) => state.continuousPlayer);
-  const { playlist, currentIndex, volume } = useSelector((state: RootState) => state.player);
+  const { playlist, currentIndex, currentTrack, volume } = useSelector((state: RootState) => state.player);
 
   /** true = 下一個 pendingTrack 變化是來自 SSE，AudioPlayer 應直接 confirm 而不載入音訊 */
   const isSSEUpdateRef = useRef(false);
@@ -54,6 +56,9 @@ export function useContinuousPlayer(
   const lastPosRef = useRef(0);
   const lastPosTimestampRef = useRef(0);
   const posIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bootstrapTracksRef = useRef<Track[] | null>(null);
+  const bootstrapStartPositionRef = useRef(0);
+  const bootstrapSeekAppliedRef = useRef(false);
 
   // ─── 位置插值 ─────────────────────────────────────────────────────────────
 
@@ -97,10 +102,14 @@ export function useContinuousPlayer(
           thumbnail: t.thumbnail,
           duration: t.duration,
         };
-        // Mark as SSE update so AudioPlayer skips audio loading
-        isSSEUpdateRef.current = true;
-        dispatch(setPendingTrack(track));
-        dispatch(confirmPendingTrack());
+        const isSameTrack = currentTrack?.videoId === t.videoId;
+
+        if (!isSameTrack) {
+          // Mark as SSE update so AudioPlayer skips audio loading
+          isSSEUpdateRef.current = true;
+          dispatch(setPendingTrack(track));
+          dispatch(confirmPendingTrack());
+        }
         dispatch(setDuration(t.duration || 0));
         dispatch(setIsPlaying(true));
 
@@ -109,6 +118,15 @@ export function useContinuousPlayer(
         lastPosRef.current = startPos;
         lastPosTimestampRef.current = Date.now();
         dispatch(setCurrentTime(startPos));
+
+        if (!bootstrapSeekAppliedRef.current && bootstrapStartPositionRef.current > 0 && msg.sessionId) {
+          const seekPos = bootstrapStartPositionRef.current;
+          bootstrapSeekAppliedRef.current = true;
+          apiService.continuousSeek(msg.sessionId, seekPos).catch(() => {});
+          lastPosRef.current = seekPos;
+          lastPosTimestampRef.current = Date.now();
+          dispatch(setCurrentTime(seekPos));
+        }
 
         // Update MediaSession
         if ('mediaSession' in navigator) {
@@ -162,7 +180,7 @@ export function useContinuousPlayer(
         break;
       }
     }
-  }, [dispatch, stopPosInterpolation]);
+  }, [currentTrack?.videoId, dispatch, stopPosInterpolation]);
 
   // ─── Session lifecycle ────────────────────────────────────────────────────
 
@@ -184,9 +202,9 @@ export function useContinuousPlayer(
         createdSessionId = sid;
         dispatch(setSessionId(sid));
 
-        // Queue current playlist starting from currentIndex
-        const startIdx = currentIndex >= 0 ? currentIndex : 0;
-        const tracksToQueue = playlist.slice(startIdx).map(t => ({
+        // Queue current playlist starting from currentIndex, or a custom bootstrap list.
+        const sourceTracks = bootstrapTracksRef.current ?? playlist.slice(currentIndex >= 0 ? currentIndex : 0);
+        const tracksToQueue = sourceTracks.map(t => ({
           videoId: t.videoId,
           title: t.title,
           artist: t.channel,
@@ -261,6 +279,9 @@ export function useContinuousPlayer(
 
       dispatch(setSessionId(null));
       dispatch(setConnected(false));
+      bootstrapTracksRef.current = null;
+      bootstrapStartPositionRef.current = 0;
+      bootstrapSeekAppliedRef.current = false;
 
       // Clear MediaSession handlers
       if ('mediaSession' in navigator) {
@@ -281,5 +302,12 @@ export function useContinuousPlayer(
     dispatch(setEnabled(!isEnabled));
   }, [dispatch, isEnabled]);
 
-  return { isSSEUpdateRef, toggle };
+  const enable = useCallback((options?: { tracks?: Track[]; startPosition?: number }) => {
+    bootstrapTracksRef.current = options?.tracks ?? null;
+    bootstrapStartPositionRef.current = options?.startPosition ?? 0;
+    bootstrapSeekAppliedRef.current = false;
+    dispatch(setEnabled(true));
+  }, [dispatch]);
+
+  return { isSSEUpdateRef, toggle, enable };
 }
