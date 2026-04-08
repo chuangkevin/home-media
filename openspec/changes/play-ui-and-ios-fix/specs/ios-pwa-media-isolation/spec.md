@@ -1,19 +1,25 @@
-# Capability Spec: ios-pwa-media-isolation
+## ADDED Requirements
 
-## Context
-在 iOS PWA 模式下，多個同域名的應用程式會發生 MediaSession 衝突。我們需要明確宣告 `radio.sisihome.org` 的屬權，避免點擊鎖定畫面時喚起錯誤的應用（如 `portal`）。
+### Requirement: PWA identity MUST remain unique on iOS
+Home Media SHALL declare a unique PWA identity so iOS can distinguish it from other same-origin PWAs during media handoff and app restore.
 
-## Requirements
-1.  **PWA ID 聲明 (PWA Identity Isolation)**：
-    -   `manifest.webmanifest` 必須包含唯一的 `id` 欄位（例如：`/home-media`）。
-    -   `scope` 必須限制為 `/`。
-2.  **MediaSession 權限宣告 (Ownership Assertion)**：
-    -   移除 `AudioPlayer.tsx` 中 `embedded` 模式對 `MediaSession` 更新的限制。
-    -   當媒體載入 (`currentTrack` 更新) 或應用程式回到前景 (`visibilitychange`) 時，應主動宣告屬權。
-3.  **喚回喚醒邏輯 (Resume Assertive Behavior)**：
-    -   當 iOS 鎖定畫面點擊「回到 App」時，如果系統喚起了 `radio` PWA，`radio` 應在 `visibilitychange` 事件觸發時，透過更新 `MediaSession` 來宣告目前的播放狀態為 `playing`。
-    -   這有助於系統在多個候選 PWA 中，識別目前真正持有音訊串流的 Origin。
+#### Scenario: Installing multiple same-origin PWAs
+- **WHEN** the user installs Home Media alongside another `.sisihome.org` PWA
+- **THEN** Home Media exposes its own manifest `id`
+- **AND** iOS can treat it as a distinct installed app
 
-## Success Criteria
-- [ ] iOS 鎖定畫面顯示正確的媒體資訊與進度。
-- [ ] 點擊鎖定畫面媒體資訊，能正確導向 `radio.sisihome.org` (Home Media) 而非 `portal.sisihome.org`。
+### Requirement: MediaSession ownership MUST be reasserted on active playback
+The player SHALL reassert MediaSession ownership whenever playback becomes active or the app returns to the foreground.
+
+#### Scenario: Returning to foreground during playback
+- **WHEN** Home Media becomes visible again while audio is already playing
+- **THEN** the app refreshes MediaSession metadata and playback state
+- **AND** the active playback remains associated with Home Media instead of a sibling PWA
+
+### Requirement: Resume assertions MUST favor the active Home Media session
+When iOS lock-screen media controls reopen the app, Home Media SHALL reassert the currently playing session.
+
+#### Scenario: Reopening from lock screen media controls
+- **WHEN** the user taps the lock-screen media controls to return to the app
+- **THEN** Home Media updates MediaSession state for the active playback session
+- **AND** iOS can resolve the playback ownership back to Home Media
