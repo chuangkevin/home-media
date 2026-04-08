@@ -1,17 +1,5 @@
 # Home Media - Technical Memory
 
-## iPhone PWA 鎖屏續播與影片恢復穩定化 (2026-04-08)
-- **問題**:
-  - iPhone PWA 在鎖屏連播數首後容易掉音，因為預設路徑仍依賴前端 `playNext()` 與每首重設 `audio.src`。
-  - 歌詞 Drawer 頂部同時在容器與 header 吃 `safe-area-inset-top`，造成靈動島下方空間浪費，提示訊息也容易卡住頂部內容。
-  - 影片模式在背景/回前景時同時受到 `AudioPlayer` 強制切模式與 `FullscreenLyrics` 影片同步控制，容易出現抖動與 lag。
-- **決策**:
-  - 在 `AudioPlayer` 中，針對 `iPhone + standalone PWA` 且為本地播放情境，偵測到已有曲目/播放清單時自動啟用 `continuous mode`，從根本避開 iOS 背景切歌掉音。
-  - 移除 `AudioPlayer` 在背景時把 `displayMode` 從 `video` 強制切到 `visualizer` 的策略，避免和影片恢復流程互相搶狀態。
-  - `FullscreenLyrics` 改為由 sticky header 單點承擔頂部 safe-area，Drawer 本體不再重複加 top padding；iPhone 直式額外壓縮 header / 模式列 / 微調列間距。
-  - 頂部 `Snackbar`（例如 SponsorBlock 跳過提示）在 iPhone PWA 需額外套用 `safe-area-inset-top`，避免覆蓋靈動島與歌詞 header。
-  - 影片回前景時只做一次性對齊 audio 時間並恢復播放，不再用背景切模式作為保活手段。
-
 ## iOS PWA & MediaSession (2026-04-07)
 - **問題**: 同一域名 (.sisihome.org) 下多個 PWA 導致鎖定畫面喚回衝突。
 - **決策**: 
