@@ -46,6 +46,7 @@ export function useCrossfade({
   onCrossfadeStarted,
 }: UseCrossfadeOptions) {
   const { isHost, isListener } = useSelector((state: RootState) => state.radio);
+  const continuousModeEnabled = useSelector((state: RootState) => state.continuousPlayer.isEnabled);
   const { displayMode, playlist, currentIndex, volume } = useSelector(
     (state: RootState) => state.player
   );
@@ -94,10 +95,11 @@ export function useCrossfade({
   const shouldCrossfade = useCallback((): boolean => {
     const localIosPlayback = isIOSStandalonePWA() && !isHost && !isListener;
     return (
+      !continuousModeEnabled &&
       (localIosPlayback || (crossfadeEnabledRef.current && (isHost || isListener))) &&
       displayMode !== 'video'
     );
-  }, [isHost, isListener, displayMode]);
+  }, [continuousModeEnabled, isHost, isListener, displayMode]);
 
   /** Warm up secondary audio element on first user interaction */
   const warmUpSecondary = useCallback(() => {

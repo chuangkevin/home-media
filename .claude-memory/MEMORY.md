@@ -10,10 +10,14 @@
 - **後續修正**:
   - 不可在「使用者剛點歌、前景主播放流程正在載入 `pendingTrack`」時自動切進 `continuous mode`。這會和既有 `audio.src` 切換流程競爭，造成展開歌詞但未自動播放、音訊亂跳或直接失聲。
   - 針對 iPhone standalone PWA，本地播放改用現有雙 `audio` crossfade 引擎，在歌曲尾段預載下一首到 secondary audio，並在最後 5 秒做音量交接，取代背景時切另一條 continuous stream 路徑。
+  - iPhone PWA 真正鎖屏後，前端 `timeupdate` / fallback timers / 假播放恢復邏輯仍可能被凍結，不能只靠前景 crossfade。需要在 `visibilitychange -> hidden` 時，才把「當前曲目 + 後續 playlist」交給 server-side continuous stream 接管，避免鎖屏後整段失聲。
+  - 切入沉浸模式的瞬斷主因不是換音源，而是 `MorrorLyrics` 初始化太重：取色、`AudioAnalyser`、canvas rAF 同時啟動會卡住主執行緒。iPhone standalone PWA 需延後掛載效果，且停用 Web Audio analyser，改用較輕的視覺退化路徑。
   - `影片` 模式維持不啟用 crossfade；影片 iframe / cached video 必須保持 `muted`，全域主音源仍是音訊播放器。
 - **決策**:
   - 在 `AudioPlayer` 中，前景播放維持單一主播放流程，不再自動接管到 continuous stream。
   - 在 `useCrossfade` 中，針對 `iPhone + standalone PWA` 且非 radio 模式，自動啟用尾段 crossfade，減少結尾硬切造成的跳音與失聲。
+  - 在 `AudioPlayer` 中重新啟用 `useContinuousPlayer`，但只允許在 `document.hidden`、正在播放且非 radio host 時，從目前播放進度安全接管到 continuous stream；前景點歌與前景切歌不允許直接切換到 continuous stream。
+  - 在 `MorrorLyrics` 中加入 `effectsReady` 延遲啟動；iPhone standalone PWA 停用 `useAudioAnalyser`，並延後色彩提取，降低切模式時的音訊瞬斷風險。
   - 在 `App` 中使用 `visualViewport` 驅動 `--app-dvh`，並在 `resize/pageshow/visibilitychange/orientationchange` 後重算；所有 iPhone 高度敏感區塊改吃這個 CSS 變數。
   - 在 `AudioPlayer` 的 Media Session 邏輯中，回前景時除了重設 metadata/playbackState，也要重套 `play/pause/previoustrack/nexttrack` handlers，並強制清空 `seekbackward/seekforward/seekto` handlers，避免 iOS 回退成前後 10 秒控制。
   - 移除 `AudioPlayer` 在背景時把 `displayMode` 從 `video` 強制切到 `visualizer` 的策略，避免和影片恢復流程互相搶狀態。
