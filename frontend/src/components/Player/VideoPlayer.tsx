@@ -256,23 +256,42 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
         // 定期同步 iframe 位置到 audio element（audio 是唯一音源）
         intervalRef.current = setInterval(() => {
           if (
-            playerRef.current && 
-            playerRef.current.getCurrentTime && 
-            playerRef.current.seekTo && 
-            isMounted && 
+            playerRef.current &&
+            playerRef.current.getCurrentTime &&
+            playerRef.current.seekTo &&
+            isMounted &&
             !isSeekingRef.current &&
-            !recoveryLockRef.current // 鎖屏恢復期間不執行同步
+            !recoveryLockRef.current
           ) {
             const videoTime = playerRef.current.getCurrentTime();
             const audioTime = getAudioTime();
-            const drift = Math.abs(videoTime - audioTime);
-            // 偏差超過 2 秒就修正（MV 播放下 2 秒是可接受的容差，能減少不必要的 seek）
-            if (drift > 2) {
+            const drift = audioTime - videoTime; // positive = video is behind audio
+            const absDrift = Math.abs(drift);
+
+            if (absDrift > 1.0) {
+              // Large drift: hard seek
               playerRef.current.seekTo(audioTime, true);
-              console.log(`🎬 影片同步修正: video=${videoTime.toFixed(1)}→audio=${audioTime.toFixed(1)}s (drift=${drift.toFixed(1)}s)`);
+              console.log(`🎬 影片同步修正 (hard seek): drift=${drift.toFixed(2)}s`);
+            } else if (absDrift > 0.3) {
+              // Medium drift: playbackRate nudge via YouTube API
+              try {
+                const rate = drift > 0 ? 1.05 : 0.95;
+                playerRef.current.setPlaybackRate(rate);
+                setTimeout(() => {
+                  try {
+                    if (playerRef.current?.setPlaybackRate) {
+                      playerRef.current.setPlaybackRate(1);
+                    }
+                  } catch {}
+                }, 1500);
+              } catch {
+                // setPlaybackRate may not be available — fallback to seek
+                playerRef.current.seekTo(audioTime, true);
+              }
             }
+            // <0.3s drift: acceptable, no action
           }
-        }, 1000); // 降低同步頻率至 1 秒一次，減少系統負荷
+        }, 800); // Check every 800ms (was 1000ms)
       }
     };
 
@@ -306,6 +325,13 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
       const playerState = playerRef.current.getPlayerState();
       if (isPlaying && playerState !== 1) {
         playerRef.current.playVideo();
+        // Immediate sync on resume
+        setTimeout(() => {
+          if (playerRef.current?.getCurrentTime && playerRef.current?.seekTo) {
+            const audioTime = getAudioTime();
+            playerRef.current.seekTo(audioTime, true);
+          }
+        }, 300);
       } else if (!isPlaying && playerState === 1) {
         playerRef.current.pauseVideo();
       }
