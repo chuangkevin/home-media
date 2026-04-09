@@ -1683,7 +1683,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         </CardContent>
       ) : (
         /* ===== 迷你播放器模式（固定在底部）===== */
-        <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+        <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 }, touchAction: 'none', userSelect: 'none' }}>
           {/* 第一行：封面 + 標題/頻道 + 功能按鈕 */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.75 }}>
             {/* 點擊封面/標題展開歌詞 */}

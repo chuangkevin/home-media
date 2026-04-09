@@ -1529,7 +1529,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 </ToggleButton>
                 <ToggleButton value="video">
                   <OndemandVideoIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
-                  {videoDownloading ? videoDownloadProgress || '下載中...' : '影片'}
+                  {videoDownloading ? '影片' : '影片'}
+                  {videoDownloading && (
+                    <CircularProgress size={12} sx={{ ml: 0.5 }} />
+                  )}
                 </ToggleButton>
                 <ToggleButton value="cover">
                   <AlbumIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
