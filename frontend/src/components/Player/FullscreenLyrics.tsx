@@ -481,7 +481,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const absDrift = Math.abs(drift);
 
       // 大偏差：冷卻後才 hard seek，避免一直轉圈
-      if (absDrift >= 0.9) {
+      if (absDrift >= 0.7) {
         const now = Date.now();
         if (now - lastHardSeekAtRef.current > 4500) {
           try {
@@ -495,11 +495,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       }
 
       // 中小偏差：用速度微調，不做 seek
-      if (absDrift >= 0.12) {
-        // 比例控制：偏差越大，調整越強；限制在 0.94~1.06 以減少音高體感
-        const k = 0.08;
+      if (absDrift >= 0.10) {
+        // 比例控制：偏差越大，調整越強；限制在 0.96~1.04 以減少音高體感
+        const k = 0.06;
         const unclamped = 1 + drift * k;
-        const targetRate = Math.max(0.94, Math.min(1.06, unclamped));
+        const targetRate = Math.max(0.96, Math.min(1.04, unclamped));
         if (Math.abs(videoEl.playbackRate - targetRate) > 0.001) {
           videoEl.playbackRate = targetRate;
         }
@@ -517,7 +517,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     };
 
     syncOnce();
-    videoSyncIntervalRef.current = setInterval(syncOnce, 800);
+    videoSyncIntervalRef.current = setInterval(syncOnce, 600);
 
     return () => {
       clearSyncTimers();
