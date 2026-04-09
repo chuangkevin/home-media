@@ -154,7 +154,7 @@ export default function HomeRecommendations() {
         if (entries[0].isIntersecting && hasMore) {
           dispatch(loadMoreRecommendations());
         }
-      });
+      }, { rootMargin: '0px 0px 600px 0px' });
 
       if (node) observerRef.current.observe(node);
     },

@@ -1,4 +1,5 @@
-import { Box, Typography, Avatar, Chip, Card, CardMedia, CardContent, IconButton } from '@mui/material';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Box, Typography, Avatar, Chip, Card, CardMedia, CardContent, IconButton, Skeleton } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -8,6 +9,9 @@ import { ChannelRecommendation } from '../../store/recommendationSlice';
 import type { Track } from '../../types/track.types';
 import { formatUploadedAt } from '../../utils/formatTime';
 
+const INITIAL_VISIBLE = 6;
+const LOAD_MORE_STEP = 6;
+
 interface ChannelSectionProps {
   channel: ChannelRecommendation;
   onPlay: (track: Track) => void;
@@ -16,6 +20,25 @@ interface ChannelSectionProps {
 }
 
 export default function ChannelSection({ channel, onPlay, onHideChannel, cacheStatus }: ChannelSectionProps) {
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const lastCardObserverRef = useRef<IntersectionObserver | null>(null);
+
+  // Reset visible count when channel changes
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE);
+  }, [channel.channelName]);
+
+  const lastCardRef = useCallback((node: HTMLDivElement | null) => {
+    if (lastCardObserverRef.current) lastCardObserverRef.current.disconnect();
+    if (!node) return;
+    lastCardObserverRef.current = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setVisibleCount((prev) => Math.min(prev + LOAD_MORE_STEP, channel.videos.length));
+      }
+    }, { root: node.closest('[data-scroll-root]'), rootMargin: '0px 200px 0px 0px' });
+    lastCardObserverRef.current.observe(node);
+  }, [channel.videos.length]);
+
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -112,6 +135,7 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
       </Box>
 
       <Box
+        data-scroll-root
         sx={{
           display: 'flex',
           overflowX: 'auto',
@@ -133,9 +157,13 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           },
         }}
       >
-        {channel.videos.map((video) => (
-          <Card
+        {channel.videos.slice(0, visibleCount).map((video, idx) => (
+          <div
             key={video.videoId}
+            ref={idx === visibleCount - 1 && visibleCount < channel.videos.length ? lastCardRef : null}
+            style={{ flexShrink: 0 }}
+          >
+          <Card
             sx={{
               minWidth: { xs: 200, sm: 220, md: 240 },
               maxWidth: { xs: 200, sm: 220, md: 240 },
@@ -250,7 +278,21 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
               )}
             </CardContent>
           </Card>
+          </div>
         ))}
+
+        {/* Loading skeleton for remaining cards */}
+        {visibleCount < channel.videos.length && (
+          <Box sx={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+            {Array.from({ length: Math.min(LOAD_MORE_STEP, channel.videos.length - visibleCount) }).map((_, i) => (
+              <Box key={i} sx={{ minWidth: { xs: 200, sm: 220, md: 240 }, flexShrink: 0 }}>
+                <Skeleton variant="rectangular" height={160} sx={{ borderRadius: 1 }} />
+                <Skeleton variant="text" sx={{ mt: 1 }} />
+                <Skeleton variant="text" width="60%" />
+              </Box>
+            ))}
+          </Box>
+        )}
       </Box>
     </Box>
   );

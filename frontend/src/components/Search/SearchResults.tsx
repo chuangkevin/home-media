@@ -77,7 +77,7 @@ export default function SearchResults({
   }, [results.length]);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(handleObserver, { rootMargin: '200px' });
+    const observer = new IntersectionObserver(handleObserver, { rootMargin: '400px' });
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
   }, [handleObserver]);
