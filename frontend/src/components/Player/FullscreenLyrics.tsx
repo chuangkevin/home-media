@@ -483,6 +483,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
       if (!videoEl || !audioEl) return;
 
+      // 恢復鎖：剛從鎖屏/背景回來時跳過同步，讓影片先 buffer
+      if (recoveryLockRef.current) return;
+
       // 先對齊播放/暫停狀態
       if (!audioEl.paused && videoEl.paused) {
         videoEl.play().catch(() => {});
@@ -558,21 +561,29 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         return;
       }
 
-      // 回到前景：設定恢復鎖，給予影片 2.5 秒的緩衝時間
+      // 回到前景：設定恢復鎖，給影片充分的緩衝時間
       recoveryLockRef.current = true;
-      console.log('🎬 FullscreenLyrics 回到前景，暫停同步 2.5 秒');
-      setTimeout(() => {
-        recoveryLockRef.current = false;
-      }, 2500);
+      console.log('🎬 FullscreenLyrics 回到前景，暫停同步 3 秒');
 
       if (audioEl) {
         try {
-          // 只做一次大跳轉
+          // 先 seek 到 audio 的位置（影片還是暫停狀態，不會卡）
           videoEl.currentTime = audioEl.currentTime;
         } catch {}
-        if (!audioEl.paused) {
-          videoEl.play().catch(() => {});
-        }
+
+        // 延遲播放 — 等影片 buffer 好再開始，避免解鎖瞬間卡頓
+        setTimeout(() => {
+          const ve = cachedVideoRef.current;
+          const ae = document.querySelector('audio') as HTMLAudioElement | null;
+          if (ve && ae && !ae.paused) {
+            try { ve.currentTime = ae.currentTime; } catch {}
+            ve.play().catch(() => {});
+          }
+          // 再給 1 秒才解除恢復鎖，讓影片穩定播放後 sync interval 才介入
+          setTimeout(() => { recoveryLockRef.current = false; }, 1000);
+        }, 2000);
+      } else {
+        setTimeout(() => { recoveryLockRef.current = false; }, 3000);
       }
     };
 
