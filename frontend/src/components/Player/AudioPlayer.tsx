@@ -1741,6 +1741,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         onClose={() => setCacheToast(false)}
         message="✅ 已切換到快取播放"
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ top: 'max(8px, env(safe-area-inset-top, 8px)) !important' }}
       />
       <Snackbar
         open={!!skipToast}
@@ -1748,6 +1749,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         onClose={() => setSkipToast('')}
         message={`🚫 ${skipToast}`}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ top: 'max(8px, env(safe-area-inset-top, 8px)) !important' }}
       />
     </Card>
   );
