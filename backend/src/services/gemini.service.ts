@@ -430,11 +430,12 @@ Reply with ONLY a JSON array of strings, no other text:
       const is429 = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
       const is403 = msg.includes('403') || msg.includes('PERMISSION_DENIED');
       if (is403) markKeyBad(currentKey);
-      if ((is429 || is403) && attempt < 1) {
+      if ((is429 || is403) && attempt < maxRetries) {
         const altKey = getApiKeyExcluding(currentKey);
         if (altKey) { currentKey = altKey; continue; }
       }
-      console.error(`❌ [Gemini] generateDiscoveryQueries failed:`, msg);
+      console.error(`❌ [Gemini] generateDiscoveryQueries failed (attempt ${attempt + 1}):`, msg);
+      if (attempt < maxRetries) continue;
       return [];
     }
   }
@@ -545,11 +546,16 @@ Reply with ONLY a JSON object where each key is a line index (as a string):
       const is429 = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
       const is403 = msg.includes('403') || msg.includes('PERMISSION_DENIED');
       if (is403 || is429) markKeyBad(currentKey);
-      if ((is429 || is403) && attempt < 1) {
+      if ((is429 || is403) && attempt < maxRetries) {
         const altKey = getApiKeyExcluding(currentKey);
-        if (altKey) { currentKey = altKey; continue; }
+        if (altKey) {
+          console.warn(`🔄 [Gemini] translateLyrics retry ${attempt + 1}/${maxRetries} with different key`);
+          currentKey = altKey;
+          continue;
+        }
       }
-      console.error(`❌ [Gemini] translateLyrics failed:`, msg);
+      console.error(`❌ [Gemini] translateLyrics failed (attempt ${attempt + 1}/${maxRetries + 1}):`, msg);
+      if (attempt < maxRetries) continue; // 非 429/403 也繼續重試（可能是暫時性錯誤）
       return null;
     }
   }

@@ -138,7 +138,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     const lines = currentLyrics.lines.map(l => l.text);
     apiService.translateLyrics(track.videoId, lines).then(result => {
-      if (translationGenRef.current !== gen || !result) return; // stale or no data
+      if (translationGenRef.current !== gen) return; // stale
+      if (!result) {
+        // API 回傳 null（Gemini 失敗但非 HTTP error）— 走 retry
+        throw new Error('Translation returned null');
+      }
       const trans = result.translations.map((t: string, i: number) => {
         if (!t || t === lines[i]) return '';
         return t;
