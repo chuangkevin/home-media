@@ -494,6 +494,16 @@ class SocketService {
     this.socket?.off('lyrics:source-changed', callback);
   }
 
+  // 監聽翻譯廣播
+  onLyricsTranslationReady(callback: (data: { videoId: string; translations: string[] }) => void): void {
+    this.socket?.on('lyrics:translation-ready', callback);
+  }
+
+  // 移除翻譯廣播監聽
+  offLyricsTranslationReady(callback: (data: { videoId: string; translations: string[] }) => void): void {
+    this.socket?.off('lyrics:translation-ready', callback);
+  }
+
   // 斷開連接
   disconnect(): void {
     this.socket?.disconnect();

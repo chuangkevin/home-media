@@ -67,7 +67,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     (state: RootState) => state.lyrics
   );
   const { currentTime, playlist, currentIndex, seekTarget } = useSelector((state: RootState) => state.player);
-  const { emitOffsetUpdate, emitSourceUpdate } = useLyricsSync(track.videoId);
+  const { emitOffsetUpdate, emitSourceUpdate } = useLyricsSync(
+    track.videoId,
+    (receivedTranslations: string[]) => {
+      const hasAny = receivedTranslations.some(t => t.length > 0);
+      if (hasAny) {
+        setTranslations(receivedTranslations);
+        setIsTranslating(false);
+        setTranslationError(false);
+      }
+    }
+  );
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const videoContainerRef = useRef<HTMLDivElement>(null);

@@ -691,6 +691,28 @@ class ApiService {
   async deleteContinuousSession(sessionId: string): Promise<void> {
     await this.api.delete(`/stream/continuous/${sessionId}`);
   }
+
+  // ==================== 封鎖管理 ====================
+
+  async getBlockedItems(): Promise<any[]> {
+    const res = await this.api.get('/block');
+    return res.data;
+  }
+
+  async addBlockedItem(payload: {
+    type: 'song' | 'channel';
+    videoId?: string;
+    channelName?: string;
+    title: string;
+    thumbnail?: string;
+  }): Promise<{ id: number }> {
+    const res = await this.api.post('/block', payload);
+    return res.data;
+  }
+
+  async removeBlockedItem(id: number): Promise<void> {
+    await this.api.delete(`/block/${id}`);
+  }
 }
 
 // 播放清單型別

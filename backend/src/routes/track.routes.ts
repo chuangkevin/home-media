@@ -115,6 +115,13 @@ router.post('/:videoId/translate', async (req: Request, res: Response): Promise<
           detected_language: cached.detected_language,
           cached: true,
         });
+        // 廣播翻譯結果給所有連線裝置
+        try {
+          const io = req.app.get('io');
+          if (io) {
+            io.emit('lyrics:translation-ready', { videoId, translations: cachedTranslations });
+          }
+        } catch {}
         return;
       }
     }
@@ -142,6 +149,13 @@ router.post('/:videoId/translate', async (req: Request, res: Response): Promise<
       detected_language: result.detected_language,
       cached: false,
     });
+    // 廣播翻譯結果給所有連線裝置
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('lyrics:translation-ready', { videoId, translations: result.translations });
+      }
+    } catch {}
   } catch (err) {
     logger.error(`Failed to translate lyrics for ${videoId}:`, err);
     res.status(500).json({ error: 'Translation failed' });

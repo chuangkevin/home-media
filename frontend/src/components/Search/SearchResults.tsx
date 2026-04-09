@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import {
   Box,
   Card,
@@ -12,16 +13,24 @@ import {
   CircularProgress,
   alpha,
   useMediaQuery,
+  Menu,
+  MenuItem,
+  Snackbar,
+  Button,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AddIcon from '@mui/icons-material/Add';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import CloudIcon from '@mui/icons-material/Cloud';
 import StorageIcon from '@mui/icons-material/Storage';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import BlockIcon from '@mui/icons-material/Block';
 import type { Track } from '../../types/track.types';
 import { formatDuration, formatNumber, formatUploadedAt } from '../../utils/formatTime';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
 import apiService from '../../services/api.service';
+import { RootState, AppDispatch } from '../../store';
+import { blockItem, unblockItem } from '../../store/blockSlice';
 
 const PAGE_SIZE = 12;
 
@@ -38,12 +47,71 @@ export default function SearchResults({
   onAddToQueue,
   currentTrackId,
 }: SearchResultsProps) {
+  const dispatch = useDispatch<AppDispatch>();
+  const { items: blockedItems } = useSelector((state: RootState) => state.block);
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
   const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({});
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Block context menu
+  const [blockMenuAnchor, setBlockMenuAnchor] = useState<HTMLElement | null>(null);
+  const [blockMenuTrack, setBlockMenuTrack] = useState<Track | null>(null);
+  // Snackbar for undo
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; blockedId: number | null }>({
+    open: false, message: '', blockedId: null,
+  });
+
+  const isBlocked = (videoId: string, channel: string) => {
+    return blockedItems.some(b =>
+      (b.type === 'song' && b.video_id === videoId) ||
+      (b.type === 'channel' && b.channel_name === channel)
+    );
+  };
+
+  const handleOpenBlockMenu = (event: React.MouseEvent<HTMLElement>, track: Track) => {
+    event.stopPropagation();
+    setBlockMenuAnchor(event.currentTarget);
+    setBlockMenuTrack(track);
+  };
+
+  const handleCloseBlockMenu = () => {
+    setBlockMenuAnchor(null);
+    setBlockMenuTrack(null);
+  };
+
+  const handleBlockSong = async () => {
+    if (!blockMenuTrack) return;
+    handleCloseBlockMenu();
+    const result = await dispatch(blockItem({
+      type: 'song',
+      videoId: blockMenuTrack.videoId,
+      title: blockMenuTrack.title,
+      thumbnail: blockMenuTrack.thumbnail,
+    })).unwrap();
+    setSnackbar({ open: true, message: `已封鎖「${blockMenuTrack.title}」`, blockedId: result.newId });
+  };
+
+  const handleBlockChannel = async () => {
+    if (!blockMenuTrack) return;
+    handleCloseBlockMenu();
+    const result = await dispatch(blockItem({
+      type: 'channel',
+      channelName: blockMenuTrack.channel,
+      title: blockMenuTrack.channel,
+      thumbnail: blockMenuTrack.thumbnail,
+    })).unwrap();
+    setSnackbar({ open: true, message: `已封鎖頻道「${blockMenuTrack.channel}」`, blockedId: result.newId });
+  };
+
+  const handleUndoBlock = () => {
+    if (snackbar.blockedId) {
+      dispatch(unblockItem(snackbar.blockedId));
+    }
+    setSnackbar({ open: false, message: '', blockedId: null });
+  };
 
   // Reset visible count when results change
   useEffect(() => {
@@ -121,13 +189,16 @@ export default function SearchResults({
       </Typography>
 
       <Grid container spacing={isUltrawide ? 3 : 2}>
-        {visibleResults.map((track) => (
+        {visibleResults.map((track) => {
+          const blocked = isBlocked(track.videoId, track.channel);
+          return (
           <Grid item xs={12} sm={6} md={4} lg={isUltrawide ? 4 : 3} key={track.id}>
             <Card
               sx={{
                 display: 'flex',
                 flexDirection: 'column',
                 height: '100%',
+                position: 'relative',
                 transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1), box-shadow 0.28s cubic-bezier(0.4,0,0.2,1)',
                 '&:hover': {
                   transform: 'translateY(-6px)',
@@ -137,8 +208,21 @@ export default function SearchResults({
                   border: '2px solid rgba(245,166,35,0.75) !important',
                   boxShadow: '0 0 0 2px rgba(245,166,35,0.75), 0 8px 32px rgba(0,0,0,0.45)',
                 }),
+                ...(blocked && {
+                  opacity: 0.4,
+                }),
               }}
             >
+              {/* 封鎖標記 */}
+              {blocked && (
+                <Box sx={{
+                  position: 'absolute', top: 8, right: 8, zIndex: 2,
+                  bgcolor: 'error.main', borderRadius: '50%', width: 28, height: 28,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <BlockIcon sx={{ color: 'white', fontSize: 18 }} />
+                </Box>
+              )}
               <CardActionArea onClick={() => onPlay(track)} sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
                 <Box sx={{ position: 'relative' }}>
                   <CardMedia
@@ -258,10 +342,19 @@ export default function SearchResults({
                 >
                   <PlaylistAddIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />
                 </IconButton>
+                <IconButton
+                  color="default"
+                  onClick={(e) => handleOpenBlockMenu(e, track)}
+                  title="更多選項"
+                  size={isUltrawide ? "large" : "medium"}
+                >
+                  <MoreVertIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />
+                </IconButton>
               </Box>
             </Card>
           </Grid>
-        ))}
+          );
+        })}
       </Grid>
 
       {/* Infinite scroll sentinel */}
@@ -279,6 +372,33 @@ export default function SearchResults({
           onClose={handleClosePlaylistMenu}
         />
       )}
+
+      {/* 封鎖選單 */}
+      <Menu
+        anchorEl={blockMenuAnchor}
+        open={Boolean(blockMenuAnchor)}
+        onClose={handleCloseBlockMenu}
+      >
+        <MenuItem onClick={handleBlockSong}>
+          <BlockIcon sx={{ mr: 1, fontSize: 20 }} /> 封鎖這首歌
+        </MenuItem>
+        <MenuItem onClick={handleBlockChannel}>
+          <BlockIcon sx={{ mr: 1, fontSize: 20 }} /> 封鎖此頻道
+        </MenuItem>
+      </Menu>
+
+      {/* 封鎖反悔 Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={5000}
+        onClose={() => setSnackbar({ open: false, message: '', blockedId: null })}
+        message={snackbar.message}
+        action={
+          <Button color="warning" size="small" onClick={handleUndoBlock}>
+            復原
+          </Button>
+        }
+      />
     </>
   );
 }

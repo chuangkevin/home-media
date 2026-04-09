@@ -7,6 +7,7 @@ import castingReducer from './castingSlice';
 import playlistReducer from './playlistSlice';
 import radioReducer from './radioSlice';
 import continuousPlayerReducer from './continuousPlayerSlice';
+import blockReducer from './blockSlice';
 
 export const store = configureStore({
   reducer: {
@@ -18,6 +19,7 @@ export const store = configureStore({
     playlists: playlistReducer,
     radio: radioReducer,
     continuousPlayer: continuousPlayerReducer,
+    block: blockReducer,
   },
 });
 

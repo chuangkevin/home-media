@@ -26,7 +26,8 @@ import AdminSettings from './components/Admin/AdminSettings';
 import RadioButton from './components/Radio/RadioButton';
 import RadioIndicator from './components/Radio/RadioIndicator';
 import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist, playNow, updateTrackMetadata } from './store/playerSlice';
-import { RootState } from './store';
+import { fetchBlocked } from './store/blockSlice';
+import { RootState, AppDispatch } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
 import playbackStateService from './services/playback-state.service';
@@ -175,7 +176,7 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
 }
 
 function AppContent() {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
@@ -307,6 +308,9 @@ function AppContent() {
     }).catch(err => {
       console.error('Failed to load settings:', err);
     });
+
+    // 載入封鎖清單
+    dispatch(fetchBlocked());
   }, []);
 
   // iPhone Safari/PWA 鎖屏回前景後，100dvh/100% 有時不會立刻重算。

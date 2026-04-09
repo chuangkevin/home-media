@@ -41,6 +41,9 @@ const io = new Server(server, {
   },
 });
 
+// Store io instance on app for access in route handlers
+app.set('io', io);
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

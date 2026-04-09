@@ -4,6 +4,7 @@ import { RootState } from '../store';
 import { appendToPlaylist } from '../store/playerSlice';
 import apiService from '../services/api.service';
 import type { Track } from '../types/track.types';
+import type { BlockedItem } from '../store/blockSlice';
 
 /**
  * 自動播放佇列 Hook
@@ -12,6 +13,7 @@ import type { Track } from '../types/track.types';
 export function useAutoQueue(enabled = true) {
   const dispatch = useDispatch();
   const { currentTrack, pendingTrack, playlist, currentIndex } = useSelector((state: RootState) => state.player);
+  const blockedItems = useSelector((state: RootState) => state.block.items);
   const isLoadingRef = useRef(false);
   const lastLoadedVideoIdRef = useRef<string | null>(null);
 
@@ -72,6 +74,15 @@ export function useAutoQueue(enabled = true) {
               const duration = rec.duration || 0;
               if (duration === 0 || duration > 600) {
                 console.log(`⏭️ 跳過直播流: ${rec.title} (${duration}s)`);
+                return false;
+              }
+              // 過濾掉被封鎖的歌曲和頻道
+              const isBlockedItem = blockedItems.some((b: BlockedItem) =>
+                (b.type === 'song' && b.video_id === rec.videoId) ||
+                (b.type === 'channel' && b.channel_name === (rec.channelName || rec.channel))
+              );
+              if (isBlockedItem) {
+                console.log(`⏭️ 跳過封鎖項目: ${rec.title}`);
                 return false;
               }
               return true;

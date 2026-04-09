@@ -14,7 +14,10 @@ import lyricsCacheService from '../services/lyrics-cache.service';
  * - 自動監聽遠端偏移/來源變更，videoId 匹配時即時套用
  * - isRemoteUpdate flag 防止 re-emit 無限循環
  */
-export function useLyricsSync(videoId: string | undefined) {
+export function useLyricsSync(
+  videoId: string | undefined,
+  onTranslationReceived?: (translations: string[]) => void
+) {
   const dispatch = useDispatch();
   const isRemoteUpdateRef = useRef(false);
 
@@ -80,14 +83,23 @@ export function useLyricsSync(videoId: string | undefined) {
       }
     };
 
+    const handleTranslationReady = (data: { videoId: string; translations: string[] }) => {
+      if (data.videoId !== videoId) return; // different song, ignore
+      if (!data.translations?.length) return;
+      console.log(`[LyricsSync] Received translation broadcast for ${data.videoId}`);
+      onTranslationReceived?.(data.translations);
+    };
+
     socketService.onLyricsOffsetChanged(handleOffsetChanged);
     socketService.onLyricsSourceChanged(handleSourceChanged);
+    socketService.onLyricsTranslationReady(handleTranslationReady);
 
     return () => {
       socketService.offLyricsOffsetChanged(handleOffsetChanged);
       socketService.offLyricsSourceChanged(handleSourceChanged);
+      socketService.offLyricsTranslationReady(handleTranslationReady);
     };
-  }, [videoId, dispatch, currentTrack?.title, currentTrack?.channel]);
+  }, [videoId, dispatch, currentTrack?.title, currentTrack?.channel, onTranslationReceived]);
 
   return { emitOffsetUpdate, emitSourceUpdate, isRemoteUpdateRef };
 }

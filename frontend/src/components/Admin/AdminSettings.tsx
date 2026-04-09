@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import {
   Box,
   Card,
@@ -28,9 +29,12 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import AddIcon from '@mui/icons-material/Add';
 import KeyIcon from '@mui/icons-material/Key';
+import BlockIcon from '@mui/icons-material/Block';
 import apiService from '../../services/api.service';
 import audioCacheService, { type CacheListItem } from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
+import { RootState, AppDispatch } from '../../store';
+import { unblockItem } from '../../store/blockSlice';
 
 interface Settings {
   site_title: string;
@@ -44,6 +48,15 @@ interface Settings {
 }
 
 export default function AdminSettings() {
+  const dispatch = useDispatch<AppDispatch>();
+  const { items: blockedItems } = useSelector((state: RootState) => state.block);
+  const blockedSongs = blockedItems.filter(b => b.type === 'song');
+  const blockedChannels = blockedItems.filter(b => b.type === 'channel');
+
+  const handleUnblock = (id: number) => {
+    dispatch(unblockItem(id));
+  };
+
   const [settings, setSettings] = useState<Settings>({
     site_title: 'Home Media',
     cache_duration: 86400000,
@@ -503,6 +516,76 @@ export default function AdminSettings() {
           >
             {geminiSaving ? '驗證中...' : '新增 API Key'}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* 封鎖管理 */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <BlockIcon /> 封鎖管理
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            被封鎖的歌曲和頻道不會出現在自動推薦中。
+          </Typography>
+
+          {/* 封鎖的歌曲 */}
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mt: 2, mb: 1 }}>
+            封鎖的歌曲（{blockedSongs.length}）
+          </Typography>
+          {blockedSongs.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              目前沒有封鎖的歌曲
+            </Typography>
+          ) : (
+            <List sx={{ bgcolor: 'background.paper', borderRadius: 1, mb: 2 }}>
+              {blockedSongs.map((item) => (
+                <ListItem key={item.id} divider secondaryAction={
+                  <Button size="small" color="warning" onClick={() => handleUnblock(item.id)}>
+                    解除封鎖
+                  </Button>
+                }>
+                  <ListItemAvatar>
+                    <Avatar src={item.thumbnail || undefined} variant="rounded" />
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={item.title}
+                    secondary={`封鎖於 ${new Date(item.blocked_at).toLocaleDateString('zh-TW')}`}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* 封鎖的頻道 */}
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+            封鎖的頻道（{blockedChannels.length}）
+          </Typography>
+          {blockedChannels.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              目前沒有封鎖的頻道
+            </Typography>
+          ) : (
+            <List sx={{ bgcolor: 'background.paper', borderRadius: 1 }}>
+              {blockedChannels.map((item) => (
+                <ListItem key={item.id} divider secondaryAction={
+                  <Button size="small" color="warning" onClick={() => handleUnblock(item.id)}>
+                    解除封鎖
+                  </Button>
+                }>
+                  <ListItemAvatar>
+                    <Avatar src={item.thumbnail || undefined} variant="rounded" />
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={item.title}
+                    secondary={`封鎖於 ${new Date(item.blocked_at).toLocaleDateString('zh-TW')}`}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
         </CardContent>
       </Card>
 
