@@ -1014,51 +1014,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       console.log(`🚀 [iOS Quick Start] 直接播放: ${info.title}`);
       wasCompletedRef.current = true;
 
-      // 🎵 Gapless: fade out current (200ms), swap, fade in (200ms)
-      const savedVolume = audioEl.volume;
-      const fadeSteps = 10;
-      const fadeInterval = 20; // 10 steps × 20ms = 200ms
+      // 即時切換（不用 fade — fade 的 async setInterval 會造成 timeupdate 重複觸發）
+      const oldBlobUrl = currentBlobUrlRef.current;
+      audioEl.src = blobUrl;
+      currentBlobUrlRef.current = blobUrl;
+      currentVideoIdRef.current = info.videoId;
+      audioEl.play().catch(() => {});
 
-      // Fade out
-      let step = 0;
-      const fadeOutTimer = setInterval(() => {
-        step++;
-        audioEl.volume = Math.max(0, savedVolume * (1 - step / fadeSteps));
-        if (step >= fadeSteps) {
-          clearInterval(fadeOutTimer);
+      // 同步清理 refs（必須在 return true 之前，避免 timeupdate 重複觸發）
+      nextTrackBlobUrlRef.current = null;
+      nextTrackInfoRef.current = null;
+      if (oldBlobUrl) URL.revokeObjectURL(oldBlobUrl);
 
-          // Swap src
-          const oldBlobUrl = currentBlobUrlRef.current;
-          audioEl.src = blobUrl;
-          currentBlobUrlRef.current = blobUrl;
-          currentVideoIdRef.current = info.videoId;
-          audioEl.volume = 0;
-          audioEl.play().catch((err) => {
-            console.error('🚀 [Quick Start] play() failed after fade, forcing retry:', err);
-            // Fallback: 直接設 volume 回來再試一次
-            audioEl.volume = savedVolume;
-            setTimeout(() => audioEl.play().catch(() => {}), 500);
-          });
-
-          // Fade in
-          let inStep = 0;
-          const fadeInTimer = setInterval(() => {
-            inStep++;
-            audioEl.volume = Math.min(savedVolume, savedVolume * (inStep / fadeSteps));
-            if (inStep >= fadeSteps) {
-              clearInterval(fadeInTimer);
-              audioEl.volume = savedVolume;
-            }
-          }, fadeInterval);
-
-          // Cleanup
-          nextTrackBlobUrlRef.current = null;
-          nextTrackInfoRef.current = null;
-          if (oldBlobUrl) URL.revokeObjectURL(oldBlobUrl);
-        }
-      }, fadeInterval);
-
-      // Non-async Redux updates (UI updates immediately)
+      // Redux updates
       const track: Track = {
         id: info.videoId, videoId: info.videoId,
         title: info.title, channel: info.channel,
