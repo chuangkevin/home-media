@@ -313,8 +313,12 @@ function AppContent() {
   // 改用 visualViewport 驅動 CSS 變數，避免內容頂到靈動島或高度錯亂。
   useEffect(() => {
     const applyViewportHeight = () => {
-      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      document.documentElement.style.setProperty('--app-dvh', `${viewportHeight}px`);
+      const vvHeight = window.visualViewport?.height ?? window.innerHeight;
+      const fullHeight = window.innerHeight;
+      // 鍵盤彈出時 visualViewport.height 會大幅縮小，此時不更新高度
+      // 避免整個佈局被壓縮、播放器跑位
+      if (fullHeight - vvHeight > 100) return;
+      document.documentElement.style.setProperty('--app-dvh', `${vvHeight}px`);
     };
 
     const handleVisible = () => {
