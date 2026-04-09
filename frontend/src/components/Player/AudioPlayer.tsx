@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, IconButton, Snackbar, Tooltip } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, IconButton, Snackbar } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
-import AllInclusiveIcon from '@mui/icons-material/AllInclusive';
 import PlayerControls from './PlayerControls';
 import { RootState } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack, setDisplayMode } from '../../store/playerSlice';
@@ -158,7 +157,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   crossfadeRef.current = crossfade;
 
   // 🔁 Continuous stream mode (server-side sequential audio for iOS lock-screen)
-  const { isSSEUpdateRef, toggle: toggleContinuousMode } = useContinuousPlayer(audioRef);
+  const { isSSEUpdateRef } = useContinuousPlayer(audioRef);
 
   // Keep continuous mode refs in sync for handleTimeUpdate / other closures
   useEffect(() => { continuousModeRef.current = continuousMode; }, [continuousMode]);
@@ -1795,15 +1794,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 <IconButton size="small" onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)} sx={{ color: 'text.secondary' }}>
                   <PlaylistAddIcon fontSize="small" />
                 </IconButton>
-                <Tooltip title={continuousMode ? '關閉連續串流模式' : '啟用連續串流（解決 iOS 鎖螢幕自動播下一首）'}>
-                  <IconButton
-                    size="small"
-                    onClick={toggleContinuousMode}
-                    sx={{ color: continuousMode ? 'primary.main' : 'text.secondary' }}
-                  >
-                    <AllInclusiveIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
               </>
             )}
           </Box>
