@@ -991,19 +991,46 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       console.log(`🚀 [iOS Quick Start] 直接播放: ${info.title}`);
       wasCompletedRef.current = true;
 
-      // 立即換歌 — 不等 Redux
-      const oldBlobUrl = currentBlobUrlRef.current;
-      audioEl.src = blobUrl;
-      currentBlobUrlRef.current = blobUrl;
-      currentVideoIdRef.current = info.videoId;
-      audioEl.play().catch(() => {});
+      // 🎵 Gapless: fade out current (200ms), swap, fade in (200ms)
+      const savedVolume = audioEl.volume;
+      const fadeSteps = 10;
+      const fadeInterval = 20; // 10 steps × 20ms = 200ms
 
-      // 清理
-      nextTrackBlobUrlRef.current = null;
-      nextTrackInfoRef.current = null;
-      if (oldBlobUrl) URL.revokeObjectURL(oldBlobUrl);
+      // Fade out
+      let step = 0;
+      const fadeOutTimer = setInterval(() => {
+        step++;
+        audioEl.volume = Math.max(0, savedVolume * (1 - step / fadeSteps));
+        if (step >= fadeSteps) {
+          clearInterval(fadeOutTimer);
 
-      // 非同步更新 Redux UI（不阻擋播放）
+          // Swap src
+          const oldBlobUrl = currentBlobUrlRef.current;
+          audioEl.src = blobUrl;
+          currentBlobUrlRef.current = blobUrl;
+          currentVideoIdRef.current = info.videoId;
+          audioEl.volume = 0;
+          audioEl.play().catch(() => {});
+
+          // Fade in
+          let inStep = 0;
+          const fadeInTimer = setInterval(() => {
+            inStep++;
+            audioEl.volume = Math.min(savedVolume, savedVolume * (inStep / fadeSteps));
+            if (inStep >= fadeSteps) {
+              clearInterval(fadeInTimer);
+              audioEl.volume = savedVolume;
+            }
+          }, fadeInterval);
+
+          // Cleanup
+          nextTrackBlobUrlRef.current = null;
+          nextTrackInfoRef.current = null;
+          if (oldBlobUrl) URL.revokeObjectURL(oldBlobUrl);
+        }
+      }, fadeInterval);
+
+      // Non-async Redux updates (UI updates immediately)
       const track: Track = {
         id: info.videoId, videoId: info.videoId,
         title: info.title, channel: info.channel,
