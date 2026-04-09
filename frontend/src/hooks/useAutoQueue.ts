@@ -53,10 +53,21 @@ export function useAutoQueue(enabled = true) {
         if (recommendations && recommendations.length > 0) {
           // 過濾掉已經在播放清單中的歌曲和 24/7 直播流
           const existingVideoIds = new Set(playlist.map(t => t.videoId));
+          // 同藝人+歌名去重（不同 videoId 但實質相同的歌，如 official MV vs lyric video）
+          const existingTitleKeys = new Set(
+            playlist.map(t => `${(t.channel || '').toLowerCase().trim()}::${(t.title || '').toLowerCase().trim()}`)
+          );
           const newTracks: Track[] = recommendations
             .filter((rec: any) => {
-              // 過濾掉已存在的
+              // 過濾掉已存在的 videoId
               if (existingVideoIds.has(rec.videoId)) return false;
+              // 過濾掉同藝人+歌名（忽略大小寫）
+              const titleKey = `${(rec.channelName || '').toLowerCase().trim()}::${(rec.title || '').toLowerCase().trim()}`;
+              if (existingTitleKeys.has(titleKey)) {
+                console.log(`⏭️ 跳過重複歌曲: ${rec.title} (同藝人+歌名)`);
+                return false;
+              }
+              existingTitleKeys.add(titleKey); // 防止同批推薦內重複
               // 過濾掉直播流和合輯（duration 為 0 或超過 10 分鐘 = 600 秒）
               const duration = rec.duration || 0;
               if (duration === 0 || duration > 600) {
