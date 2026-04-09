@@ -10,7 +10,7 @@ import logger from '../utils/logger';
  * 負責生成基於觀看歷史的推薦內容
  */
 class RecommendationService {
-  private readonly VIDEOS_PER_CHANNEL = 5; // 每個頻道推薦 5 首影片
+  private readonly VIDEOS_PER_CHANNEL = 20; // 每個頻道推薦 20 首影片（橫向滾動 lazy load）
 
   /**
    * 從設定讀取快取時間
