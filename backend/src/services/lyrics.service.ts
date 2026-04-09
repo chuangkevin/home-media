@@ -113,34 +113,12 @@ class LyricsService {
       // 策略：找到 synced (有時間戳) 就立即回傳；找到 non-synced 就暫存，繼續找 synced 的
       let bestNonSynced: Lyrics | null = null;
 
-      // 2. 同時啟動 YouTube CC（yt-dlp 較慢）和傳統來源（API 較快）
-      console.log(`🎵 [LyricsService] Step 2: Starting YouTube CC + traditional sources in parallel...`);
+      // 2. 同時啟動 YouTube CC（yt-dlp 較慢）作為最後備用
+      console.log(`🎵 [LyricsService] Step 2: Starting YouTube CC in background (lowest priority)...`);
       const ytCCPromise = this.fetchYouTubeCaptions(videoId).catch(() => null);
 
-      // 3. 嘗試從網易雲音樂獲取（華語歌詞最齊全）
-      console.log(`🎵 [LyricsService] Step 3: Fetching from NetEase...`);
-      const neteaseStart = Date.now();
-      try {
-        const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist);
-        const neteaseDuration = Date.now() - neteaseStart;
-        if (neteaseLyrics) {
-          console.log(`🎵 [LyricsService] ✅ NetEase found! (${neteaseDuration}ms, synced=${neteaseLyrics.isSynced})`);
-          attemptResults.push({ source: 'netease', success: true, duration: neteaseDuration });
-          if (neteaseLyrics.isSynced) {
-            this.saveToCache(neteaseLyrics);
-            this.logAttemptSummary(attemptResults, startTime);
-            return neteaseLyrics;
-          }
-          bestNonSynced = bestNonSynced || neteaseLyrics;
-        } else {
-          attemptResults.push({ source: 'netease', success: false, duration: neteaseDuration });
-        }
-      } catch (neteaseErr) {
-        attemptResults.push({ source: 'netease', success: false, error: neteaseErr instanceof Error ? neteaseErr.message : String(neteaseErr), duration: Date.now() - neteaseStart });
-      }
-
-      // 4. 嘗試從 LRCLIB 獲取（有時間戳的 LRC 格式，最可能是 synced）
-      console.log(`🎵 [LyricsService] Step 4: Fetching from LRCLIB...`);
+      // 3. 優先 LRCLIB（幾乎都有 timestamp，歌詞滾動最佳體驗）
+      console.log(`🎵 [LyricsService] Step 3: Fetching from LRCLIB (priority for synced)...`);
       const lrclibStart = Date.now();
       try {
         const lrclibLyrics = await this.fetchLRCLIB(videoId, title, artist);
@@ -159,6 +137,28 @@ class LyricsService {
         }
       } catch (lrclibErr) {
         attemptResults.push({ source: 'lrclib', success: false, error: lrclibErr instanceof Error ? lrclibErr.message : String(lrclibErr), duration: Date.now() - lrclibStart });
+      }
+
+      // 4. 網易雲音樂（華語歌詞最齊全）
+      console.log(`🎵 [LyricsService] Step 4: Fetching from NetEase...`);
+      const neteaseStart = Date.now();
+      try {
+        const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist);
+        const neteaseDuration = Date.now() - neteaseStart;
+        if (neteaseLyrics) {
+          console.log(`🎵 [LyricsService] ✅ NetEase found! (${neteaseDuration}ms, synced=${neteaseLyrics.isSynced})`);
+          attemptResults.push({ source: 'netease', success: true, duration: neteaseDuration });
+          if (neteaseLyrics.isSynced) {
+            this.saveToCache(neteaseLyrics);
+            this.logAttemptSummary(attemptResults, startTime);
+            return neteaseLyrics;
+          }
+          bestNonSynced = bestNonSynced || neteaseLyrics;
+        } else {
+          attemptResults.push({ source: 'netease', success: false, duration: neteaseDuration });
+        }
+      } catch (neteaseErr) {
+        attemptResults.push({ source: 'netease', success: false, error: neteaseErr instanceof Error ? neteaseErr.message : String(neteaseErr), duration: Date.now() - neteaseStart });
       }
 
       // 5. 嘗試從 Genius 獲取（通常沒有時間戳，最後備用）
@@ -422,7 +422,10 @@ class LyricsService {
 
       // 選擇最匹配的歌曲（第一個結果通常最相關）
       const song = songs[0];
-      console.log(`🎵 [NetEase] Using song: ${song.name} by ${song.artists?.map(a => a.name).join(', ') || 'Unknown'} (ID: ${song.id})`);
+      const songArtist = song.artists?.map((a: any) => a.name).join(', ')
+        || (song as any).ar?.map((a: any) => a.name).join(', ')
+        || 'Unknown';
+      console.log(`🎵 [NetEase] Using song: ${song.name} by ${songArtist} (ID: ${song.id})`);
 
       // 獲取歌詞（加入 timeout 和重試）
       const lyricResult = await this.retryWithBackoff(
@@ -1212,7 +1215,9 @@ class LyricsService {
       return songs.slice(0, 20).map(song => ({
         id: song.id,
         trackName: song.name || 'Unknown',
-        artistName: song.artists?.map(a => a.name).join(', ') || 'Unknown Artist',
+        artistName: song.artists?.map((a: any) => a.name).join(', ')
+          || (song as any).ar?.map((a: any) => a.name).join(', ')
+          || 'Unknown Artist',
         albumName: song.album?.name,
         duration: song.duration ? Math.floor(song.duration / 1000) : undefined,
         hasSyncedLyrics: true, // 網易雲通常都有同步歌詞
