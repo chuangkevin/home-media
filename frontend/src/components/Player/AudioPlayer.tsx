@@ -41,6 +41,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const pendingBlobUrlRef = useRef<string | null>(null);
   const wasCompletedRef = useRef(false);
   const completeSentRef = useRef(false);
+  // iOS 背景快速換歌：預先準備好下一首的 blob URL，ended 時直接播放不等 Redux
+  const nextTrackBlobUrlRef = useRef<string | null>(null);
+  const nextTrackInfoRef = useRef<{ videoId: string; title: string; channel: string; thumbnail: string; duration: number } | null>(null);
 
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
@@ -281,6 +284,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }
     wasCompletedRef.current = false;
     completeSentRef.current = false;
+    preload80TriggeredRef.current = false;
+    // 清理預建的下一首 blob URL（換歌了，舊的不再需要）
+    if (nextTrackBlobUrlRef.current) {
+      URL.revokeObjectURL(nextTrackBlobUrlRef.current);
+      nextTrackBlobUrlRef.current = null;
+      nextTrackInfoRef.current = null;
+    }
 
     const videoId = pendingTrack.videoId;
 
@@ -972,6 +982,56 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const MAX_STREAM_RETRIES = 3;
     const STREAM_RETRY_DELAYS = [1000, 3000, 7000]; // exponential backoff
 
+    // 🚀 iOS 背景快速換歌：用預建的 blob URL 立即播放下一首
+    // 回傳 true 代表成功啟動，false 代表沒有預建 URL 需要走正常流程
+    const quickStartNextTrack = (audioEl: HTMLAudioElement): boolean => {
+      const blobUrl = nextTrackBlobUrlRef.current;
+      const info = nextTrackInfoRef.current;
+      if (!blobUrl || !info) return false;
+
+      console.log(`🚀 [iOS Quick Start] 直接播放: ${info.title}`);
+      wasCompletedRef.current = true;
+
+      // 立即換歌 — 不等 Redux
+      const oldBlobUrl = currentBlobUrlRef.current;
+      audioEl.src = blobUrl;
+      currentBlobUrlRef.current = blobUrl;
+      currentVideoIdRef.current = info.videoId;
+      audioEl.play().catch(() => {});
+
+      // 清理
+      nextTrackBlobUrlRef.current = null;
+      nextTrackInfoRef.current = null;
+      if (oldBlobUrl) URL.revokeObjectURL(oldBlobUrl);
+
+      // 非同步更新 Redux UI（不阻擋播放）
+      const track: Track = {
+        id: info.videoId, videoId: info.videoId,
+        title: info.title, channel: info.channel,
+        thumbnail: info.thumbnail, duration: info.duration,
+      };
+      dispatch(setPendingTrack(track));
+      dispatch(confirmPendingTrack());
+      dispatch(setDuration(info.duration || 0));
+      dispatch(setCurrentTime(0));
+      wasCompletedRef.current = false;
+      completeSentRef.current = false;
+      preload80TriggeredRef.current = false;
+
+      // 更新 MediaSession
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: info.title, artist: info.channel,
+          artwork: info.thumbnail ? [
+            { src: info.thumbnail, sizes: '96x96', type: 'image/jpeg' },
+            { src: info.thumbnail, sizes: '512x512', type: 'image/jpeg' },
+          ] : [],
+        });
+      }
+
+      return true;
+    };
+
     const handleTimeUpdate = () => {
       // Continuous mode: position is tracked by useContinuousPlayer via SSE.
       // audio.currentTime is stream-relative (not track-relative) here, so we
@@ -1024,10 +1084,33 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           endFallbackTimeout = setTimeout(() => {
             if (!wasCompletedRef.current) {
               console.log('⏰ iOS fallback: timeupdate 未觸發結尾偵測，強制跳下一首');
-              wasCompletedRef.current = true;
-              dispatch(playNext());
+              quickStartNextTrack(audio) || dispatch(playNext());
             }
           }, Math.max(remainingMs, 1000));
+        }
+        // 🚀 iOS 背景快速換歌：預先建好下一首的 blob URL
+        // 這樣 ended 事件觸發時只需 audio.src = url; audio.play()，不用跑完整 Redux 流程
+        if (!nextTrackBlobUrlRef.current) {
+          const pl = playlistRef.current;
+          const ci = currentIndexRef.current;
+          let nextIdx = ci + 1;
+          if (nextIdx >= pl.length) nextIdx = 0; // repeat all
+          const nextTrack = pl[nextIdx];
+          if (nextTrack) {
+            audioCacheService.get(nextTrack.videoId).then(blob => {
+              if (blob && !nextTrackBlobUrlRef.current) {
+                nextTrackBlobUrlRef.current = URL.createObjectURL(blob);
+                nextTrackInfoRef.current = {
+                  videoId: nextTrack.videoId,
+                  title: nextTrack.title,
+                  channel: nextTrack.channel,
+                  thumbnail: nextTrack.thumbnail || '',
+                  duration: nextTrack.duration || 0,
+                };
+                console.log(`🚀 [90%] 預建下一首 blob URL: ${nextTrack.title}`);
+              }
+            }).catch(() => {});
+          }
         }
       }
       // SponsorBlock: 自動跳過片段
@@ -1072,9 +1155,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         // crossfade 活躍時由 crossfade 處理跳曲，不重複觸發
         if (!crossfade.crossfadeActiveRef.current) {
           console.log(`⏭️ 到達 YouTube 原始長度 ${trackDuration}s，跳下一首（audio.duration=${audio.duration.toFixed(1)}s）`);
-          wasCompletedRef.current = true;
           if (endFallbackTimeout) { clearTimeout(endFallbackTimeout); endFallbackTimeout = null; }
-          dispatch(playNext());
+          // 🚀 快速換歌優先
+          if (!quickStartNextTrack(audio)) {
+            wasCompletedRef.current = true;
+            dispatch(playNext());
+          }
           return;
         }
       }
@@ -1115,13 +1201,16 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       if (crossfade.crossfadeActiveRef.current) return;
 
       if (endFallbackTimeout) { clearTimeout(endFallbackTimeout); endFallbackTimeout = null; }
-      wasCompletedRef.current = true;
       // Record complete signal (only if not already sent at 90%)
       if (!completeSentRef.current && currentVideoIdRef.current) {
         completeSentRef.current = true;
         apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
       }
-      dispatch(playNext());
+      // 🚀 iOS 背景快速換歌：優先用預建 blob URL，失敗才走 Redux
+      if (!quickStartNextTrack(audio)) {
+        wasCompletedRef.current = true;
+        dispatch(playNext());
+      }
     };
 
     const handleError = async (e: Event) => {
@@ -1224,16 +1313,18 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       // 如果已經超過或接近結尾（給 0.5s 容差），且還沒標記為完成
       if (currentTime >= trackDur - 0.5 && !wasCompletedRef.current && currentVideoIdRef.current) {
         console.log(`📱 [iOS Background] 偵測到歌曲已結尾 (${currentTime.toFixed(1)}s >= ${trackDur}s)，跳下一首`);
-        wasCompletedRef.current = true;
-        
+
         // 記錄完成（如果還沒記錄）
         if (!completeSentRef.current) {
           completeSentRef.current = true;
           apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
         }
 
-        // 觸發下一首
-        dispatch(playNext());
+        // 🚀 快速換歌優先，失敗才走 Redux
+        if (!quickStartNextTrack(audio)) {
+          wasCompletedRef.current = true;
+          dispatch(playNext());
+        }
       }
     }, 3000); // 3 秒檢查一次，iOS 鎖屏仍能運行
 
@@ -1316,12 +1407,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         const trackDur = currentTrack?.duration;
         if (trackDur && trackDur > 0 && audio.currentTime >= trackDur - 0.5 && !wasCompletedRef.current) {
           console.log('📱 [PWA] 回到前台：偵測到已超過歌曲結尾，跳下一首');
-          wasCompletedRef.current = true;
           if (!completeSentRef.current && currentVideoIdRef.current) {
             completeSentRef.current = true;
             apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
           }
-          dispatch(playNext());
+          // 🚀 快速換歌優先
+          if (!quickStartNextTrack(audio)) {
+            wasCompletedRef.current = true;
+            dispatch(playNext());
+          }
           return;
         }
         // 恢復暫停的播放
