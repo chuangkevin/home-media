@@ -21,6 +21,10 @@ router.post('/:videoId/signal', (req: Request, res: Response): void => {
     const db = getDatabase();
     const column = type === 'skip' ? 'skip_count' : 'complete_count';
     db.prepare(`UPDATE cached_tracks SET ${column} = COALESCE(${column}, 0) + 1 WHERE video_id = ?`).run(videoId);
+    // complete 同時累加 play_count（用於播放清單顯示「播放 X 次」）
+    if (type === 'complete') {
+      db.prepare(`UPDATE cached_tracks SET play_count = COALESCE(play_count, 0) + 1 WHERE video_id = ?`).run(videoId);
+    }
     res.json({ success: true });
   } catch (err) {
     logger.error(`Failed to record ${type} for ${videoId}:`, err);
