@@ -13,6 +13,8 @@ import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { useAutoQueue } from '../../hooks/useAutoQueue';
+import { usePlaybackPersistence } from '../../hooks/usePlaybackPersistence';
+import playbackStateService from '../../services/playback-state.service';
 import { useCrossfade } from '../../hooks/useCrossfade';
 import { useContinuousPlayer } from '../../hooks/useContinuousPlayer';
 import { socketService } from '../../services/socket.service';
@@ -49,6 +51,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   // 🎵 自動播放佇列 - 當接近播放清單尾端時自動加入推薦歌曲
   useAutoQueue(!embedded);
+  // 💾 Auto-save playback state for iOS PWA crash recovery
+  usePlaybackPersistence();
   const isPlayingRef = useRef(isPlaying);
   const displayModeRef = useRef(displayMode);
   const prevDisplayModeRef = useRef(displayMode);
@@ -334,7 +338,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
             if (isPlayingRef.current) {
               console.log(`▶️ 快取秒開播放: ${pendingTrack.title}`);
-              audio.play().catch((error) => {
+              audio.play().then(() => {
+                // iOS PWA crash recovery: seek to persisted position
+                const recoverySeek = playbackStateService.consumeRecoverySeekTarget();
+                if (recoverySeek !== null) {
+                  const maxTime = pendingTrack?.duration || audio.duration || Infinity;
+                  audio.currentTime = Math.min(recoverySeek, maxTime - 1);
+                  console.log(`🔄 [PWA Recovery] Seeked to ${recoverySeek.toFixed(1)}s`);
+                }
+              }).catch((error) => {
                 if (error.name === 'NotAllowedError') {
                   setAutoplayBlocked(true);
                   dispatch(setIsPlaying(false)); // UI 顯示暫停，讓使用者點播放
@@ -612,7 +624,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           // 自動播放（audio element 是所有模式下唯一音源，影片模式下 iframe 靜音）
           if (shouldPlay) {
             console.log(`▶️ Auto-playing audio: ${pendingTrack.title}`);
-            audio.play().catch((error) => {
+            audio.play().then(() => {
+              // iOS PWA crash recovery: seek to persisted position
+              const recoverySeek = playbackStateService.consumeRecoverySeekTarget();
+              if (recoverySeek !== null) {
+                const maxTime = pendingTrack?.duration || audio.duration || Infinity;
+                audio.currentTime = Math.min(recoverySeek, maxTime - 1);
+                console.log(`🔄 [PWA Recovery] Seeked to ${recoverySeek.toFixed(1)}s`);
+              }
+            }).catch((error) => {
               console.error('Failed to auto-play:', error);
               if (error.name === 'NotAllowedError') {
                 // 瀏覽器阻擋自動播放，顯示點擊播放按鈕

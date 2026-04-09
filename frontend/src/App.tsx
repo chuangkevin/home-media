@@ -29,6 +29,7 @@ import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist, playNow, update
 import { RootState } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
+import playbackStateService from './services/playback-state.service';
 import type { Track } from './types/track.types';
 import { useSocketConnection } from './hooks/useSocketConnection';
 import { useRadioSync } from './hooks/useRadioSync';
@@ -216,45 +217,72 @@ function AppContent() {
     }
   }, [currentTrack?.videoId]);
 
-  // 頁面載入/重整時，從 URL 恢復播放狀態
+  // 頁面載入/重整時，從持久化狀態或 URL 恢復播放
   useEffect(() => {
-    const playingVideoId = searchParams.get('playing');
-    if (playingVideoId && !currentTrack) {
-      const restoreTrack = async () => {
-        // 優先從 IndexedDB 讀 metadata（快取命中 = 有完整資訊）
-        const cached = await audioCacheService.getMetadata(playingVideoId);
-        const track: Track = {
-          id: playingVideoId,
-          videoId: playingVideoId,
-          title: cached?.title || '載入中...',
-          channel: cached?.channel || '',
-          thumbnail: cached?.thumbnail || `https://i.ytimg.com/vi/${playingVideoId}/hqdefault.jpg`,
-          duration: cached?.duration || 0,
-        };
-        dispatch(setPlaylist([track]));
-        dispatch(setPendingTrack(track));
-        dispatch(setIsPlaying(true));
+    if (currentTrack) return; // Already playing, skip restore
 
-        // 如果快取沒有 metadata，背景補全
-        if (!cached) {
-          apiService.getVideoInfo(playingVideoId).then(videoInfo => {
-            dispatch(updateTrackMetadata({
-              id: videoInfo.videoId,
-              videoId: videoInfo.videoId,
-              title: videoInfo.title,
-              channel: videoInfo.channel,
-              thumbnail: videoInfo.thumbnail,
-              duration: videoInfo.duration,
-            }));
-          }).catch(() => {
-            const newParams = new URLSearchParams(searchParams);
-            newParams.delete('playing');
-            setSearchParams(newParams, { replace: true });
-          });
-        }
+    const restoreFromPersisted = async (): Promise<boolean> => {
+      const persisted = playbackStateService.restore();
+      if (!persisted || persisted.playlist.length === 0) return false;
+
+      console.log(`🔄 [PWA Recovery] Restoring session: ${persisted.playlist.length} tracks, index=${persisted.currentIndex}`);
+
+      dispatch(setPlaylist(persisted.playlist as Track[]));
+
+      const idx = persisted.currentIndex >= 0 && persisted.currentIndex < persisted.playlist.length
+        ? persisted.currentIndex : 0;
+      const track = persisted.playlist[idx];
+      dispatch(setPendingTrack(track as Track));
+      dispatch(setIsPlaying(true));
+
+      setLyricsDrawerOpen(true);
+
+      if (persisted.currentTime > 5) {
+        playbackStateService.setRecoverySeekTarget(persisted.currentTime);
+      }
+      playbackStateService.clear();
+      return true;
+    };
+
+    const restoreFromUrl = async (): Promise<void> => {
+      const playingVideoId = searchParams.get('playing');
+      if (!playingVideoId) return;
+
+      const cached = await audioCacheService.getMetadata(playingVideoId);
+      const track: Track = {
+        id: playingVideoId,
+        videoId: playingVideoId,
+        title: cached?.title || '載入中...',
+        channel: cached?.channel || '',
+        thumbnail: cached?.thumbnail || `https://i.ytimg.com/vi/${playingVideoId}/hqdefault.jpg`,
+        duration: cached?.duration || 0,
       };
-      restoreTrack();
-    }
+      dispatch(setPlaylist([track]));
+      dispatch(setPendingTrack(track));
+      dispatch(setIsPlaying(true));
+
+      if (!cached) {
+        apiService.getVideoInfo(playingVideoId).then(videoInfo => {
+          dispatch(updateTrackMetadata({
+            id: videoInfo.videoId,
+            videoId: videoInfo.videoId,
+            title: videoInfo.title,
+            channel: videoInfo.channel,
+            thumbnail: videoInfo.thumbnail,
+            duration: videoInfo.duration,
+          }));
+        }).catch(() => {
+          const newParams = new URLSearchParams(searchParams);
+          newParams.delete('playing');
+          setSearchParams(newParams, { replace: true });
+        });
+      }
+    };
+
+    // Try persisted state first (handles iOS PWA crash recovery), then URL
+    restoreFromPersisted().then(restored => {
+      if (!restored) restoreFromUrl();
+    });
   }, []); // 只在頁面初始化時執行一次
 
   // 初始化音訊快取服務
