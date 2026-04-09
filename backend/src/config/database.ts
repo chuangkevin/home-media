@@ -267,6 +267,19 @@ export function initDatabase() {
     )
   `);
 
+  // Blocked items 表（封鎖的歌曲與頻道）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS blocked_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL CHECK(type IN ('song', 'channel')),
+      video_id TEXT,
+      channel_name TEXT,
+      title TEXT NOT NULL,
+      thumbnail TEXT,
+      blocked_at INTEGER NOT NULL
+    )
+  `);
+
   // Settings 表（系統設定）
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (

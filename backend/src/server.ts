@@ -68,6 +68,7 @@ import settingsRoutes from './routes/settings.routes';
 import geminiRoutes from './routes/gemini.routes';
 import trackRoutes from './routes/track.routes';
 import continuousStreamRoutes from './routes/continuous-stream.routes';
+import blockRoutes from './routes/block.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -144,6 +145,9 @@ app.use('/api/tracks', trackRoutes);
 
 // Continuous stream (server-side sequential audio)
 app.use('/api', continuousStreamRoutes);
+
+// Block routes (blocked songs & channels)
+app.use('/api/block', blockRoutes);
 
 // Error handlers
 app.use(notFoundHandler);
