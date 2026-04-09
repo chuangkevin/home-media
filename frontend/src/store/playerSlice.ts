@@ -196,6 +196,41 @@ const playerSlice = createSlice({
       state.isLoadingTrack = true;
       state.isPlaying = true; // 標記要播放
     },
+    reorderPlaylist(state, action: PayloadAction<{ fromIndex: number; toIndex: number }>) {
+      const { fromIndex, toIndex } = action.payload;
+      const [moved] = state.playlist.splice(fromIndex, 1);
+      state.playlist.splice(toIndex, 0, moved);
+      // Adjust currentIndex
+      if (state.currentIndex === fromIndex) {
+        state.currentIndex = toIndex;
+      } else if (fromIndex < state.currentIndex && toIndex >= state.currentIndex) {
+        state.currentIndex--;
+      } else if (fromIndex > state.currentIndex && toIndex <= state.currentIndex) {
+        state.currentIndex++;
+      }
+    },
+    removeFromPlaylist(state, action: PayloadAction<number>) {
+      const index = action.payload;
+      if (index < 0 || index >= state.playlist.length) return;
+      state.playlist.splice(index, 1);
+      if (index < state.currentIndex) {
+        state.currentIndex--;
+      } else if (index === state.currentIndex) {
+        // Removed current track — don't change index, pendingTrack will handle it
+      }
+    },
+    insertNextInPlaylist(state, action: PayloadAction<Track>) {
+      const track = action.payload;
+      // Remove duplicate if exists
+      const existingIdx = state.playlist.findIndex(t => t.videoId === track.videoId);
+      if (existingIdx >= 0) {
+        state.playlist.splice(existingIdx, 1);
+        if (existingIdx <= state.currentIndex) state.currentIndex--;
+      }
+      // Insert after current
+      const insertAt = state.currentIndex + 1;
+      state.playlist.splice(insertAt, 0, track);
+    },
     playPrevious(state) {
       if (state.playlist.length === 0) return;
 
@@ -248,6 +283,9 @@ export const {
   playNext,
   playPrevious,
   updateTrackMetadata,
+  reorderPlaylist,
+  removeFromPlaylist,
+  insertNextInPlaylist,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;

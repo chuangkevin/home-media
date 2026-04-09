@@ -27,7 +27,7 @@ import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget, reorderPlaylist, removeFromPlaylist } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -37,6 +37,9 @@ import PlayerControls from './PlayerControls';
 import MorrorLyrics from './MorrorLyrics';
 import VideoLyricsOverlay from './VideoLyricsOverlay';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 
 type ViewMode = 'lyrics' | 'video' | 'cover' | 'morror';
 
@@ -998,6 +1001,22 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     dispatch(setIsPlaying(true));
   };
 
+  // 拖曳排序
+  const handleDragEnd = (result: any) => {
+    if (!result.destination) return;
+    dispatch(reorderPlaylist({ fromIndex: result.source.index, toIndex: result.destination.index }));
+  };
+
+  // 自動捲動到正在播放的曲目
+  const currentTrackRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (open && currentTrackRef.current) {
+      setTimeout(() => {
+        currentTrackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  }, [open, currentIndex]);
+
   // 完整播放清單（已播放灰色 + 目前高亮 + 待播正常）
 
   // 渲染歌詞
@@ -1298,66 +1317,107 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
 
     return (
-      <List dense={!isUltrawide} sx={{ py: 0 }}>
-        {playlist.map((item, idx) => {
-          // 跳過幽靈歌曲（未載入完的 placeholder）
-          if (!item.title || item.title === '載入中...') return null;
-          const isPlayed = idx < currentIndex;
-          const isCurrent = idx === currentIndex;
-          return (
-            <ListItem
-              key={`${item.videoId}-${idx}`}
-              disablePadding
-              secondaryAction={
-                !isCurrent ? (
-                  <IconButton edge="end" size={isUltrawide ? "large" : "small"} onClick={() => handlePlayFromList(item)}>
-                    <PlayArrowIcon fontSize={isUltrawide ? "medium" : "small"} />
-                  </IconButton>
-                ) : undefined
-              }
-            >
-              <ListItemButton
-                onClick={() => !isCurrent && handlePlayFromList(item)}
-                sx={{
-                  py: isUltrawide ? 1.5 : 0.5,
-                  px: isUltrawide ? 3 : 2,
-                  opacity: isPlayed ? 0.45 : 1,
-                  backgroundColor: isCurrent ? 'rgba(255,255,255,0.08)' : 'transparent',
-                  height: isUltrawide ? 80 : 'auto',
-                }}
-              >
-                <ListItemAvatar sx={{ minWidth: isUltrawide ? 72 : 48 }}>
-                  <Avatar
-                    variant="rounded"
-                    src={item.thumbnail}
-                    sx={{ width: isUltrawide ? 60 : 40, height: isUltrawide ? 60 : 40, opacity: isPlayed ? 0.5 : 1 }}
-                  />
-                </ListItemAvatar>
-                <ListItemText
-                  primary={
-                    <Typography
-                      variant="body2"
-                      noWrap
-                      sx={{
-                        fontSize: isUltrawide ? '1.15rem' : '0.85rem',
-                        fontWeight: isCurrent ? 700 : 400,
-                        color: isCurrent ? 'primary.main' : 'text.primary',
-                      }}
-                    >
-                      {isCurrent ? '▶ ' : ''}{item.title}
-                    </Typography>
-                  }
-                  secondary={
-                    <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: isUltrawide ? '0.95rem' : '0.75rem' }}>
-                      {item.channel}
-                    </Typography>
-                  }
-                />
-              </ListItemButton>
-            </ListItem>
-          );
-        })}
-      </List>
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="playlist">
+          {(provided) => (
+            <List dense={!isUltrawide} sx={{ py: 0 }} ref={provided.innerRef} {...provided.droppableProps}>
+              {playlist.map((item, idx) => {
+                // 跳過幽靈歌曲（未載入完的 placeholder）
+                if (!item.title || item.title === '載入中...') return null;
+                const isPlayed = idx < currentIndex;
+                const isCurrent = idx === currentIndex;
+                return (
+                  <Draggable key={`${item.videoId}-${idx}`} draggableId={`${idx}-${item.videoId}`} index={idx}>
+                    {(dragProvided, dragSnapshot) => (
+                      <ListItem
+                        ref={(el: HTMLLIElement | null) => {
+                          dragProvided.innerRef(el);
+                          if (isCurrent && el) currentTrackRef.current = el as unknown as HTMLDivElement;
+                        }}
+                        {...dragProvided.draggableProps}
+                        disablePadding
+                        sx={{
+                          borderLeft: isCurrent ? '3px solid' : '3px solid transparent',
+                          borderLeftColor: isCurrent ? 'primary.main' : 'transparent',
+                          ...(dragSnapshot.isDragging && {
+                            backgroundColor: 'action.selected',
+                            boxShadow: 4,
+                            borderRadius: 1,
+                          }),
+                        }}
+                        secondaryAction={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                            {!isCurrent && (
+                              <IconButton size={isUltrawide ? "large" : "small"} onClick={() => handlePlayFromList(item)}>
+                                <PlayArrowIcon fontSize={isUltrawide ? "medium" : "small"} />
+                              </IconButton>
+                            )}
+                            {!isCurrent && (
+                              <IconButton
+                                size={isUltrawide ? "large" : "small"}
+                                onClick={(e) => { e.stopPropagation(); dispatch(removeFromPlaylist(idx)); }}
+                                sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
+                              >
+                                <DeleteOutlineIcon fontSize={isUltrawide ? "medium" : "small"} />
+                              </IconButton>
+                            )}
+                          </Box>
+                        }
+                      >
+                        <Box
+                          {...dragProvided.dragHandleProps}
+                          sx={{ display: 'flex', alignItems: 'center', pl: 0.5, cursor: 'grab', color: 'text.disabled' }}
+                        >
+                          <DragIndicatorIcon fontSize="small" />
+                        </Box>
+                        <ListItemButton
+                          onClick={() => !isCurrent && handlePlayFromList(item)}
+                          sx={{
+                            py: isUltrawide ? 1.5 : 0.5,
+                            px: isUltrawide ? 2 : 1,
+                            opacity: isPlayed ? 0.45 : 1,
+                            backgroundColor: isCurrent ? 'rgba(255,255,255,0.08)' : 'transparent',
+                            height: isUltrawide ? 80 : 'auto',
+                          }}
+                        >
+                          <ListItemAvatar sx={{ minWidth: isUltrawide ? 72 : 48 }}>
+                            <Avatar
+                              variant="rounded"
+                              src={item.thumbnail}
+                              sx={{ width: isUltrawide ? 60 : 40, height: isUltrawide ? 60 : 40, opacity: isPlayed ? 0.5 : 1 }}
+                            />
+                          </ListItemAvatar>
+                          <ListItemText
+                            primary={
+                              <Typography
+                                variant="body2"
+                                noWrap
+                                sx={{
+                                  fontSize: isUltrawide ? '1.15rem' : '0.85rem',
+                                  fontWeight: isCurrent ? 700 : 400,
+                                  color: isCurrent ? 'primary.main' : 'text.primary',
+                                }}
+                              >
+                                {isCurrent ? '▶ ' : ''}{item.title}
+                              </Typography>
+                            }
+                            secondary={
+                              <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: isUltrawide ? '0.95rem' : '0.75rem' }}>
+                                {item.channel}
+                              </Typography>
+                            }
+                          />
+                        </ListItemButton>
+                      </ListItem>
+                    )}
+                  </Draggable>
+                );
+              })}
+              {provided.placeholder}
+            </List>
+          )}
+        </Droppable>
+      </DragDropContext>
     );
   };
 
