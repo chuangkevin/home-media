@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button, IconButton, Snackbar } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, IconButton, Snackbar } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
@@ -38,7 +37,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const { isEnabled: continuousMode, sessionId: continuousSessionId } = useSelector((state: RootState) => state.continuousPlayer);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
-  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  // autoplayBlocked removed — radio 模式永遠自動重試播放，不需要手動按鈕
   const currentVideoIdRef = useRef<string | null>(null);
   const currentBlobUrlRef = useRef<string | null>(null);
   const pendingBlobUrlRef = useRef<string | null>(null);
@@ -363,8 +362,16 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 }
               }).catch((error) => {
                 if (error.name === 'NotAllowedError') {
-                  setAutoplayBlocked(true);
-                  dispatch(setIsPlaying(false)); // UI 顯示暫停，讓使用者點播放
+                  // Radio 模式：不顯示 blocked 按鈕，自動重試
+                  console.warn('⚠️ Autoplay blocked, will retry on user interaction');
+                  const retryPlay = () => {
+                    audioRef.current?.play().then(() => {
+                      document.removeEventListener('click', retryPlay);
+                      document.removeEventListener('touchstart', retryPlay);
+                    }).catch(() => {});
+                  };
+                  document.addEventListener('click', retryPlay, { once: true });
+                  document.addEventListener('touchstart', retryPlay, { once: true });
                 } else {
                   dispatch(setIsPlaying(false));
                 }
@@ -652,8 +659,16 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             }).catch((error) => {
               console.error('Failed to auto-play:', error);
               if (error.name === 'NotAllowedError') {
-                // 瀏覽器阻擋自動播放，顯示點擊播放按鈕
-                setAutoplayBlocked(true);
+                // Radio 模式：不顯示 blocked 按鈕，等任意 user interaction 自動重試
+                console.warn('⚠️ Autoplay blocked (stream), will retry on user interaction');
+                const retryPlay = () => {
+                  audioRef.current?.play().then(() => {
+                    document.removeEventListener('click', retryPlay);
+                    document.removeEventListener('touchstart', retryPlay);
+                  }).catch(() => {});
+                };
+                document.addEventListener('click', retryPlay, { once: true });
+                document.addEventListener('touchstart', retryPlay, { once: true });
               } else {
                 dispatch(setIsPlaying(false));
               }
@@ -1701,17 +1716,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               </Typography>
               <PlayerControls embedded />
               <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mt: 2 }}>
-                {autoplayBlocked && (
-                  <Button variant="contained" color="primary" size="small" startIcon={<PlayArrowIcon />}
-                    onClick={() => { audioRef.current?.play().then(() => setAutoplayBlocked(false)).catch(console.error); }}
-                  >點擊播放</Button>
-                )}
-                {!autoplayBlocked && onOpenLyrics && (
+                {onOpenLyrics && (
                   <IconButton onClick={onOpenLyrics}><LyricsIcon /></IconButton>
                 )}
-                {!autoplayBlocked && (
-                  <IconButton onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}><PlaylistAddIcon /></IconButton>
-                )}
+                <IconButton onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}><PlaylistAddIcon /></IconButton>
               </Box>
             </Box>
           </Box>
@@ -1825,13 +1833,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             </Box>
             </Box>{/* end clickable area */}
             {/* 功能按鈕 */}
-            {/* 功能按鈕：autoplayBlocked 時也顯示，不再隱藏 */}
               <>
-                {autoplayBlocked && (
-                  <IconButton size="small" color="primary"
-                    onClick={() => { audioRef.current?.play().then(() => setAutoplayBlocked(false)).catch(console.error); }}
-                  ><PlayArrowIcon fontSize="small" /></IconButton>
-                )}
                 {onOpenLyrics && (
                   <IconButton size="small" onClick={onOpenLyrics} sx={{ color: 'text.secondary' }}>
                     <LyricsIcon fontSize="small" />
