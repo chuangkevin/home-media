@@ -128,6 +128,7 @@ export default function SwipeablePlaylistItem({
           position: 'relative',
           zIndex: 1,
           backgroundColor: 'background.paper',
+          touchAction: 'pan-y', // 允許垂直滾動，攔截水平滑動
         }}
       >
         {children}

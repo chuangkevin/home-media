@@ -165,8 +165,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         return t;
       });
       const hasAny = trans.some((t: string) => t.length > 0);
+      if (!hasAny && retryCountRef.current < 4) {
+        // 翻譯結果全空 — 自動 retry
+        retryCountRef.current++;
+        console.log(`🔄 翻譯結果為空，重試 ${retryCountRef.current}/4`);
+        setTimeout(() => doTranslate(gen), 10000);
+        return;
+      }
       setTranslations(hasAny ? trans : []);
-      setTranslationError(false);
+      setTranslationError(!hasAny);
       setIsTranslating(false);
     }).catch(() => {
       if (translationGenRef.current !== gen) return; // stale

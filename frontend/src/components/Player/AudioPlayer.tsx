@@ -1033,7 +1033,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           currentBlobUrlRef.current = blobUrl;
           currentVideoIdRef.current = info.videoId;
           audioEl.volume = 0;
-          audioEl.play().catch(() => {});
+          audioEl.play().catch((err) => {
+            console.error('🚀 [Quick Start] play() failed after fade, forcing retry:', err);
+            // Fallback: 直接設 volume 回來再試一次
+            audioEl.volume = savedVolume;
+            setTimeout(() => audioEl.play().catch(() => {}), 500);
+          });
 
           // Fade in
           let inStep = 0;
@@ -1133,7 +1138,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           endFallbackTimeout = setTimeout(() => {
             if (!wasCompletedRef.current) {
               console.log('⏰ iOS fallback: timeupdate 未觸發結尾偵測，強制跳下一首');
-              quickStartNextTrack(audio) || dispatch(playNext());
+              if (!quickStartNextTrack(audio)) {
+                wasCompletedRef.current = true;
+                dispatch(playNext());
+              }
             }
           }, Math.max(remainingMs, 1000));
         }
