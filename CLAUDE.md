@@ -283,6 +283,7 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **iOS PWA memory**: cached `<video>` element is conditionally rendered only when `viewMode === 'video' && videoCached`. `cachedVideoRef.current` may be null — always null-check. Background timers (`checkFakePlayback`, `updatePositionState`) skip work when `document.hidden`
 - **Video A/V sync thresholds**: YouTube iframe: >1s hard seek, 0.3-1s playbackRate nudge (1.05/0.95), <0.3s no-op, 800ms interval. Cached video: >0.7s hard seek (4.5s cooldown), 0.10-0.7s playbackRate nudge (0.96-1.04 range, k=0.06), 600ms interval
 - **iOS quick-start 換歌**: 歌曲 90% 時預建下一首 blob URL 存 `nextTrackBlobUrlRef`。`ended` 時 `quickStartNextTrack()` 直接 `audio.src=url; audio.play()`，不走 Redux。所有換歌入口都優先呼叫。切歌時必須 `URL.revokeObjectURL` 清理舊的 nextTrackBlobUrl
+- **換歌路徑禁止 async timer**: `quickStartNextTrack` 和所有換歌入口必須全部同步（audio.src + play + 清理 refs）。絕對不能用 setInterval/setTimeout 做 fade — 會造成 timeupdate 重複觸發 + wasCompletedRef 狀態錯亂。Gapless 需用雙 audio element 架構（類似 crossfade）
 - **iOS 鎖屏進度條**: Media Session `seekto` handler 必須設定，否則鎖屏進度條不能拖。`setPositionState` 不能加 `document.hidden` guard（鎖屏時也需要更新）
 - **鎖屏解鎖影片恢復**: `syncOnce` 必須檢查 `recoveryLockRef`，否則 600ms sync interval 會在解鎖瞬間瘋狂 seek 造成卡頓。恢復流程：seek（暫停態）→ 2s 後再次 seek + play → 3s 後解除 lock
 - **鍵盤彈出不更新 --app-dvh**: `visualViewport.height` 比 `window.innerHeight` 小超過 100px 時跳過更新，避免播放器跑位
