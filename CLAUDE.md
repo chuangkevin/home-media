@@ -255,3 +255,17 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Video lyrics overlay**: `VideoLyricsOverlay` reads Redux `currentTime` + `lyrics` state. Uses `pointerEvents: 'none'` — don't add click handlers. Only renders for cached video path
 - **iOS PWA memory**: cached `<video>` element is conditionally rendered only when `viewMode === 'video' && videoCached`. `cachedVideoRef.current` may be null — always null-check. Background timers (`checkFakePlayback`, `updatePositionState`) skip work when `document.hidden`
 - **Video A/V sync thresholds**: YouTube iframe: >1s hard seek, 0.3-1s playbackRate nudge (1.05/0.95), <0.3s no-op, 800ms interval. Cached video: >0.7s hard seek (4.5s cooldown), 0.10-0.7s playbackRate nudge (0.96-1.04 range, k=0.06), 600ms interval
+- **iOS quick-start 換歌**: 歌曲 90% 時預建下一首 blob URL 存 `nextTrackBlobUrlRef`。`ended` 時 `quickStartNextTrack()` 直接 `audio.src=url; audio.play()`，不走 Redux。所有換歌入口都優先呼叫。切歌時必須 `URL.revokeObjectURL` 清理舊的 nextTrackBlobUrl
+- **iOS 鎖屏進度條**: Media Session `seekto` handler 必須設定，否則鎖屏進度條不能拖。`setPositionState` 不能加 `document.hidden` guard（鎖屏時也需要更新）
+- **鎖屏解鎖影片恢復**: `syncOnce` 必須檢查 `recoveryLockRef`，否則 600ms sync interval 會在解鎖瞬間瘋狂 seek 造成卡頓。恢復流程：seek（暫停態）→ 2s 後再次 seek + play → 3s 後解除 lock
+- **鍵盤彈出不更新 --app-dvh**: `visualViewport.height` 比 `window.innerHeight` 小超過 100px 時跳過更新，避免播放器跑位
+- **Snackbar top toast**: 頂部 Snackbar 必須加 `sx={{ top: 'max(8px, env(safe-area-inset-top, 8px)) !important' }}`，否則被動態島蓋到
+- **Mini player touchAction**: CardContent 加 `touchAction: 'none'` + `userSelect: 'none'`，防止滾動時誤觸拖動
+- **影片下載不限 tab**: FullscreenLyrics 影片下載 effect 的 guard 不要包含 `viewMode !== 'video'`，Drawer 開啟就開始下載。離開 tab 不停輪詢
+- **play_count**: `complete` signal 時同時累加 `play_count`（用於播放清單顯示「播放 X 次」）+ 更新 `last_played`
+- **自動佇列去重**: 除 videoId 外，也用 `channel+title`（忽略大小寫）去重，防止同歌不同 MV 重複
+- **歌詞搜尋順序**: LRCLIB（優先 synced）→ NetEase → Genius → YouTube CC（最後備用，避免與影片 CC 字幕疊加）。找到 non-synced 不立即回傳，繼續找 synced
+- **NetEase artist**: API 回傳可能用 `song.artists` 或 `song.ar`，兩種格式都要處理
+- **翻譯穩定性**: 前端 null result 必須 throw 進入 retry。後端 retry 用完所有 key（不是只換 1 次）。非 429/403 也繼續重試
+- **Tab 按鈕寬度**: 不放動態長文字（如「下載中 15s」），改用固定文字 + spinner icon
+- **手機 vs 車用按鈕**: `isIOSPortrait` 用小尺寸（px:1.2, fontSize:0.75rem），`isUltrawide` 用大尺寸（minWidth/Height:52px, icon:36px）
