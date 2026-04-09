@@ -23,7 +23,7 @@ import ClosedCaptionIcon from '@mui/icons-material/ClosedCaption';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { useSelector, useDispatch } from 'react-redux';
-import type { RootState } from '../../store';
+import { RootState, AppDispatch } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
@@ -38,8 +38,11 @@ import MorrorLyrics from './MorrorLyrics';
 import VideoLyricsOverlay from './VideoLyricsOverlay';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+// DeleteOutlineIcon removed — swipe gesture replaced delete button
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
+import SwipeablePlaylistItem from './SwipeablePlaylistItem';
+import { toggleFavorite } from '../../store/favoritesSlice';
+import { blockItem } from '../../store/blockSlice';
 
 type ViewMode = 'lyrics' | 'video' | 'cover' | 'morror';
 
@@ -58,7 +61,7 @@ interface FullscreenLyricsProps {
 }
 
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
   const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px) and (min-height: 360px)');
@@ -70,6 +73,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     (state: RootState) => state.lyrics
   );
   const { currentTime, playlist, currentIndex, seekTarget } = useSelector((state: RootState) => state.player);
+  const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const { emitOffsetUpdate, emitSourceUpdate } = useLyricsSync(
     track.videoId,
     (receivedTranslations: string[]) => {
@@ -1329,12 +1333,27 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 return (
                   <Draggable key={`${item.videoId}-${idx}`} draggableId={`${idx}-${item.videoId}`} index={idx}>
                     {(dragProvided, dragSnapshot) => (
-                      <ListItem
-                        ref={(el: HTMLLIElement | null) => {
+                      <div
+                        ref={(el: HTMLDivElement | null) => {
                           dragProvided.innerRef(el);
-                          if (isCurrent && el) currentTrackRef.current = el as unknown as HTMLDivElement;
+                          if (isCurrent && el) currentTrackRef.current = el;
                         }}
                         {...dragProvided.draggableProps}
+                      >
+                      <SwipeablePlaylistItem
+                        isFavorited={!!favoriteIds[item.videoId]}
+                        disabled={isCurrent}
+                        onSwipeRight={() => dispatch(toggleFavorite({
+                          videoId: item.videoId, title: item.title,
+                          channel: item.channel, thumbnail: item.thumbnail, duration: item.duration,
+                        }))}
+                        onRemove={() => dispatch(removeFromPlaylist(idx))}
+                        onBlock={() => dispatch(blockItem({
+                          type: 'song', videoId: item.videoId,
+                          title: item.title, thumbnail: item.thumbnail,
+                        }))}
+                      >
+                      <ListItem
                         disablePadding
                         sx={{
                           borderLeft: isCurrent ? '3px solid' : '3px solid transparent',
@@ -1345,24 +1364,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                             borderRadius: 1,
                           }),
                         }}
-                        secondaryAction={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                            {!isCurrent && (
-                              <IconButton size={isUltrawide ? "large" : "small"} onClick={() => handlePlayFromList(item)}>
-                                <PlayArrowIcon fontSize={isUltrawide ? "medium" : "small"} />
-                              </IconButton>
-                            )}
-                            {!isCurrent && (
-                              <IconButton
-                                size={isUltrawide ? "large" : "small"}
-                                onClick={(e) => { e.stopPropagation(); dispatch(removeFromPlaylist(idx)); }}
-                                sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
-                              >
-                                <DeleteOutlineIcon fontSize={isUltrawide ? "medium" : "small"} />
-                              </IconButton>
-                            )}
-                          </Box>
-                        }
+                        secondaryAction={!isCurrent ? (
+                          <IconButton size={isUltrawide ? "large" : "small"} onClick={() => handlePlayFromList(item)}>
+                            <PlayArrowIcon fontSize={isUltrawide ? "medium" : "small"} />
+                          </IconButton>
+                        ) : undefined}
                       >
                         <Box
                           {...dragProvided.dragHandleProps}
@@ -1409,6 +1415,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                           />
                         </ListItemButton>
                       </ListItem>
+                      </SwipeablePlaylistItem>
+                      </div>
                     )}
                   </Draggable>
                 );
