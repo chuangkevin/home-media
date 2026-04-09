@@ -484,9 +484,12 @@ Rules:
 3. If a line is in Simplified Chinese: convert to Traditional Chinese
 4. If a line is in English/Japanese/Korean/other: translate to natural Traditional Chinese
 5. IMPORTANT: For mixed-language songs (e.g. English + Chinese), translate EACH line independently based on its own language. Do NOT skip translation just because some lines are Chinese.
-6. Keep proper nouns and names in original form.
-7. detected_language should reflect the PRIMARY language (e.g. "mixed" for mixed-language songs, "en" for mostly English, "zh-TW" for PURELY Traditional Chinese).
-8. CRITICAL: Use the line index as the key in the translations object. Empty lines get an empty string "".
+6. You MUST translate EVERY single line. Do NOT skip any line index.
+7. The output JSON MUST have exactly ${cleanLines.length} keys (from "0" to "${cleanLines.length - 1}").
+8. If a line is instrumental or empty, return "" for that index — do NOT omit it.
+9. Keep proper nouns and names in original form.
+10. detected_language should reflect the PRIMARY language (e.g. "mixed" for mixed-language songs, "en" for mostly English, "zh-TW" for PURELY Traditional Chinese).
+11. CRITICAL: Use the line index as the key in the translations object. Empty lines get an empty string "".
 
 Lyrics (${cleanLines.length} lines):
 ${cleanLines.map((l, i) => `${i}: ${l}`).join('\n')}
@@ -537,9 +540,19 @@ Reply with ONLY a JSON object where each key is a line index (as a string):
         return null;
       }
 
+      // Validate coverage: if <50% of lines translated, retry with different key
+      const nonEmptyCount = translationsArray.filter(t => t.length > 0).length;
+      const coverage = nonEmptyCount / lines.length;
+      if (coverage < 0.5 && attempt < maxRetries) {
+        console.warn(`⚠️ [Gemini] Translation coverage too low: ${(coverage * 100).toFixed(0)}% (${nonEmptyCount}/${lines.length}), retrying...`);
+        const altKey = getApiKeyExcluding(currentKey);
+        if (altKey) currentKey = altKey;
+        continue;
+      }
+
       parsed.translations = translationsArray;
 
-      console.log(`🌐 [Gemini] Translated ${lines.length} lines (${parsed.detected_language}→zh-TW)`);
+      console.log(`🌐 [Gemini] Translated ${lines.length} lines, coverage ${(coverage * 100).toFixed(0)}% (${parsed.detected_language}→zh-TW)`);
       return parsed;
     } catch (err: any) {
       const msg = err?.message || '';
