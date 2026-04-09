@@ -1530,31 +1530,32 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 exclusive
                 onChange={(_, newMode) => { if (newMode) { setViewMode(newMode); setIsMorrorFullscreen(false); } }}
                 size={isUltrawide ? "large" : "small"}
-                sx={{ 
-                  '& .MuiToggleButton-root': { 
-                    px: isUltrawide ? 4 : 2,
-                    py: (isUltrawide || isIOSPortrait) ? 1 : 0.5,
-                    fontSize: (isUltrawide || isIOSPortrait) ? '1rem' : 'inherit'
-                  } 
+                sx={{
+                  '& .MuiToggleButton-root': {
+                    px: isUltrawide ? 5 : (isIOSPortrait ? 1.2 : 2),
+                    py: isUltrawide ? 1.5 : 0.5,
+                    fontSize: isUltrawide ? '1.15rem' : (isIOSPortrait ? '0.75rem' : 'inherit'),
+                    minHeight: isUltrawide ? 52 : 'auto',
+                  }
                 }}
               >
                 <ToggleButton value="lyrics">
-                  <LyricsIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
+                  <LyricsIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 24 : (isIOSPortrait ? 14 : 18) }} />
                   歌詞
                 </ToggleButton>
                 <ToggleButton value="video">
-                  <OndemandVideoIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
-                  {videoDownloading ? '影片' : '影片'}
+                  <OndemandVideoIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 24 : (isIOSPortrait ? 14 : 18) }} />
+                  影片
                   {videoDownloading && (
-                    <CircularProgress size={12} sx={{ ml: 0.5 }} />
+                    <CircularProgress size={isIOSPortrait ? 10 : 12} sx={{ ml: 0.5 }} />
                   )}
                 </ToggleButton>
                 <ToggleButton value="cover">
-                  <AlbumIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
+                  <AlbumIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 24 : (isIOSPortrait ? 14 : 18) }} />
                   封面
                 </ToggleButton>
                 <ToggleButton value="morror" disabled={!currentLyrics?.isSynced}>
-                  <AutoAwesomeIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 22 : 18 }} />
+                  <AutoAwesomeIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 24 : (isIOSPortrait ? 14 : 18) }} />
                   沉浸
                 </ToggleButton>
               </ToggleButtonGroup>
@@ -1578,51 +1579,61 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                     label={fineTuneOffset === 0 ? '0s' : `${fineTuneOffset > 0 ? '+' : ''}${fineTuneOffset.toFixed(1)}s`}
                     size={isUltrawide ? "medium" : "small"}
                     color="primary"
-                    sx={{ 
-                      height: isUltrawide ? 32 : 20, 
-                      minWidth: isUltrawide ? 80 : 50,
-                      fontSize: isUltrawide ? '1rem' : 'inherit'
+                    sx={{
+                      height: isUltrawide ? 44 : 20,
+                      minWidth: isUltrawide ? 100 : 50,
+                      fontSize: isUltrawide ? '1.2rem' : 'inherit'
                     }}
                   />
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleConfirmFineTune} color="success">
-                    <CheckIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleConfirmFineTune} color="success"
+                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
+                  >
+                    <CheckIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
                   </IconButton>
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleCancelFineTune} color="error">
-                    <CloseIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleCancelFineTune} color="error"
+                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
+                  >
+                    <CloseIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
                   </IconButton>
                 </>
               ) : (
                 <>
                   <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetDecrease}
                     onPointerDown={() => startHold(-0.5)} onPointerUp={stopHold} onPointerLeave={stopHold}
+                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
                   >
-                    <RemoveIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
+                    <RemoveIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
                   </IconButton>
                   <Chip
                     label={timeOffset === 0 ? '0s' : `${timeOffset > 0 ? '+' : ''}${timeOffset.toFixed(1)}s`}
                     size={isUltrawide ? "medium" : "small"}
                     onClick={handleOffsetReset}
                     color={timeOffset === 0 ? 'default' : 'primary'}
-                    sx={{ 
-                      height: isUltrawide ? 36 : 24, 
-                      minWidth: isUltrawide ? 90 : 55, 
-                      cursor: 'pointer', 
+                    sx={{
+                      height: isUltrawide ? 44 : 24,
+                      minWidth: isUltrawide ? 100 : 55,
+                      cursor: 'pointer',
                       fontWeight: 700,
-                      fontSize: isUltrawide ? '1.1rem' : 'inherit'
+                      fontSize: isUltrawide ? '1.2rem' : 'inherit'
                     }}
                   />
                   <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetIncrease}
                     onPointerDown={() => startHold(0.5)} onPointerUp={stopHold} onPointerLeave={stopHold}
+                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
                   >
-                    <AddIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
+                    <AddIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
                   </IconButton>
                   {timeOffset !== 0 && (
-                    <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetReset}>
-                      <RestartAltIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
+                    <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetReset}
+                      sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
+                    >
+                      <RestartAltIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
                     </IconButton>
                   )}
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleEnterFineTune} color="primary">
-                    <TuneIcon sx={{ fontSize: isUltrawide ? 28 : 18 }} />
+                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleEnterFineTune} color="primary"
+                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
+                  >
+                    <TuneIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
                   </IconButton>
                 </>
               )}
