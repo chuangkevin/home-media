@@ -1099,7 +1099,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     return (
       <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
-        {videoCached ? (
+        {viewMode === 'video' && videoCached && (
           <video
             ref={cachedVideoRef}
             src={apiService.getVideoCacheStreamUrl(track.videoId)}
@@ -1120,7 +1120,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             onPause={() => {}}
             muted
           />
-        ) : (
+        )}
+        {!videoCached && (
           <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
             <div
               ref={videoContainerRef}

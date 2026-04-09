@@ -1238,6 +1238,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }, 3000); // 3 秒檢查一次，iOS 鎖屏仍能運行
 
     const checkFakePlayback = setInterval(() => {
+      if (document.hidden) return; // Skip fake playback detection when backgrounded
       if (!audio.paused && isPlaying && displayMode !== 'video') {
         const timeSinceUpdate = Date.now() - lastTimeUpdate;
         // 如果超過 4 秒沒有時間更新，可能是假播放
@@ -1412,6 +1413,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     // 設定正確的播放位置與時長（覆蓋 audio.duration 的尾部靜音）
     const updatePositionState = () => {
+      if (document.hidden) return; // iOS doesn't read positionState from background JS
       try {
         const audio = audioRef.current;
         if (!audio) return;
