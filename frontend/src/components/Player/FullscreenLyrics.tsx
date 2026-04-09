@@ -35,6 +35,7 @@ import { useLyricsSync } from '../../hooks/useLyricsSync';
 import AudioPlayer from './AudioPlayer';
 import PlayerControls from './PlayerControls';
 import MorrorLyrics from './MorrorLyrics';
+import VideoLyricsOverlay from './VideoLyricsOverlay';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 
 type ViewMode = 'lyrics' | 'video' | 'cover' | 'morror';
@@ -1120,6 +1121,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             onPause={() => {}}
             muted
           />
+        )}
+        {viewMode === 'video' && videoCached && (
+          <VideoLyricsOverlay translations={translations} />
         )}
         {!videoCached && (
           <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
