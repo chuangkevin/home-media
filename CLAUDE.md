@@ -297,3 +297,9 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **翻譯穩定性**: 前端 null result 必須 throw 進入 retry。後端 retry 用完所有 key（不是只換 1 次）。非 429/403 也繼續重試
 - **Tab 按鈕寬度**: 不放動態長文字（如「下載中 15s」），改用固定文字 + spinner icon
 - **手機 vs 車用按鈕**: `isIOSPortrait` 用小尺寸（px:1.2, fontSize:0.75rem），`isUltrawide` 用大尺寸（minWidth/Height:52px, icon:36px）
+- **推薦每頻道數量**: `VIDEOS_PER_CHANNEL = 20`，配合前端橫向 lazy loading（6 張一批 + IntersectionObserver）
+- **首頁 tab 再按**: `scrollToTop()` 同時清除 `hasSearched` + `searchResults`，回到推薦頁
+- **Version bump 必須同步 lockfile**: 改 package.json version 後跑 `npm install --package-lock-only`，前後端都要做，否則 CI `npm ci` 失敗
+- **影片 DOM 不卸載**: cached `<video>` 用 `display: none` 而非條件渲染，避免切 tab 回來重新載入 buffer 造成 lag
+- **autoplay 不阻擋**: radio 模式不顯示 autoplayBlocked 按鈕，改用 `document.addEventListener('click/touchstart', retryPlay)` 自動重試
+- **播放清單滑動手勢**: `SwipeablePlaylistItem` — 右滑收藏、左滑移除/封鎖。水平 >10px 鎖定為 swipe，垂直走 drag-and-drop。`touchAction: 'pan-y'` 必須設定
