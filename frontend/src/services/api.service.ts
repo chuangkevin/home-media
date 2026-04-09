@@ -285,6 +285,18 @@ class ApiService {
       .catch(err => console.warn('updateLyricsPreferences failed:', err.message));
   }
 
+  // ==================== 播放紀錄 ====================
+
+  /**
+   * 獲取播放紀錄（按最後播放時間排序）
+   */
+  async getPlaybackHistory(limit: number = 100): Promise<PlaybackHistoryTrack[]> {
+    const response = await this.api.get<PlaybackHistoryTrack[]>('/history/playback', {
+      params: { limit },
+    });
+    return response.data;
+  }
+
   // ==================== 歷史記錄 ====================
 
   /**
@@ -752,6 +764,17 @@ export interface Playlist {
 
 export interface PlaylistWithTracks extends Playlist {
   tracks: Track[];
+}
+
+// 播放紀錄
+export interface PlaybackHistoryTrack {
+  videoId: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration: number;
+  playCount: number;
+  lastPlayed: number;
 }
 
 // 快取狀態

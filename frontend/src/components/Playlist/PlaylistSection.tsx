@@ -34,6 +34,7 @@ import { fetchPlaylists, fetchPlaylist, deletePlaylist, updatePlaylist, clearCur
 import { setPlaylist, setPendingTrack, setIsPlaying } from '../../store/playerSlice';
 import CreatePlaylistDialog from './CreatePlaylistDialog';
 import apiService, { type Playlist } from '../../services/api.service';
+import PlaybackHistory from '../History/PlaybackHistory';
 
 interface PlaylistSectionProps {
   onPlaylistSelect?: (playlistId: string) => void;
@@ -232,6 +233,16 @@ export default function PlaylistSection({ onPlaylistSelect }: PlaylistSectionPro
   // 顯示播放清單列表
   return (
     <Box>
+      {/* 最近播放 */}
+      <Box sx={{ mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 0, mb: 0.5 }}>
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+            最近播放
+          </Typography>
+        </Box>
+        <PlaybackHistory />
+      </Box>
+
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <QueueMusicIcon />

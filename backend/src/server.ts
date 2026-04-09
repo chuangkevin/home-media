@@ -70,6 +70,7 @@ import hiddenChannelsRoutes from './routes/hidden-channels.routes';
 import settingsRoutes from './routes/settings.routes';
 import geminiRoutes from './routes/gemini.routes';
 import trackRoutes from './routes/track.routes';
+import historyPlaybackRoutes from './routes/history-playback.routes';
 import continuousStreamRoutes from './routes/continuous-stream.routes';
 import blockRoutes from './routes/block.routes';
 import favoritesRoutes from './routes/favorites.routes';
@@ -147,6 +148,9 @@ app.use('/api/gemini', geminiRoutes);
 
 // Track signal & style
 app.use('/api/tracks', trackRoutes);
+
+// Playback history
+app.use('/api/history/playback', historyPlaybackRoutes);
 
 // Continuous stream (server-side sequential audio)
 app.use('/api', continuousStreamRoutes);
