@@ -27,6 +27,7 @@ import RadioButton from './components/Radio/RadioButton';
 import RadioIndicator from './components/Radio/RadioIndicator';
 import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist, playNow, updateTrackMetadata } from './store/playerSlice';
 import { fetchBlocked } from './store/blockSlice';
+import { fetchFavorites } from './store/favoritesSlice';
 import { RootState, AppDispatch } from './store';
 import apiService from './services/api.service';
 import audioCacheService from './services/audio-cache.service';
@@ -311,6 +312,8 @@ function AppContent() {
 
     // 載入封鎖清單
     dispatch(fetchBlocked());
+    // 載入收藏清單
+    dispatch(fetchFavorites());
   }, []);
 
   // iPhone Safari/PWA 鎖屏回前景後，100dvh/100% 有時不會立刻重算。

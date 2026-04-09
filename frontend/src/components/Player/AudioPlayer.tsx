@@ -4,8 +4,10 @@ import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, Button
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import PlayerControls from './PlayerControls';
-import { RootState } from '../../store';
+import { RootState, AppDispatch } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack, setDisplayMode } from '../../store/playerSlice';
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
 import apiService from '../../services/api.service';
@@ -19,6 +21,7 @@ import { useContinuousPlayer } from '../../hooks/useContinuousPlayer';
 import { socketService } from '../../services/socket.service';
 import type { Track } from '../../types/track.types';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
+import { toggleFavorite } from '../../store/favoritesSlice';
 
 interface AudioPlayerProps {
   onOpenLyrics?: () => void;
@@ -26,11 +29,12 @@ interface AudioPlayerProps {
 }
 
 export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPlayerProps) {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const audioRef = useRef<HTMLAudioElement>(null);
   const secondaryAudioRef = useRef<HTMLAudioElement>(null);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const { isHost } = useSelector((state: RootState) => state.radio);
+  const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const { isEnabled: continuousMode, sessionId: continuousSessionId } = useSelector((state: RootState) => state.continuousPlayer);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
@@ -1826,6 +1830,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 {onOpenLyrics && (
                   <IconButton size="small" onClick={onOpenLyrics} sx={{ color: 'text.secondary' }}>
                     <LyricsIcon fontSize="small" />
+                  </IconButton>
+                )}
+                {displayTrack && (
+                  <IconButton size="small" onClick={() => {
+                    dispatch(toggleFavorite({
+                      videoId: displayTrack.videoId,
+                      title: displayTrack.title,
+                      channel: displayTrack.channel,
+                      thumbnail: displayTrack.thumbnail,
+                      duration: displayTrack.duration,
+                    }));
+                  }}>
+                    {favoriteIds[displayTrack.videoId]
+                      ? <FavoriteIcon fontSize="small" sx={{ color: 'error.main' }} />
+                      : <FavoriteBorderIcon fontSize="small" sx={{ color: 'text.secondary' }} />}
                   </IconButton>
                 )}
                 <IconButton size="small" onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)} sx={{ color: 'text.secondary' }}>

@@ -280,6 +280,19 @@ export function initDatabase() {
     )
   `);
 
+  // 收藏表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS favorites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      channel TEXT,
+      thumbnail TEXT,
+      duration INTEGER DEFAULT 0,
+      favorited_at INTEGER NOT NULL
+    )
+  `);
+
   // Settings 表（系統設定）
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (

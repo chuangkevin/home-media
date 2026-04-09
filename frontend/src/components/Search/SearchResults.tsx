@@ -25,12 +25,15 @@ import CloudIcon from '@mui/icons-material/Cloud';
 import StorageIcon from '@mui/icons-material/Storage';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import BlockIcon from '@mui/icons-material/Block';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import type { Track } from '../../types/track.types';
 import { formatDuration, formatNumber, formatUploadedAt } from '../../utils/formatTime';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
 import apiService from '../../services/api.service';
 import { RootState, AppDispatch } from '../../store';
 import { blockItem, unblockItem } from '../../store/blockSlice';
+import { toggleFavorite } from '../../store/favoritesSlice';
 
 const PAGE_SIZE = 12;
 
@@ -49,6 +52,7 @@ export default function SearchResults({
 }: SearchResultsProps) {
   const dispatch = useDispatch<AppDispatch>();
   const { items: blockedItems } = useSelector((state: RootState) => state.block);
+  const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
@@ -341,6 +345,25 @@ export default function SearchResults({
                   size={isUltrawide ? "large" : "medium"}
                 >
                   <PlaylistAddIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />
+                </IconButton>
+                <IconButton
+                  color="default"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch(toggleFavorite({
+                      videoId: track.videoId,
+                      title: track.title,
+                      channel: track.channel,
+                      thumbnail: track.thumbnail,
+                      duration: track.duration,
+                    }));
+                  }}
+                  title={favoriteIds[track.videoId] ? '取消收藏' : '收藏'}
+                  size={isUltrawide ? "large" : "medium"}
+                >
+                  {favoriteIds[track.videoId]
+                    ? <FavoriteIcon sx={{ fontSize: isUltrawide ? 28 : 24, color: 'error.main' }} />
+                    : <FavoriteBorderIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />}
                 </IconButton>
                 <IconButton
                   color="default"

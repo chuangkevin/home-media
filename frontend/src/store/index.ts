@@ -8,6 +8,7 @@ import playlistReducer from './playlistSlice';
 import radioReducer from './radioSlice';
 import continuousPlayerReducer from './continuousPlayerSlice';
 import blockReducer from './blockSlice';
+import favoritesReducer from './favoritesSlice';
 
 export const store = configureStore({
   reducer: {
@@ -20,6 +21,7 @@ export const store = configureStore({
     radio: radioReducer,
     continuousPlayer: continuousPlayerReducer,
     block: blockReducer,
+    favorites: favoritesReducer,
   },
 });
 
