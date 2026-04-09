@@ -194,6 +194,10 @@ function AppContent() {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollToTop = useCallback(() => {
+    // 清除搜尋狀態，回到推薦頁
+    setHasSearched(false);
+    setSearchResults([]);
+    setError(null);
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
