@@ -41,7 +41,8 @@ docker compose up -d         # Production (frontend on :3123)
 
 ### Lyrics Pipeline
 Cache → User Preference (LRCLIB/NetEase ID) → Local IndexedDB → Backend auto-search
-Backend order: SQLite cache → NetEase → LRCLIB → Genius → CC (parallel with traditional)
+Backend order: SQLite cache → LRCLIB (synced 優先) → NetEase → Genius → YouTube CC (最後備用)
+策略：找到 synced 立即回傳；找到 non-synced 暫存，繼續找 synced；全部找完才 fallback 到 non-synced
 
 Title cleaning (regex fallback when Gemini unavailable):
 - Removes `[...]` brackets, `(Official Video)`, Japanese `「」『』` brackets
@@ -51,19 +52,23 @@ Title cleaning (regex fallback when Gemini unavailable):
 
 ### AI Translation (Gemini 2.5 Flash)
 - Up to 41 API keys with random selection + 30s bad-key cooldown
-- `getMaxRetries()` = min(keyCount, 5) — retries with different keys
+- `getMaxRetries()` = min(keyCount, 5) — retries with different keys (429/403 AND 非 429/403 都重試)
 - All keys bad → `badKeys.clear()` resets everything
 - Translation cached in `lyrics_translations` table with content hash validation
 - Max 200 lines per request (truncates longer lyrics)
 - Mixed language: translates per-line independently, compares with original
-- Frontend retry: 4 attempts × 15s interval (matches 30s cooldown)
+- Prompt 要求完整行數，覆蓋率 <50% 自動重試換 key
+- Frontend retry: 4 attempts × 15s interval (null result 也進入 retry，不靜默失敗)
 - Manual retry: after all auto-retries fail, show "重試翻譯" Chip (FullscreenLyrics + MorrorLyrics)
+- 翻譯成功後 Socket.io 廣播 `lyrics:translation-ready`，其他裝置即時收到不重複呼叫 Gemini
 
 ### Lyrics Realtime Sync (Socket.io)
 
-- Any lyrics change (offset/source) broadcasts to ALL connected devices via `lyrics:offset-changed` / `lyrics:source-changed`
+- Any lyrics change (offset/source/translation) broadcasts to ALL connected devices
+- Events: `lyrics:offset-changed`, `lyrics:source-changed`, `lyrics:translation-ready`
 - Backend `lyrics.handler.ts`: `socket.broadcast.emit` (excludes sender)
-- Frontend `useLyricsSync` hook: emit on local change, listen for remote changes
+- Backend `track.routes.ts`: translate endpoint 成功後 `io.emit` 廣播翻譯結果
+- Frontend `useLyricsSync` hook: emit on local change, listen for remote changes, `onTranslationReceived` callback
 - Anti-loop: `isRemoteUpdateRef` flag prevents re-emit on received changes
 - `deviceId` (UUID v4 in sessionStorage) for identification
 - REST API `updateLyricsPreferences` retained for persistence; socket is real-time push only
@@ -90,11 +95,29 @@ Title cleaning (regex fallback when Gemini unavailable):
 - `playNow(track)`: inserts after currentIndex, plays immediately, re-locates currentIndex after filter
 - `appendToPlaylist(tracks)`: auto-queue adds to end without disrupting
 - `playNext/playPrevious`: stable index navigation
+- `reorderPlaylist(fromIndex, toIndex)`: drag-and-drop reorder (react-beautiful-dnd)
+- `removeFromPlaylist(index)`: remove track from queue
+- `insertNextInPlaylist(track)`: insert after current track
 - `confirmPendingTrack`: finds track by `videoId` (not `id`)
 - Search does NOT replace playlist (only updates searchResults state)
+- Queue UI: drag handle + delete button per item, auto-scroll to current track on drawer open
+
+### Block System
+- SQLite `blocked_items` table: type (song|channel), videoId, channelName, title, thumbnail
+- API: `GET /api/block`, `POST /api/block`, `DELETE /api/block/:id`
+- Redux `blockSlice`: loaded on init, checked in SearchResults (灰色+🚫 但仍可播放) + useAutoQueue (完全過濾)
+- 5 秒反悔 Snackbar with undo
+- 管理頁面在 AdminSettings
+
+### Favorites (❤️)
+- SQLite `favorites` table: videoId unique, toggle on/off
+- API: `GET /api/favorites`, `POST /api/favorites` (toggle), `DELETE /api/favorites/:videoId`
+- Redux `favoritesSlice`: `favoriteIds` Record for O(1) lookup
+- ❤️ button in SearchResults + mini player (AudioPlayer)
 
 ### Search
 - Backend: youtube-sr (primary) → yt-dlp (fallback), 50 results
+- Tabs: 全部/歌曲/頻道/播放清單 — pure frontend filtering
 - Frontend: autocomplete suggestions API (300ms debounce)
 - Search results: lazy load 12 items at a time (IntersectionObserver)
 - Recent searches stored in localStorage
@@ -119,6 +142,8 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Tier 2: Gemini AI suggests similar style/genre songs by different artists
 - Frontend passes `artist` + `title` as query params (fallback when track not in cached_tracks)
 - Auto-queue: triggers when remainingSongs <= 2, uses `videoId:playlistLength` key to prevent duplicates
+- Auto-queue dedup: videoId + channel+title (忽略大小寫) 雙重去重，防止同歌不同 MV
+- Auto-queue filters: 封鎖的歌曲/頻道、duration >600s、已存在的 videoId/title
 - Auto-queue waits for metadata (channel non-empty) before triggering — avoids empty artist recommendations
 - Uses `pendingTrack || currentTrack` as seed (playNow sets pendingTrack before currentTrack updates)
 - `playNow` clears tracks after insert position — forces auto-queue to re-recommend for new artist
@@ -175,11 +200,13 @@ Title cleaning (regex fallback when Gemini unavailable):
 ## Database
 
 SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
-- `cached_tracks` - play/skip/complete counts, metadata
+- `cached_tracks` - play/skip/complete counts, metadata, `last_played` timestamp
 - `lyrics_cache` - lyrics by source with timestamps
 - `lyrics_translations` - AI translations with `lines_hash` validation
 - `lyrics_preferences` - user's preferred lyrics source per video
 - `settings` - key-value config (including Gemini API keys)
+- `blocked_items` - blocked songs/channels (type, videoId, channelName)
+- `favorites` - favorited tracks (videoId unique, toggle)
 
 ## Ports
 
