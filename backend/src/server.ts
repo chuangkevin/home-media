@@ -72,6 +72,8 @@ import geminiRoutes from './routes/gemini.routes';
 import trackRoutes from './routes/track.routes';
 import continuousStreamRoutes from './routes/continuous-stream.routes';
 import blockRoutes from './routes/block.routes';
+import favoritesRoutes from './routes/favorites.routes';
+import personalizedRoutes from './routes/personalized.routes';
 
 // API Routes
 app.get('/api', (_req, res) => {
@@ -151,6 +153,12 @@ app.use('/api', continuousStreamRoutes);
 
 // Block routes (blocked songs & channels)
 app.use('/api/block', blockRoutes);
+
+// Favorites
+app.use('/api/favorites', favoritesRoutes);
+
+// Personalized recommendations
+app.use('/api/recommendations/personalized', personalizedRoutes);
 
 // Error handlers
 app.use(notFoundHandler);

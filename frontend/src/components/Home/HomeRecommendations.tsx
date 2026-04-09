@@ -6,6 +6,7 @@ import { RootState, AppDispatch } from '../../store';
 import { fetchChannelRecommendations, loadMoreRecommendations, refreshRecommendations } from '../../store/recommendationSlice';
 import { playNow } from '../../store/playerSlice';
 import ChannelSection from './ChannelSection';
+import PersonalizedSection from './PersonalizedSection';
 import type { Track } from '../../types/track.types';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
@@ -217,6 +218,7 @@ export default function HomeRecommendations() {
 
   return (
     <Box sx={{ width: '100%' }}>
+      <PersonalizedSection />
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 700, fontFamily: '"Syne", sans-serif', letterSpacing: '0.02em' }}>
           為您推薦

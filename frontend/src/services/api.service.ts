@@ -371,6 +371,14 @@ class ApiService {
   }
 
   /**
+   * 獲取個人化推薦（最近播放、最常播放、我的收藏）
+   */
+  async getPersonalizedRecommendations() {
+    const response = await this.api.get('/recommendations/personalized');
+    return response.data;
+  }
+
+  /**
    * 獲取相似歌曲推薦
    */
   async getSimilarTracks(videoId: string, limit: number = 10, artist?: string, title?: string) {
@@ -712,6 +720,23 @@ class ApiService {
 
   async removeBlockedItem(id: number): Promise<void> {
     await this.api.delete(`/block/${id}`);
+  }
+
+  // ===== 收藏 =====
+  async getFavorites(): Promise<Array<{ video_id: string }>> {
+    const res = await this.api.get('/favorites');
+    return res.data;
+  }
+
+  async toggleFavorite(payload: {
+    videoId: string;
+    title: string;
+    channel?: string;
+    thumbnail?: string;
+    duration?: number;
+  }): Promise<{ favorited: boolean }> {
+    const res = await this.api.post('/favorites', payload);
+    return res.data;
   }
 }
 
