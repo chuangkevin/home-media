@@ -110,8 +110,10 @@ class LyricsService {
       }
       attemptResults.push({ source: 'cache', success: false, duration: Date.now() - cacheStart });
 
+      // 策略：找到 synced (有時間戳) 就立即回傳；找到 non-synced 就暫存，繼續找 synced 的
+      let bestNonSynced: Lyrics | null = null;
+
       // 2. 同時啟動 YouTube CC（yt-dlp 較慢）和傳統來源（API 較快）
-      // 傳統來源找到就優先用，否則等 YouTube CC
       console.log(`🎵 [LyricsService] Step 2: Starting YouTube CC + traditional sources in parallel...`);
       const ytCCPromise = this.fetchYouTubeCaptions(videoId).catch(() => null);
 
@@ -122,31 +124,39 @@ class LyricsService {
         const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist);
         const neteaseDuration = Date.now() - neteaseStart;
         if (neteaseLyrics) {
-          console.log(`🎵 [LyricsService] ✅ NetEase found! (${neteaseDuration}ms)`);
+          console.log(`🎵 [LyricsService] ✅ NetEase found! (${neteaseDuration}ms, synced=${neteaseLyrics.isSynced})`);
           attemptResults.push({ source: 'netease', success: true, duration: neteaseDuration });
-          this.saveToCache(neteaseLyrics);
-          this.logAttemptSummary(attemptResults, startTime);
-          return neteaseLyrics;
+          if (neteaseLyrics.isSynced) {
+            this.saveToCache(neteaseLyrics);
+            this.logAttemptSummary(attemptResults, startTime);
+            return neteaseLyrics;
+          }
+          bestNonSynced = bestNonSynced || neteaseLyrics;
+        } else {
+          attemptResults.push({ source: 'netease', success: false, duration: neteaseDuration });
         }
-        attemptResults.push({ source: 'netease', success: false, duration: neteaseDuration });
       } catch (neteaseErr) {
         attemptResults.push({ source: 'netease', success: false, error: neteaseErr instanceof Error ? neteaseErr.message : String(neteaseErr), duration: Date.now() - neteaseStart });
       }
 
-      // 4. 嘗試從 LRCLIB 獲取（有時間戳的 LRC 格式）
+      // 4. 嘗試從 LRCLIB 獲取（有時間戳的 LRC 格式，最可能是 synced）
       console.log(`🎵 [LyricsService] Step 4: Fetching from LRCLIB...`);
       const lrclibStart = Date.now();
       try {
         const lrclibLyrics = await this.fetchLRCLIB(videoId, title, artist);
         const lrclibDuration = Date.now() - lrclibStart;
         if (lrclibLyrics) {
-          console.log(`🎵 [LyricsService] ✅ LRCLIB found! (${lrclibDuration}ms)`);
+          console.log(`🎵 [LyricsService] ✅ LRCLIB found! (${lrclibDuration}ms, synced=${lrclibLyrics.isSynced})`);
           attemptResults.push({ source: 'lrclib', success: true, duration: lrclibDuration });
-          this.saveToCache(lrclibLyrics);
-          this.logAttemptSummary(attemptResults, startTime);
-          return lrclibLyrics;
+          if (lrclibLyrics.isSynced) {
+            this.saveToCache(lrclibLyrics);
+            this.logAttemptSummary(attemptResults, startTime);
+            return lrclibLyrics;
+          }
+          bestNonSynced = bestNonSynced || lrclibLyrics;
+        } else {
+          attemptResults.push({ source: 'lrclib', success: false, duration: lrclibDuration });
         }
-        attemptResults.push({ source: 'lrclib', success: false, duration: lrclibDuration });
       } catch (lrclibErr) {
         attemptResults.push({ source: 'lrclib', success: false, error: lrclibErr instanceof Error ? lrclibErr.message : String(lrclibErr), duration: Date.now() - lrclibStart });
       }
@@ -158,13 +168,17 @@ class LyricsService {
         const geniusLyrics = await this.fetchGeniusLyrics(videoId, title, artist);
         const geniusDuration = Date.now() - geniusStart;
         if (geniusLyrics) {
-          console.log(`🎵 [LyricsService] ✅ Genius found! (${geniusDuration}ms)`);
+          console.log(`🎵 [LyricsService] ✅ Genius found! (${geniusDuration}ms, synced=${geniusLyrics.isSynced})`);
           attemptResults.push({ source: 'genius', success: true, duration: geniusDuration });
-          this.saveToCache(geniusLyrics);
-          this.logAttemptSummary(attemptResults, startTime);
-          return geniusLyrics;
+          if (geniusLyrics.isSynced) {
+            this.saveToCache(geniusLyrics);
+            this.logAttemptSummary(attemptResults, startTime);
+            return geniusLyrics;
+          }
+          bestNonSynced = bestNonSynced || geniusLyrics;
+        } else {
+          attemptResults.push({ source: 'genius', success: false, duration: geniusDuration });
         }
-        attemptResults.push({ source: 'genius', success: false, duration: geniusDuration });
       } catch (geniusErr) {
         attemptResults.push({ source: 'genius', success: false, error: geniusErr instanceof Error ? geniusErr.message : String(geniusErr), duration: Date.now() - geniusStart });
       }
@@ -195,6 +209,14 @@ class LyricsService {
         attemptResults.push({ source: 'youtube', success: false, duration: ytDuration });
       } catch (ytErr) {
         attemptResults.push({ source: 'youtube', success: false, error: ytErr instanceof Error ? ytErr.message : String(ytErr), duration: Date.now() - ytStart });
+      }
+
+      // 沒找到 synced 歌詞，但有 non-synced 的就用那個（比沒有好）
+      if (bestNonSynced) {
+        console.log(`🎵 [LyricsService] ⚠️ No synced lyrics found, using non-synced from ${bestNonSynced.source}`);
+        this.saveToCache(bestNonSynced);
+        this.logAttemptSummary(attemptResults, startTime);
+        return bestNonSynced;
       }
 
       // 所有來源都失敗
