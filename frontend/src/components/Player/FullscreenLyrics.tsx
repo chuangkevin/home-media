@@ -1171,16 +1171,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     return (
       <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
-        {viewMode === 'video' && videoCached && (
+        {videoCached && (
           <video
             ref={cachedVideoRef}
             src={apiService.getVideoCacheStreamUrl(track.videoId)}
             controls
-            autoPlay
+            autoPlay={viewMode === 'video'}
             playsInline
-            style={{ width: '100%', maxHeight: '100%', maxWidth: 960, zIndex: 1 }}
+            style={{
+              width: '100%', maxHeight: '100%', maxWidth: 960, zIndex: 1,
+              display: viewMode === 'video' ? 'block' : 'none',
+            }}
             onCanPlay={(e) => {
-              // 可以播放後同步到 audio 位置（只做一次）
               const videoEl = e.target as HTMLVideoElement;
               const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
               if (audioEl && !videoEl.dataset.synced) {
