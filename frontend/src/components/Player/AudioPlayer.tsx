@@ -1504,9 +1504,18 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       // 部分瀏覽器不支援設為 null
     }
 
+    // 🎯 seekto: 讓 iOS 鎖屏進度條可以拖動調整播放位置
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      const audio = audioRef.current;
+      if (!audio || details.seekTime === undefined) return;
+      const duration = currentTrack.duration && currentTrack.duration > 0
+        ? currentTrack.duration : audio.duration || 0;
+      audio.currentTime = Math.min(details.seekTime, duration);
+      dispatch(setCurrentTime(audio.currentTime));
+    });
+
     // 設定正確的播放位置與時長（覆蓋 audio.duration 的尾部靜音）
     const updatePositionState = () => {
-      if (document.hidden) return; // iOS doesn't read positionState from background JS
       try {
         const audio = audioRef.current;
         if (!audio) return;
@@ -1572,6 +1581,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         navigator.mediaSession.setActionHandler('pause', null);
         navigator.mediaSession.setActionHandler('previoustrack', null);
         navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('seekto', null);
       } catch {
         // 忽略清理錯誤
       }
