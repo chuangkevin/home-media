@@ -339,6 +339,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               if (introSeg && audioRef.current && audioRef.current.currentTime < introSeg.end) {
                 audioRef.current.currentTime = introSeg.end;
                 skippedSegmentsRef.current.add(segments.indexOf(introSeg));
+                const skipDuration = Math.round(introSeg.end - introSeg.start);
+                setSkipToast(`已跳過非音樂段落 ${skipDuration}s`);
                 console.log(`🚫 [SponsorBlock] 快取秒開跳過: 0→${introSeg.end.toFixed(1)}s`);
               }
             }
@@ -505,6 +507,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 if (audio.buffered.length > 0 && audio.buffered.end(0) >= introSeg.end) {
                   audio.currentTime = introSeg.end;
                   skippedSegmentsRef.current.add(segments.indexOf(introSeg));
+                  const skipDur = Math.round(introSeg.end - introSeg.start);
+                  setSkipToast(`已跳過非音樂段落 ${skipDur}s`);
                   console.log(`🚫 [SponsorBlock] 串流跳過 intro: 0→${introSeg.end.toFixed(1)}s`);
                 }
               };
@@ -1821,12 +1825,13 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             </Box>
             </Box>{/* end clickable area */}
             {/* 功能按鈕 */}
-            {autoplayBlocked ? (
-              <IconButton size="small" color="primary"
-                onClick={() => { audioRef.current?.play().then(() => setAutoplayBlocked(false)).catch(console.error); }}
-              ><PlayArrowIcon /></IconButton>
-            ) : (
+            {/* 功能按鈕：autoplayBlocked 時也顯示，不再隱藏 */}
               <>
+                {autoplayBlocked && (
+                  <IconButton size="small" color="primary"
+                    onClick={() => { audioRef.current?.play().then(() => setAutoplayBlocked(false)).catch(console.error); }}
+                  ><PlayArrowIcon fontSize="small" /></IconButton>
+                )}
                 {onOpenLyrics && (
                   <IconButton size="small" onClick={onOpenLyrics} sx={{ color: 'text.secondary' }}>
                     <LyricsIcon fontSize="small" />
@@ -1851,7 +1856,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                   <PlaylistAddIcon fontSize="small" />
                 </IconButton>
               </>
-            )}
           </Box>
           {/* 第二行：進度條 + 控制按鈕 */}
           <PlayerControls isCompact />
