@@ -211,7 +211,24 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       setVideoDownloading(true);
       setVideoCached(false);
       setVideoDownloadProgress('');
-      apiService.downloadVideo(track.videoId).catch(() => {});
+
+      let downloadRetryCount = 0;
+      const MAX_DOWNLOAD_RETRIES = 3;
+      const RETRY_DELAYS = [2000, 5000, 10000];
+
+      const triggerDownload = () => {
+        apiService.downloadVideo(track.videoId).catch((err) => {
+          downloadRetryCount++;
+          if (downloadRetryCount <= MAX_DOWNLOAD_RETRIES) {
+            const delay = RETRY_DELAYS[downloadRetryCount - 1] || 10000;
+            console.warn(`🎬 Video download failed (attempt ${downloadRetryCount}/${MAX_DOWNLOAD_RETRIES}), retrying in ${delay / 1000}s`);
+            setTimeout(triggerDownload, delay);
+          } else {
+            console.error(`🎬 Video download failed after ${MAX_DOWNLOAD_RETRIES} retries:`, err);
+          }
+        });
+      };
+      triggerDownload();
 
       // 輪詢等待下載完成
       for (let i = 0; i < 60; i++) {
