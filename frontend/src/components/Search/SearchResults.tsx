@@ -65,7 +65,7 @@ export default function SearchResults({
   const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({});
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [activeTab, setActiveTab] = useState(0); // 0=全部, 1=歌曲, 2=頻道, 3=播放清單
-  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Block context menu
   const [blockMenuAnchor, setBlockMenuAnchor] = useState<HTMLElement | null>(null);
@@ -149,18 +149,25 @@ export default function SearchResults({
       .catch(() => {});
   }, [results, visibleCount]);
 
-  // Infinite scroll: observe sentinel element
-  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
-    if (entries[0].isIntersecting) {
-      setVisibleCount(prev => Math.min(prev + PAGE_SIZE, results.length));
-    }
-  }, [results.length]);
-
+  // 🚀 Improved Sentinel Pattern: IntersectionObserver with rootMargin for early preload
   useEffect(() => {
-    const observer = new IntersectionObserver(handleObserver, { rootMargin: '400px' });
-    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
+    if (!sentinelRef.current || visibleCount >= filteredResults.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, filteredResults.length));
+        }
+      },
+      {
+        rootMargin: '0px 0px 800px 0px', // 🎯 Trigger 800px before sentinel becomes visible
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [handleObserver]);
+  }, [visibleCount, filteredResults.length]);
 
   const handleOpenPlaylistMenu = (event: React.MouseEvent<HTMLElement>, track: Track) => {
     event.stopPropagation();
@@ -458,11 +465,13 @@ export default function SearchResults({
         </Grid>
       )}
 
-      {/* Infinite scroll sentinel (only for non-channel tabs) */}
-      {activeTab !== 2 && hasMore && (
-        <Box ref={loadMoreRef} sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          <CircularProgress size={28} />
-        </Box>
+      {/* 🚀 Sentinel Node: Triggers preload before scrolling to end (only for non-channel tabs) */}
+      {activeTab !== 2 && visibleCount < filteredResults.length && (
+        <Box
+          ref={sentinelRef}
+          sx={{ display: 'flex', justifyContent: 'center', py: 3, visibility: 'hidden' }}
+          aria-hidden="true"
+        />
       )}
 
       {selectedTrack && (

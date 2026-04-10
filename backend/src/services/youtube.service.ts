@@ -564,7 +564,15 @@ class YouTubeService {
           const id = video.id || '';
           // 影片 ID 為 11 字元，且不以 UC 開頭（頻道）
           const isVideo = id.length === 11 && !id.startsWith('UC');
-          const isFromChannel = (video.channel || video.uploader) === channelName;
+          const videoChannel = (video.channel || video.uploader || '').toLowerCase();
+          const searchChannel = channelName.toLowerCase();
+          // 用前綴匹配代替完全相等，以容納「ROSÉ Official」等變體
+          const isFromChannel = videoChannel.includes(searchChannel) || searchChannel.includes(videoChannel.split(' ')[0]);
+
+          if (!isFromChannel && isVideo) {
+            console.warn(`⚠️ [Channel Filter] 影片被過濾: "${video.title}" (channel: "${video.channel}", uploader: "${video.uploader}", searching for: "${channelName}")`);
+          }
+
           return isVideo && isFromChannel;
         })
         .map((video: any) => ({
@@ -577,6 +585,7 @@ class YouTubeService {
           views: video.view_count,
           uploadedAt: video.upload_date,
         }))
+        .filter(v => v.videoId && v.videoId.length === 11) // 🔥 新增：過濾掉無效 videoId
         .sort((a, b) => {
           // 按上傳日期 DESC 排序（最新優先）
           const dateA = new Date(a.uploadedAt || 0).getTime();
