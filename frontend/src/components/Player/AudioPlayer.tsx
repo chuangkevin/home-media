@@ -1538,7 +1538,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     navigator.mediaSession.setActionHandler('play', () => {
       dispatch(setIsPlaying(true));
       if (displayModeRef.current !== 'video') {
-        audioRef.current?.play();
+        const audio = audioRef.current;
+        if (audio) {
+          // 🔧 修復：如果背景播放時 src 被清空，需要恢復它
+          // 藍牙連接或背景狀態變化可能導致 src 丟失
+          if (!audio.src && currentVideoIdRef.current) {
+            console.log(`🔧 [iOS Lockscreen] 恢復 src (was empty): ${currentVideoIdRef.current}`);
+            audio.src = apiService.getStreamUrl(currentVideoIdRef.current);
+            audio.load();
+          }
+          audio.play().catch(error => {
+            console.error(`⚠️ [iOS Lockscreen] play() 失敗:`, error);
+          });
+        }
       }
     });
 
