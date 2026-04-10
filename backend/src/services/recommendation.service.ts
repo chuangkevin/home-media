@@ -121,15 +121,22 @@ class RecommendationService {
           // 過濾掉合輯/超長影片（>10 分鐘 = 600 秒）和直播（duration=0）
           const filtered = videos.filter(v => v.duration > 0 && v.duration <= 600);
 
+          // 🔥 按上傳日期 DESC 排序（最新優先）
+          const sorted = filtered.sort((a, b) => {
+            const dateA = new Date(a.uploadedAt || 0).getTime();
+            const dateB = new Date(b.uploadedAt || 0).getTime();
+            return dateB - dateA; // DESC
+          });
+
           // 快取結果（6 小時）
-          if (filtered.length > 0) {
-            this.cacheRecommendations(channel.channelName, filtered);
+          if (sorted.length > 0) {
+            this.cacheRecommendations(channel.channelName, sorted);
           }
 
           return {
             channelName: channel.channelName,
             channelThumbnail: channel.channelThumbnail,
-            videos: filtered,
+            videos: sorted,
             watchCount: channel.watchCount
           };
         })

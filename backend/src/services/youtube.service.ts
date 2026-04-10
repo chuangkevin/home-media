@@ -34,6 +34,7 @@ class YouTubeService {
   private pendingRequests: Map<string, Promise<string>> = new Map(); // 防止重複請求
   private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
   private readonly SEARCH_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 小時（搜尋結果快取）
+  private readonly CHANNEL_CACHE_TTL = 60 * 60 * 1000; // 1 小時（推薦用頻道快取）
   private cookiesPath: string | null = null;
 
   constructor() {
@@ -566,7 +567,6 @@ class YouTubeService {
           const isFromChannel = (video.channel || video.uploader) === channelName;
           return isVideo && isFromChannel;
         })
-        .slice(0, limit)
         .map((video: any) => ({
           id: video.id || '',
           videoId: video.id || '',
@@ -576,7 +576,14 @@ class YouTubeService {
           thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
           views: video.view_count,
           uploadedAt: video.upload_date,
-        }));
+        }))
+        .sort((a, b) => {
+          // 按上傳日期 DESC 排序（最新優先）
+          const dateA = new Date(a.uploadedAt || 0).getTime();
+          const dateB = new Date(b.uploadedAt || 0).getTime();
+          return dateB - dateA;
+        })
+        .slice(0, limit);
 
       // 4. 快取結果
       if (channelVideos.length > 0) {
@@ -598,7 +605,7 @@ class YouTubeService {
     try {
       const { db } = require('../config/database');
       const now = Date.now();
-      const cacheExpiry = 24 * 60 * 60 * 1000; // 24 小時
+      const cacheExpiry = this.CHANNEL_CACHE_TTL; // 1 小時
 
       const stmt = db.prepare(
         `SELECT video_id as videoId, title, thumbnail, duration, views, uploaded_at as uploadedAt, cached_at as cachedAt
@@ -657,7 +664,7 @@ class YouTubeService {
     try {
       const { db } = require('../config/database');
       const now = Date.now();
-      const cacheExpiry = 24 * 60 * 60 * 1000; // 24 小時
+      const cacheExpiry = this.CHANNEL_CACHE_TTL; // 1 小時
 
       const result = db.prepare(
         'DELETE FROM channel_videos_cache WHERE cached_at <= ?'
