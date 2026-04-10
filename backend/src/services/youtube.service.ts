@@ -585,8 +585,8 @@ class YouTubeService {
           views: video.view_count,
           uploadedAt: video.upload_date,
         }))
-        .filter(v => v.videoId && v.videoId.length === 11) // 🔥 新增：過濾掉無效 videoId
-        .sort((a, b) => {
+        .filter((v: any) => v.videoId && v.videoId.length === 11) // 🔥 新增：過濾掉無效 videoId
+        .sort((a: any, b: any) => {
           // 按上傳日期 DESC 排序（最新優先）
           const dateA = new Date(a.uploadedAt || 0).getTime();
           const dateB = new Date(b.uploadedAt || 0).getTime();

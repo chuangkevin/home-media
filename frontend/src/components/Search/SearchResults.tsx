@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import {
   Box,
@@ -10,7 +10,6 @@ import {
   IconButton,
   Grid,
   Chip,
-  CircularProgress,
   alpha,
   useMediaQuery,
   Menu,
@@ -130,6 +129,21 @@ export default function SearchResults({
     setActiveTab(0); // Reset to "全部" when results change
   }, [results]);
 
+  // Filter results based on active tab
+  const filteredResults = useMemo(() => {
+    if (!results || results.length === 0) return [];
+    switch (activeTab) {
+      case 1: // 歌曲: duration < 600s (10 min)
+        return results.filter(t => (t.duration || 0) < 600);
+      case 2: // 頻道: group by channel — return all, rendered differently
+        return results;
+      case 3: // 播放清單: placeholder — show all for now
+        return results;
+      default: // 全部
+        return results;
+    }
+  }, [results, activeTab]);
+
   // 當搜尋結果變更時，檢查伺服器端快取狀態（只查可見的）
   useEffect(() => {
     if (results.length === 0) return;
@@ -185,21 +199,6 @@ export default function SearchResults({
     onAddToQueue?.(track);
   };
 
-  // Filter results based on active tab
-  const filteredResults = useMemo(() => {
-    if (!results || results.length === 0) return [];
-    switch (activeTab) {
-      case 1: // 歌曲: duration < 600s (10 min)
-        return results.filter(t => (t.duration || 0) < 600);
-      case 2: // 頻道: group by channel — return all, rendered differently
-        return results;
-      case 3: // 播放清單: placeholder — show all for now
-        return results;
-      default: // 全部
-        return results;
-    }
-  }, [results, activeTab]);
-
   // Group by channel for the 頻道 tab
   const channelGroups = useMemo(() => {
     if (activeTab !== 2 || !results) return {};
@@ -226,7 +225,6 @@ export default function SearchResults({
   }
 
   const visibleResults = filteredResults.slice(0, visibleCount);
-  const hasMore = visibleCount < filteredResults.length;
 
   // Render a single track card (reused in both normal and channel views)
   const renderTrackCard = (track: Track) => {
