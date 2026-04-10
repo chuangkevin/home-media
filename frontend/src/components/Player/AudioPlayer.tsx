@@ -324,6 +324,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           currentVideoIdRef.current = videoId;
           if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
           currentBlobUrlRef.current = blobUrl;
+          audio.pause();
+          audio.currentTime = 0;
           audio.src = blobUrl;
           audio.load();
 
@@ -1252,6 +1254,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const handleEnded = () => {
       // If crossfade is active, the outgoing element naturally ended — ignore
       if (crossfade.crossfadeActiveRef.current) return;
+
+      // 🔒 Guard: prevent duplicate playNext() calls from multiple end-detection paths
+      if (wasCompletedRef.current) return;
 
       if (endFallbackTimeout) { clearTimeout(endFallbackTimeout); endFallbackTimeout = null; }
       // Record complete signal (only if not already sent at 90%)
