@@ -28,6 +28,15 @@
 - 首頁 tab 再按一次 = 清除搜尋回到推薦頁
 - 每頻道推薦從 5 首增到 20 首
 - package-lock.json 版本同步（修復 CI npm ci 失敗）
+- 歌詞管線可靠性全面修復：
+  - 後端 getLyrics 60s 超時保護（避免來源卡住）
+  - Genius 搜尋先用 Gemini 清洗標題再查（raw YouTube 標題命中率極低）
+  - Gemini extractTrackInfo 加 15s 超時 + 所有錯誤都 retry（不只 429/403）
+  - LRC 時間正規式支援單位數分鐘 `\d{1,3}`
+  - YouTube CC 門檻 >3 → >0（接受短歌詞）
+  - NetEase isSynced 動態檢測（不 hardcode true）
+  - 前端 lyrics 第一次失敗 15s 後 auto-retry（cached + streaming 路徑）
+  - 前端 streaming 路徑歌詞門檻統一為 >0
 
 ## Version
 - Frontend: 1.4.0 → 1.5.0

@@ -92,6 +92,19 @@ class LyricsService {
    * 改進版：更好的錯誤追蹤和日誌
    */
   async getLyrics(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
+    // 整體管線 60s timeout — 避免 LRCLIB+NetEase+Genius+YouTube CC 串聯超時
+    // 前端有 90s AbortController，後端必須在那之前完成
+    const PIPELINE_TIMEOUT = 60000;
+    return Promise.race([
+      this._getLyricsImpl(videoId, title, artist),
+      new Promise<null>((resolve) => setTimeout(() => {
+        console.warn(`⏰ [LyricsService] 管線超時 ${PIPELINE_TIMEOUT / 1000}s，回傳 null: ${videoId}`);
+        resolve(null);
+      }, PIPELINE_TIMEOUT)),
+    ]);
+  }
+
+  private async _getLyricsImpl(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
     const startTime = Date.now();
     console.log(`🎵 [LyricsService.getLyrics] START: videoId=${videoId}, title="${title}", artist="${artist || 'N/A'}"`);
     logger.info(`[LyricsService] Starting lyrics fetch for: ${videoId}`);
@@ -198,7 +211,7 @@ class LyricsService {
               text: line.text.replace(/\[(?:Music|Applause|Laughter|Cheering|Instrumental)\]\s*/gi, '').trim(),
             }))
             .filter(line => line.text.length > 0);
-          if (youtubeLyrics.lines.length > 3) {
+          if (youtubeLyrics.lines.length > 0) {
             console.log(`🎵 [LyricsService] ✅ YouTube CC found (filtered)! waited ${ytDuration}ms`);
             attemptResults.push({ source: 'youtube', success: true, duration: ytDuration });
             this.saveToCache(youtubeLyrics);
@@ -457,11 +470,14 @@ class LyricsService {
       console.log(`🎵 [NetEase] Successfully parsed ${lines.length} lines (has translation: ${!!hasTrans})`);
       logger.info(`✅ 網易雲音樂成功: ${videoId}, ${lines.length} 行`);
 
+      // 判斷是否真正有時間戳（不是全部 time=0）
+      const hasSyncedTimestamps = lines.some(line => line.time > 0);
+
       return {
         videoId,
         lines,
         source: 'netease',
-        isSynced: true,
+        isSynced: hasSyncedTimestamps,
       };
     } catch (error) {
       console.error(`🎵 [NetEase] Unexpected error:`, error instanceof Error ? error.message : String(error));
@@ -594,8 +610,8 @@ class LyricsService {
     const lrcLines = lrcContent.split('\n');
 
     for (const line of lrcLines) {
-      // 匹配時間戳: [mm:ss.xx] 或 [mm:ss]
-      const match = line.match(/^\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\]\s*(.*)$/);
+      // 匹配時間戳: [mm:ss.xx] 或 [mm:ss]（支援 1-3 位數分鐘）
+      const match = line.match(/^\[(\d{1,3}):(\d{2})(?:\.(\d{2,3}))?\]\s*(.*)$/);
       if (match) {
         const minutes = parseInt(match[1]);
         const seconds = parseInt(match[2]);
@@ -967,10 +983,13 @@ class LyricsService {
         return null;
       }
 
+      // 用 Gemini/regex 清理 YouTube 標題雜訊（跟 LRCLIB/NetEase 一樣）
+      const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
+
       const options = {
         apiKey,
-        title,
-        artist: artist || '',
+        title: cleanTitle || title,
+        artist: cleanArtist || artist || '',
         optimizeQuery: true,
       };
 

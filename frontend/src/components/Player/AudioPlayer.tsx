@@ -473,8 +473,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 return;
               }
 
-              // 3. 從後端自動搜尋
-              const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
+              // 3. 從後端自動搜尋（失敗自動重試 1 次）
+              let lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
+              if (!lyrics) {
+                // 暫態失敗（timeout/網路）重試一次，15s 後
+                console.log(`🔄 歌詞第一次查無結果，15s 後重試: ${pendingTrack.title}`);
+                await new Promise(r => setTimeout(r, 15000));
+                lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
+              }
               if (lyrics) {
                 console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
                 dispatch(setCurrentLyrics(lyrics));
@@ -743,9 +749,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 return;
               }
 
-              // 3. 傳統來源為主（時間戳準確），用 SponsorBlock offset 對齊
-              const lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
-              if (lyrics && lyrics.lines?.length > 3) {
+              // 3. 傳統來源為主（時間戳準確），用 SponsorBlock offset 對齊（失敗自動重試 1 次）
+              let lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
+              if (!lyrics) {
+                console.log(`🔄 歌詞第一次查無結果，15s 後重試: ${pendingTrack.title}`);
+                await new Promise(r => setTimeout(r, 15000));
+                lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
+              }
+              if (lyrics && lyrics.lines?.length > 0) {
                 // 用 SponsorBlock music_offtopic 計算 offset
                 // 如果影片前面有非音樂段落，歌詞時間戳需要加上 offset
                 const segments = skipSegmentsRef.current;

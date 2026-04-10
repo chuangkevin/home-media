@@ -293,6 +293,13 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **play_count**: `complete` signal 時同時累加 `play_count`（用於播放清單顯示「播放 X 次」）+ 更新 `last_played`
 - **自動佇列去重**: 除 videoId 外，也用 `channel+title`（忽略大小寫）去重，防止同歌不同 MV 重複
 - **歌詞搜尋順序**: LRCLIB（優先 synced）→ NetEase → Genius → YouTube CC（最後備用，避免與影片 CC 字幕疊加）。找到 non-synced 不立即回傳，繼續找 synced
+- **歌詞管線超時**: `getLyrics()` 外層 60s `Promise.race` 超時保護，避免任何來源卡住導致前端 90s AbortController 觸發
+- **Genius 歌詞搜尋**: 必須先用 `extractWithGemini()` 清洗 YouTube 標題（去除 [Official MV] 等噪音），再傳入 Genius API。不可直接用原始 YouTube 標題
+- **Gemini extractTrackInfo**: 必須有 15s `Promise.race` 超時保護。所有錯誤（不只 429/403）都要 retry，超時/500/網路錯誤不能直接 return null
+- **LRC 時間解析**: 正規式分鐘欄位必須用 `\d{1,3}`（不是 `\d{2}`），支援單位數分鐘如 `[1:23.45]`
+- **YouTube CC 門檻**: lines.length > 0（不是 > 3），短歌詞也要接受
+- **NetEase isSynced**: 必須動態檢測 `lines.some(line => line.time > 0)`，不能 hardcode `true`。非 synced 結果不應短路後續來源搜尋
+- **前端歌詞 auto-retry**: 第一次查無結果時 15s 後自動重試一次（cached 和 streaming 路徑都要）
 - **NetEase artist**: API 回傳可能用 `song.artists` 或 `song.ar`，兩種格式都要處理
 - **翻譯穩定性**: 前端 null result 必須 throw 進入 retry。後端 retry 用完所有 key（不是只換 1 次）。非 429/403 也繼續重試
 - **Tab 按鈕寬度**: 不放動態長文字（如「下載中 15s」），改用固定文字 + spinner icon

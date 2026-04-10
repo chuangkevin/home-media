@@ -146,7 +146,11 @@ Return ONLY valid JSON, no other text:
         },
       });
 
-      const result = await model.generateContent(prompt);
+      // 15s timeout — 避免 Gemini hang 住導致整條歌詞管線卡死
+      const result = await Promise.race([
+        model.generateContent(prompt),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini extractTrackInfo timeout (15s)')), 15000)),
+      ]);
       const text = result.response.text().trim();
 
       // 提取 JSON（可能被 ```json ``` 包裹）
@@ -171,15 +175,18 @@ Return ONLY valid JSON, no other text:
         markKeyBad(currentKey); // 標記壞掉，2 分鐘冷卻
       }
 
-      if ((is429 || is403) && attempt < maxRetries) {
-        const altKey = getApiKeyExcluding(currentKey);
+      if (attempt < maxRetries) {
+        // 429/403 換 key，其他錯誤（timeout/500/網路）也重試
+        const altKey = (is429 || is403) ? getApiKeyExcluding(currentKey) : null;
         if (altKey) {
-          console.warn(`⚠️ [Gemini] ${is429 ? '429' : '403'} on ...${currentKey.slice(-4)}, immediate switch to ...${altKey.slice(-4)}`);
+          console.warn(`⚠️ [Gemini] ${is429 ? '429' : '403'} on ...${currentKey.slice(-4)}, switch to ...${altKey.slice(-4)}`);
           currentKey = altKey;
-          continue; // 立即重試，不等待
+        } else {
+          console.warn(`⚠️ [Gemini] extractTrackInfo attempt ${attempt + 1} failed: ${msg}, retrying...`);
         }
+        continue;
       }
-      console.error(`❌ [Gemini] extractTrackInfo failed:`, msg);
+      console.error(`❌ [Gemini] extractTrackInfo failed after ${maxRetries + 1} attempts:`, msg);
       return null;
     }
   }
