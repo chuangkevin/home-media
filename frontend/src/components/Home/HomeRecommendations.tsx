@@ -102,8 +102,9 @@ export default function HomeRecommendations() {
         if (uncachedLyrics.length > 0 && isActive) {
           console.log(`🔄 開始預載 ${uncachedLyrics.length} 首未快取的歌詞...`);
 
-          for (const video of uncachedLyrics) {
-            if (!isActive) break;
+          // 🚀 並行預載所有歌詞（不序列等待）
+          await Promise.all(uncachedLyrics.map(async (video) => {
+            if (!isActive) return;
 
             try {
               const lyrics = await apiService.getLyricsForPreload(video.videoId, video.title, video.channel);
@@ -116,7 +117,7 @@ export default function HomeRecommendations() {
             } catch (err) {
               console.warn(`⚠️ 歌詞預載失敗: ${video.title}`, err);
             }
-          }
+          }));
 
           if (isActive) {
             console.log(`🎉 所有推薦歌詞預載完成！`);
@@ -217,7 +218,7 @@ export default function HomeRecommendations() {
   }
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <Box sx={{ width: '100%' }} data-scroll-root>
       <PersonalizedSection />
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 700, fontFamily: '"Syne", sans-serif', letterSpacing: '0.02em' }}>
