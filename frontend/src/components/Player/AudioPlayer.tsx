@@ -441,6 +441,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 console.log(`📝 使用儲存的 LRCLIB ID: ${lrclibId}`);
                 const lrcLibLyrics = await apiService.getLyricsByLRCLIBId(videoId, lrclibId);
                 if (lrcLibLyrics) {
+                  // 🔥 驗証 videoId — 快速換軌時防止舊歌詞覆蓋新歌詞
+                  if (videoId !== currentVideoIdRef.current) {
+                    console.warn(`⚠️ 歌詞加載被中止：目前曲目已變更 (${currentVideoIdRef.current})`);
+                    dispatch(setLyricsLoading(false));
+                    return;
+                  }
                   console.log(`📝 歌詞從 LRCLIB ID 載入: ${pendingTrack.title}`);
                   dispatch(setCurrentLyrics(lrcLibLyrics));
                   lyricsCacheService.set(videoId, lrcLibLyrics).catch(err => {
@@ -456,6 +462,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 console.log(`📝 使用儲存的 NetEase ID: ${neteaseId}`);
                 const neteaseLyrics = await apiService.getLyricsByNeteaseId(videoId, neteaseId);
                 if (neteaseLyrics) {
+                  // 🔥 驗証 videoId — 快速換軌時防止舊歌詞覆蓋新歌詞
+                  if (videoId !== currentVideoIdRef.current) {
+                    console.warn(`⚠️ 歌詞加載被中止：目前曲目已變更 (${currentVideoIdRef.current})`);
+                    dispatch(setLyricsLoading(false));
+                    return;
+                  }
                   console.log(`📝 歌詞從 NetEase ID 載入: ${pendingTrack.title}`);
                   dispatch(setCurrentLyrics(neteaseLyrics));
                   lyricsCacheService.set(videoId, neteaseLyrics).catch(err => {
@@ -469,6 +481,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               // 2. 如果沒有使用者偏好，檢查本地快取
               const cachedLyrics = await lyricsCacheService.get(videoId);
               if (cachedLyrics) {
+                // 🔥 驗証 videoId — 快速換軌時防止舊歌詞覆蓋新歌詞
+                if (videoId !== currentVideoIdRef.current) {
+                  console.warn(`⚠️ 歌詞加載被中止：目前曲目已變更 (${currentVideoIdRef.current})`);
+                  dispatch(setLyricsLoading(false));
+                  return;
+                }
                 console.log(`📝 歌詞從本地快取載入: ${pendingTrack.title} (來源: ${cachedLyrics.source})`);
                 dispatch(setCurrentLyrics(cachedLyrics));
                 dispatch(setLyricsLoading(false));
@@ -481,9 +499,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 // 暫態失敗（timeout/網路）重試一次，15s 後
                 console.log(`🔄 歌詞第一次查無結果，15s 後重試: ${pendingTrack.title}`);
                 await new Promise(r => setTimeout(r, 15000));
+                // 🔥 15s 後再驗証一次 — 使用者可能已換好幾首歌了
+                if (videoId !== currentVideoIdRef.current) {
+                  console.warn(`⚠️ 歌詞加載被中止：15s 重試時曲目已變更 (${currentVideoIdRef.current})`);
+                  dispatch(setLyricsLoading(false));
+                  return;
+                }
                 lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
               }
               if (lyrics) {
+                // 🔥 驗証 videoId — 快速換軌時防止舊歌詞覆蓋新歌詞
+                if (videoId !== currentVideoIdRef.current) {
+                  console.warn(`⚠️ 歌詞加載被中止：目前曲目已變更 (${currentVideoIdRef.current})`);
+                  dispatch(setLyricsLoading(false));
+                  return;
+                }
                 console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
                 dispatch(setCurrentLyrics(lyrics));
                 // 儲存到本地快取
