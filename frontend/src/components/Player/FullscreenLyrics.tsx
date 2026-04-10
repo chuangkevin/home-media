@@ -27,7 +27,7 @@ import { RootState, AppDispatch } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget, reorderPlaylist, removeFromPlaylist } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget, reorderPlaylist, removeFromPlaylist, playNext } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -1020,13 +1020,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 自動捲動到正在播放的曲目
   const currentTrackRef = useRef<HTMLDivElement | null>(null);
+  const currentVideoId = playlist[currentIndex]?.videoId;
   useEffect(() => {
     if (open && currentTrackRef.current) {
       setTimeout(() => {
         currentTrackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 300);
     }
-  }, [open, currentIndex]);
+  }, [open, currentIndex, currentVideoId]);
 
   // 完整播放清單（已播放灰色 + 目前高亮 + 待播正常）
 
@@ -1355,11 +1356,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                           videoId: item.videoId, title: item.title,
                           channel: item.channel, thumbnail: item.thumbnail, duration: item.duration,
                         }))}
-                        onRemove={() => dispatch(removeFromPlaylist(idx))}
-                        onBlock={() => dispatch(blockItem({
-                          type: 'song', videoId: item.videoId,
-                          title: item.title, thumbnail: item.thumbnail,
-                        }))}
+                        onRemove={() => {
+                          if (isCurrent) dispatch(playNext());
+                          dispatch(removeFromPlaylist(idx));
+                        }}
+                        onBlock={() => {
+                          if (isCurrent) dispatch(playNext());
+                          dispatch(removeFromPlaylist(idx));
+                          dispatch(blockItem({
+                            type: 'song', videoId: item.videoId,
+                            title: item.title, thumbnail: item.thumbnail,
+                          }));
+                        }}
                       >
                       <ListItem
                         disablePadding
