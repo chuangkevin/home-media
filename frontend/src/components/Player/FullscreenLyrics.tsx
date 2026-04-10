@@ -1351,7 +1351,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                       >
                       <SwipeablePlaylistItem
                         isFavorited={!!favoriteIds[item.videoId]}
-                        disabled={isCurrent}
                         onSwipeRight={() => dispatch(toggleFavorite({
                           videoId: item.videoId, title: item.title,
                           channel: item.channel, thumbnail: item.thumbnail, duration: item.duration,
