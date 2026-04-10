@@ -311,3 +311,6 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **autoplay NotAllowedError**: `play()` 被瀏覽器阻擋時必須 `dispatch(setIsPlaying(false))` 讓 UI 正確顯示暫停，然後掛 `document.addEventListener('click/touchstart', retryPlay)` 等用戶互動後自動恢復。retryPlay 裡 play 仍然失敗時必須重新掛 listener（不能 `{ once: true }` + 吞錯誤導致永遠卡住）。成功時 `dispatch(setIsPlaying(true))`
 - **播放清單滑動手勢**: `SwipeablePlaylistItem` — 右滑收藏、左滑移除/封鎖。水平 >10px 鎖定為 swipe，垂直走 drag-and-drop。`touchAction: 'pan-y'` 必須設定
 - **電腦版 UX 準則**: `isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)')` 偵測滑鼠裝置。電腦版禁止 hover-to-reveal（play overlay、action icons 常駐顯示）、禁止 hover-lift（translateY 動畫）、禁止滑動手勢（SwipeablePlaylistItem 電腦版直接顯示 inline 圖標）。手機版維持原有互動模式
+- **播放清單焦點自動跟隨**: `useEffect` 依賴必須包含 `currentVideoId`（不只 `currentIndex`）。當當前歌曲被移除，currentIndex 指向新佔據該位置的歌，但 videoId 改變，依賴才能觸發 auto-scroll 定位到新歌
+- **移除/封鎖當前歌曲自動播下一首**: `onRemove()` 和 `onBlock()` 必須在 `removeFromPlaylist()` 前優先呼叫 `dispatch(playNext())`，否則列表指針跟隨當前索引，但音樂卡住；playNext 通常把 currentIndex 往後移，playlist.length 變小時自動循環
+- **SwipeablePlaylistItem disabled 會吞掉所有 touch 事件**: 移除 `disabled={isCurrent}` 後，當前歌曲滑動手勢才能觸發。disabled 會讓整個元素的 pointerEvents 失效
