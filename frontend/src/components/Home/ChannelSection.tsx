@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Avatar, Chip, Card, CardMedia, CardContent, IconButton, Skeleton, useMediaQuery } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
@@ -171,7 +171,7 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           },
         }}
       >
-        {channel.videos.slice(0, visibleCount).map((video, idx) => (
+        {channel.videos.slice(0, visibleCount).map((video) => (
           <div
             key={video.videoId}
             style={{ flexShrink: 0 }}

@@ -32,7 +32,7 @@ export function usePaginatedLoad<T>(
   const {
     initialItems = [],
     preloadThreshold = 800,
-    pageSize = 5,
+    pageSize: _pageSize = 5,
   } = options;
 
   const [items, setItems] = useState<T[]>(initialItems);
