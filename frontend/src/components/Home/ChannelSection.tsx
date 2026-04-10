@@ -21,7 +21,7 @@ interface ChannelSectionProps {
 
 export default function ChannelSection({ channel, onPlay, onHideChannel, cacheStatus }: ChannelSectionProps) {
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
-  const lastCardObserverRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)');
 
   // Reset visible count when channel changes
@@ -29,16 +29,29 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
     setVisibleCount(INITIAL_VISIBLE);
   }, [channel.channelName]);
 
-  const lastCardRef = useCallback((node: HTMLDivElement | null) => {
-    if (lastCardObserverRef.current) lastCardObserverRef.current.disconnect();
-    if (!node) return;
-    lastCardObserverRef.current = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) {
-        setVisibleCount((prev) => Math.min(prev + LOAD_MORE_STEP, channel.videos.length));
+  // 🚀 Improved Sentinel Pattern: IntersectionObserver with rootMargin for early preload
+  useEffect(() => {
+    if (!sentinelRef.current || visibleCount >= channel.videos.length) return;
+
+    const scrollRoot = sentinelRef.current.closest('[data-scroll-root]') as HTMLElement;
+    if (!scrollRoot) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + LOAD_MORE_STEP, channel.videos.length));
+        }
+      },
+      {
+        root: scrollRoot,
+        rootMargin: '0px 200px 0px 0px', // 🎯 Trigger 200px before sentinel becomes visible
+        threshold: 0,
       }
-    }, { root: node.closest('[data-scroll-root]'), rootMargin: '0px 200px 0px 0px' });
-    lastCardObserverRef.current.observe(node);
-  }, [channel.videos.length]);
+    );
+
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [visibleCount, channel.videos.length]);
 
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -161,7 +174,6 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
         {channel.videos.slice(0, visibleCount).map((video, idx) => (
           <div
             key={video.videoId}
-            ref={idx === visibleCount - 1 && visibleCount < channel.videos.length ? lastCardRef : null}
             style={{ flexShrink: 0 }}
           >
           <Card
@@ -283,6 +295,15 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           </Card>
           </div>
         ))}
+
+        {/* 🚀 Sentinel Node: Triggers preload before scrolling to end */}
+        {visibleCount < channel.videos.length && (
+          <div
+            ref={sentinelRef}
+            style={{ flexShrink: 0, width: 1, visibility: 'hidden' }}
+            aria-hidden="true"
+          />
+        )}
 
         {/* Loading skeleton for remaining cards */}
         {visibleCount < channel.videos.length && (
