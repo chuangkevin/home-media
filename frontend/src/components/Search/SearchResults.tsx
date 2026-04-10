@@ -59,6 +59,7 @@ export default function SearchResults({
   const { items: blockedItems } = useSelector((state: RootState) => state.block);
   const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
+  const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)');
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
   const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({});
@@ -232,10 +233,12 @@ export default function SearchResults({
           height: '100%',
           position: 'relative',
           transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1), box-shadow 0.28s cubic-bezier(0.4,0,0.2,1)',
-          '&:hover': {
-            transform: 'translateY(-6px)',
-            boxShadow: '0 14px 44px rgba(0,0,0,0.42), 0 0 0 1px rgba(245,166,35,0.14)',
-          },
+          ...(!isDesktop && {
+            '&:hover': {
+              transform: 'translateY(-6px)',
+              boxShadow: '0 14px 44px rgba(0,0,0,0.42), 0 0 0 1px rgba(245,166,35,0.14)',
+            },
+          }),
           ...(currentTrackId === track.videoId && {
             border: '2px solid rgba(245,166,35,0.75) !important',
             boxShadow: '0 0 0 2px rgba(245,166,35,0.75), 0 8px 32px rgba(0,0,0,0.45)',

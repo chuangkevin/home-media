@@ -310,3 +310,4 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **影片 DOM 不卸載**: cached `<video>` 用 `display: none` 而非條件渲染，避免切 tab 回來重新載入 buffer 造成 lag
 - **autoplay NotAllowedError**: `play()` 被瀏覽器阻擋時必須 `dispatch(setIsPlaying(false))` 讓 UI 正確顯示暫停，然後掛 `document.addEventListener('click/touchstart', retryPlay)` 等用戶互動後自動恢復。retryPlay 裡 play 仍然失敗時必須重新掛 listener（不能 `{ once: true }` + 吞錯誤導致永遠卡住）。成功時 `dispatch(setIsPlaying(true))`
 - **播放清單滑動手勢**: `SwipeablePlaylistItem` — 右滑收藏、左滑移除/封鎖。水平 >10px 鎖定為 swipe，垂直走 drag-and-drop。`touchAction: 'pan-y'` 必須設定
+- **電腦版 UX 準則**: `isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)')` 偵測滑鼠裝置。電腦版禁止 hover-to-reveal（play overlay、action icons 常駐顯示）、禁止 hover-lift（translateY 動畫）、禁止滑動手勢（SwipeablePlaylistItem 電腦版直接顯示 inline 圖標）。手機版維持原有互動模式

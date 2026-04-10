@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Box, Typography, Avatar, Chip, Card, CardMedia, CardContent, IconButton, Skeleton } from '@mui/material';
+import { Box, Typography, Avatar, Chip, Card, CardMedia, CardContent, IconButton, Skeleton, useMediaQuery } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import CloudIcon from '@mui/icons-material/Cloud';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -22,6 +22,7 @@ interface ChannelSectionProps {
 export default function ChannelSection({ channel, onPlay, onHideChannel, cacheStatus }: ChannelSectionProps) {
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const lastCardObserverRef = useRef<IntersectionObserver | null>(null);
+  const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)');
 
   // Reset visible count when channel changes
   useEffect(() => {
@@ -171,11 +172,13 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
               cursor: 'pointer',
               position: 'relative',
               transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1), box-shadow 0.28s cubic-bezier(0.4,0,0.2,1)',
-              '&:hover': {
-                transform: 'translateY(-7px) scale(1.015)',
-                boxShadow: '0 16px 48px rgba(0,0,0,0.45), 0 0 0 1px rgba(245,166,35,0.18)',
-                '& .play-overlay': { opacity: 1 },
-              },
+              ...(!isDesktop && {
+                '&:hover': {
+                  transform: 'translateY(-7px) scale(1.015)',
+                  boxShadow: '0 16px 48px rgba(0,0,0,0.45), 0 0 0 1px rgba(245,166,35,0.18)',
+                  '& .play-overlay': { opacity: 1 },
+                },
+              }),
             }}
             onClick={() => onPlay(video)}
           >
@@ -198,8 +201,8 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
                   alignItems: 'center',
                   justifyContent: 'center',
                   backgroundColor: 'rgba(0,0,0,0.5)',
-                  opacity: 0,
-                  transition: 'opacity 0.2s',
+                  opacity: isDesktop ? 1 : 0,
+                  transition: isDesktop ? 'none' : 'opacity 0.2s',
                 }}
               >
                 <IconButton

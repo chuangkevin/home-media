@@ -37,6 +37,14 @@
   - NetEase isSynced 動態檢測（不 hardcode true）
   - 前端 lyrics 第一次失敗 15s 後 auto-retry（cached + streaming 路徑）
   - 前端 streaming 路徑歌詞門檻統一為 >0
+- 播放清單當前歌曲滑動啟用：移除 `disabled={isCurrent}` 限制
+- 播放清單焦點追蹤：auto-scroll 依賴加上 `currentVideoId`，歌曲變動自動捲動
+- 移除/封鎖當前歌曲自動播下一首：`onRemove`/`onBlock` 先 dispatch `playNext()`
+- 電腦版 UX 優化：
+  - `isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)')` 統一偵測
+  - SwipeablePlaylistItem 電腦版 inline 顯示收藏/移除/封鎖按鈕（不走滑動手勢）
+  - ChannelSection 推薦卡片播放 overlay 電腦版常駐顯示（不靠 hover）
+  - ChannelSection + SearchResults hover-lift 動畫電腦版停用
 
 ## Version
 - Frontend: 1.4.0 → 1.5.0

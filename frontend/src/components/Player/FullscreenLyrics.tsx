@@ -64,6 +64,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const dispatch = useDispatch<AppDispatch>();
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
+  const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)'); // 滑鼠裝置
   const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px) and (min-height: 360px)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
@@ -1352,6 +1353,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                       >
                       <SwipeablePlaylistItem
                         isFavorited={!!favoriteIds[item.videoId]}
+                        isDesktop={isDesktop}
                         onSwipeRight={() => dispatch(toggleFavorite({
                           videoId: item.videoId, title: item.title,
                           channel: item.channel, thumbnail: item.thumbnail, duration: item.duration,

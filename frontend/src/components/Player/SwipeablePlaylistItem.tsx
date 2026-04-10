@@ -1,12 +1,14 @@
 /**
  * SwipeablePlaylistItem
- * Gmail-style swipe gestures on playlist items:
+ * Gmail-style swipe gestures on playlist items (mobile):
  * - Swipe right (→): green background, toggle favorite on release
  * - Swipe left (←): red background, show remove/block options
+ * Desktop: show action icons directly (no swipe needed)
  */
 import { useRef, useState, useCallback } from 'react';
-import { Box, Typography, Slide } from '@mui/material';
+import { Box, Typography, Slide, IconButton } from '@mui/material';
 import FavoriteIcon from '@mui/icons-material/Favorite';
+import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import BlockIcon from '@mui/icons-material/Block';
 
@@ -16,7 +18,7 @@ interface SwipeablePlaylistItemProps {
   onRemove: () => void;
   onBlock: () => void;
   isFavorited: boolean;
-  disabled?: boolean; // disable for current playing track
+  isDesktop?: boolean;
 }
 
 const SWIPE_THRESHOLD = 80;
@@ -27,7 +29,7 @@ export default function SwipeablePlaylistItem({
   onRemove,
   onBlock,
   isFavorited,
-  disabled = false,
+  isDesktop = false,
 }: SwipeablePlaylistItemProps) {
   const startXRef = useRef(0);
   const startYRef = useRef(0);
@@ -37,15 +39,15 @@ export default function SwipeablePlaylistItem({
   const directionLockRef = useRef<'none' | 'horizontal' | 'vertical'>('none');
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (disabled) return;
+    if (isDesktop) return;
     startXRef.current = e.touches[0].clientX;
     startYRef.current = e.touches[0].clientY;
     directionLockRef.current = 'none';
     setIsSwiping(false);
-  }, [disabled]);
+  }, [isDesktop]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (disabled) return;
+    if (isDesktop) return;
     const dx = e.touches[0].clientX - startXRef.current;
     const dy = e.touches[0].clientY - startYRef.current;
 
@@ -63,10 +65,10 @@ export default function SwipeablePlaylistItem({
     setIsSwiping(true);
     // Clamp: right max +120px, left max -120px
     setOffsetX(Math.max(-120, Math.min(120, dx)));
-  }, [disabled]);
+  }, [isDesktop]);
 
   const handleTouchEnd = useCallback(() => {
-    if (disabled || !isSwiping) {
+    if (isDesktop || !isSwiping) {
       setOffsetX(0);
       setIsSwiping(false);
       return;
@@ -83,8 +85,51 @@ export default function SwipeablePlaylistItem({
     setOffsetX(0);
     setIsSwiping(false);
     directionLockRef.current = 'none';
-  }, [disabled, isSwiping, offsetX, onSwipeRight]);
+  }, [isDesktop, isSwiping, offsetX, onSwipeRight]);
 
+  // Desktop: render children with inline action buttons
+  if (isDesktop) {
+    return (
+      <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {children}
+        </Box>
+        <Box sx={{
+          display: 'flex', alignItems: 'center', gap: 0.25,
+          pr: 0.5, flexShrink: 0,
+        }}>
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onSwipeRight(); }}
+            title={isFavorited ? '取消收藏' : '收藏'}
+            sx={{ p: 0.5 }}
+          >
+            {isFavorited
+              ? <FavoriteIcon sx={{ fontSize: 18, color: 'error.main' }} />
+              : <FavoriteBorderIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
+          </IconButton>
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            title="移除"
+            sx={{ p: 0.5 }}
+          >
+            <DeleteOutlineIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+          </IconButton>
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onBlock(); }}
+            title="封鎖"
+            sx={{ p: 0.5 }}
+          >
+            <BlockIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+          </IconButton>
+        </Box>
+      </Box>
+    );
+  }
+
+  // Mobile: swipe gesture
   return (
     <Box sx={{ position: 'relative', overflow: 'hidden' }}>
       {/* Background indicators */}
