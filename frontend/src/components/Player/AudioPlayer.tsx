@@ -752,6 +752,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               if (lrclibId) {
                 const lrcLibLyrics = await apiService.getLyricsByLRCLIBId(videoId, lrclibId);
                 if (lrcLibLyrics) {
+                  // 🔥 驗証 videoId — 快速換軌時防止舊歌詞覆蓋新歌詞
+                  if (videoId !== currentVideoIdRef.current) {
+                    console.warn(`⚠️ 歌詞加載被中止：目前曲目已變更 (${currentVideoIdRef.current})`);
+                    dispatch(setLyricsLoading(false));
+                    return;
+                  }
                   console.log(`📝 歌詞從 LRCLIB ID 載入: ${pendingTrack.title}`);
                   dispatch(setCurrentLyrics(lrcLibLyrics));
                   lyricsCacheService.set(videoId, lrcLibLyrics).catch(err => console.warn('Failed to cache lyrics:', err));
@@ -763,6 +769,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               if (neteaseId) {
                 const neteaseLyrics = await apiService.getLyricsByNeteaseId(videoId, neteaseId);
                 if (neteaseLyrics) {
+                  // 🔥 驗証 videoId — 快速換軌時防止舊歌詞覆蓋新歌詞
+                  if (videoId !== currentVideoIdRef.current) {
+                    console.warn(`⚠️ 歌詞加載被中止：目前曲目已變更 (${currentVideoIdRef.current})`);
+                    dispatch(setLyricsLoading(false));
+                    return;
+                  }
                   console.log(`📝 歌詞從 NetEase ID 載入: ${pendingTrack.title}`);
                   dispatch(setCurrentLyrics(neteaseLyrics));
                   lyricsCacheService.set(videoId, neteaseLyrics).catch(err => console.warn('Failed to cache lyrics:', err));
@@ -774,6 +786,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               // 2. 檢查本地快取（只用 AI 生成的快取，跳過傳統來源）
               const cachedLyrics = await lyricsCacheService.get(videoId);
               if (cachedLyrics && cachedLyrics.source === 'manual') {
+                // 🔥 驗証 videoId — 快速換軌時防止舊歌詞覆蓋新歌詞
+                if (videoId !== currentVideoIdRef.current) {
+                  console.warn(`⚠️ 歌詞加載被中止：目前曲目已變更 (${currentVideoIdRef.current})`);
+                  dispatch(setLyricsLoading(false));
+                  return;
+                }
                 // AI 生成的快取，直接用
                 console.log(`📝 歌詞從 AI 快取載入: ${pendingTrack.title}`);
                 dispatch(setCurrentLyrics(cachedLyrics));
@@ -786,9 +804,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               if (!lyrics) {
                 console.log(`🔄 歌詞第一次查無結果，15s 後重試: ${pendingTrack.title}`);
                 await new Promise(r => setTimeout(r, 15000));
+                // 🔥 15s 後再驗証一次 — 使用者可能已換好幾首歌了
+                if (videoId !== currentVideoIdRef.current) {
+                  console.warn(`⚠️ 歌詞加載被中止：15s 重試時曲目已變更 (${currentVideoIdRef.current})`);
+                  dispatch(setLyricsLoading(false));
+                  return;
+                }
                 lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
               }
               if (lyrics && lyrics.lines?.length > 0) {
+                // 🔥 驗証 videoId — 快速換軌時防止舊歌詞覆蓋新歌詞
+                if (videoId !== currentVideoIdRef.current) {
+                  console.warn(`⚠️ 歌詞加載被中止：目前曲目已變更 (${currentVideoIdRef.current})`);
+                  dispatch(setLyricsLoading(false));
+                  return;
+                }
                 // 用 SponsorBlock music_offtopic 計算 offset
                 // 如果影片前面有非音樂段落，歌詞時間戳需要加上 offset
                 const segments = skipSegmentsRef.current;
