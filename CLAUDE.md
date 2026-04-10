@@ -301,5 +301,5 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **首頁 tab 再按**: `scrollToTop()` 同時清除 `hasSearched` + `searchResults`，回到推薦頁
 - **Version bump 必須同步 lockfile**: 改 package.json version 後跑 `npm install --package-lock-only`，前後端都要做，否則 CI `npm ci` 失敗
 - **影片 DOM 不卸載**: cached `<video>` 用 `display: none` 而非條件渲染，避免切 tab 回來重新載入 buffer 造成 lag
-- **autoplay 不阻擋**: radio 模式不顯示 autoplayBlocked 按鈕，改用 `document.addEventListener('click/touchstart', retryPlay)` 自動重試
+- **autoplay NotAllowedError**: `play()` 被瀏覽器阻擋時必須 `dispatch(setIsPlaying(false))` 讓 UI 正確顯示暫停，然後掛 `document.addEventListener('click/touchstart', retryPlay)` 等用戶互動後自動恢復。retryPlay 裡 play 仍然失敗時必須重新掛 listener（不能 `{ once: true }` + 吞錯誤導致永遠卡住）。成功時 `dispatch(setIsPlaying(true))`
 - **播放清單滑動手勢**: `SwipeablePlaylistItem` — 右滑收藏、左滑移除/封鎖。水平 >10px 鎖定為 swipe，垂直走 drag-and-drop。`touchAction: 'pan-y'` 必須設定

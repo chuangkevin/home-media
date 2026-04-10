@@ -362,13 +362,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 }
               }).catch((error) => {
                 if (error.name === 'NotAllowedError') {
-                  // Radio 模式：不顯示 blocked 按鈕，自動重試
+                  // 自動播放被阻擋：設定 isPlaying(false) 讓 UI 正確顯示暫停
+                  // 等任意 user interaction 自動重試（比舊版大按鈕 UX 更好）
                   console.warn('⚠️ Autoplay blocked, will retry on user interaction');
+                  dispatch(setIsPlaying(false));
                   const retryPlay = () => {
                     audioRef.current?.play().then(() => {
+                      dispatch(setIsPlaying(true));
                       document.removeEventListener('click', retryPlay);
                       document.removeEventListener('touchstart', retryPlay);
-                    }).catch(() => {});
+                    }).catch(() => {
+                      // 仍然失敗 — 重新掛 listener 持續等待下次互動
+                      document.addEventListener('click', retryPlay, { once: true });
+                      document.addEventListener('touchstart', retryPlay, { once: true });
+                    });
                   };
                   document.addEventListener('click', retryPlay, { once: true });
                   document.addEventListener('touchstart', retryPlay, { once: true });
@@ -659,13 +666,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             }).catch((error) => {
               console.error('Failed to auto-play:', error);
               if (error.name === 'NotAllowedError') {
-                // Radio 模式：不顯示 blocked 按鈕，等任意 user interaction 自動重試
+                // 自動播放被阻擋：設定 isPlaying(false) 讓 UI 正確顯示暫停
                 console.warn('⚠️ Autoplay blocked (stream), will retry on user interaction');
+                dispatch(setIsPlaying(false));
                 const retryPlay = () => {
                   audioRef.current?.play().then(() => {
+                    dispatch(setIsPlaying(true));
                     document.removeEventListener('click', retryPlay);
                     document.removeEventListener('touchstart', retryPlay);
-                  }).catch(() => {});
+                  }).catch(() => {
+                    // 仍然失敗 — 重新掛 listener 持續等待下次互動
+                    document.addEventListener('click', retryPlay, { once: true });
+                    document.addEventListener('touchstart', retryPlay, { once: true });
+                  });
                 };
                 document.addEventListener('click', retryPlay, { once: true });
                 document.addEventListener('touchstart', retryPlay, { once: true });
@@ -1019,7 +1032,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       audioEl.src = blobUrl;
       currentBlobUrlRef.current = blobUrl;
       currentVideoIdRef.current = info.videoId;
-      audioEl.play().catch(() => {});
+      audioEl.play().catch((err) => {
+        console.warn('⚠️ [Quick Start] play() failed:', err.name);
+        // audio element 已暖機，play 失敗罕見；但若發生，3s 後 fallback 重試
+        setTimeout(() => { if (audioEl.paused) audioEl.play().catch(() => {}); }, 3000);
+      });
 
       // 同步清理 refs（必須在 return true 之前，避免 timeupdate 重複觸發）
       nextTrackBlobUrlRef.current = null;

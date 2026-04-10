@@ -20,7 +20,7 @@
 
 ## Post-Feature Bug Fixes
 
-- autoplayBlocked 按鈕移除 — radio 模式永遠自動重試播放
+- autoplayBlocked 按鈕移除 → retryPlay 修復：NotAllowedError 必須 `setIsPlaying(false)` + 持續重掛 listener（`{ once: true }` + 吞錯誤會卡死背景播放）
 - SponsorBlock intro skip 顯示 toast（快取+串流路徑）
 - 影片切 tab 後改用 display:none 而非卸載 DOM — 避免切回重新載入 lag
 - quickStartNextTrack play() 失敗 fallback
