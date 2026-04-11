@@ -63,8 +63,9 @@ interface FullscreenLyricsProps {
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
   const dispatch = useDispatch<AppDispatch>();
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
-  const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
+  const isUltrawide = useMediaQuery('(min-width: 1500px) and (orientation: landscape)');
   const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)'); // 滑鼠裝置
+  const isSmallLandscape = useMediaQuery('(orientation: landscape) and (max-height: 500px)'); // 針對手機橫向
   const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px) and (min-height: 360px)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
@@ -108,6 +109,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [translationError, setTranslationError] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const retryCountRef = useRef(0);
+  const translationRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Swipe-down-to-dismiss gesture
   const [dragOffset, setDragOffset] = useState(0);
@@ -135,16 +137,35 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [fineTuneOffset, setFineTuneOffset] = useState(0);
   const fineTuneStartTimeRef = useRef(0); // 進入微調時的播放時間（固定不變）
   const [isReloadingLyrics, setIsReloadingLyrics] = useState(false);
+  const [isRefreshingLyricsView, setIsRefreshingLyricsView] = useState(false);
 
   // YouTube CC 載入狀態
   const [isLoadingYouTubeCC, setIsLoadingYouTubeCC] = useState(false);
 
   // 換曲目時立即清空翻譯（避免看到上一首的翻譯）
   useEffect(() => {
+    if (translationRetryTimeoutRef.current) {
+      clearTimeout(translationRetryTimeoutRef.current);
+      translationRetryTimeoutRef.current = null;
+    }
+    dispatch(setCurrentLyrics(null));
     setTranslations([]);
     setTranslationError(false);
     setIsTranslating(false);
-  }, [track?.videoId]);
+    translationGenRef.current += 1;
+  }, [dispatch, track?.videoId]);
+
+  const clearLyricsViewState = useCallback(() => {
+    if (translationRetryTimeoutRef.current) {
+      clearTimeout(translationRetryTimeoutRef.current);
+      translationRetryTimeoutRef.current = null;
+    }
+    translationGenRef.current += 1;
+    retryCountRef.current = 0;
+    setTranslations([]);
+    setTranslationError(false);
+    setIsTranslating(false);
+  }, []);
 
   // 翻譯邏輯：提取為 doTranslate，供 effect 和 retry button 共用
   // gen: generation counter passed from caller — discards results from older generations
@@ -155,10 +176,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     setTranslationError(false);
 
     const lines = currentLyrics.lines.map(l => l.text);
-    apiService.translateLyrics(track.videoId, lines).then(result => {
+    const translateRequest = apiService.translateLyrics(track.videoId, lines);
+    const fastTimeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('translation timeout')), 12000);
+    });
+
+    Promise.race([translateRequest, fastTimeout]).then(result => {
       if (translationGenRef.current !== gen) return; // stale
       if (!result) {
-        // API 回傳 null（Gemini 失敗但非 HTTP error）— 走 retry
         throw new Error('Translation returned null');
       }
       const trans = result.translations.map((t: string, i: number) => {
@@ -178,13 +203,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       setIsTranslating(false);
     }).catch(() => {
       if (translationGenRef.current !== gen) return; // stale
-      // Gemini key cooldown 30 秒，間隔 15 秒重試最多 4 次（共 60 秒）
-      if (retryCountRef.current < 4) {
+      // 快速失敗 + 短暫重試，避免 UI 長時間卡在翻譯中
+      if (retryCountRef.current < 1) {
         retryCountRef.current++;
-        console.log(`🔄 翻譯重試 ${retryCountRef.current}/4（${retryCountRef.current * 15}s 後）`);
-        setTimeout(() => doTranslate(gen), 15000);
+        console.log(`🔄 翻譯重試 ${retryCountRef.current}/1（5s 後）`);
+        translationRetryTimeoutRef.current = setTimeout(() => {
+          translationRetryTimeoutRef.current = null;
+          doTranslate(gen);
+        }, 5000);
       } else {
-        // 所有自動重試都失敗
         setTranslationError(true);
         setIsTranslating(false);
       }
@@ -851,7 +878,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 重新載入歌詞
   const handleReloadOriginalLyrics = async () => {
     setIsReloadingLyrics(true);
+    setIsRefreshingLyricsView(true);
     try {
+      clearLyricsViewState();
       // 清除前端+後端快取，確保重新搜尋
       await lyricsCacheService.delete(track.videoId);
       await lyricsCacheService.clearPreference(track.videoId);
@@ -874,6 +903,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     } catch (error) {
       console.error('Reload lyrics failed:', error);
     } finally {
+      setIsRefreshingLyricsView(false);
       setIsReloadingLyrics(false);
     }
   };
@@ -881,7 +911,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 使用 YouTube CC 字幕
   const handleUseYouTubeCC = async () => {
     setIsLoadingYouTubeCC(true);
+    setIsRefreshingLyricsView(true);
     try {
+      clearLyricsViewState();
       const lyrics = await apiService.getYouTubeCaptions(track.videoId);
 
       if (lyrics) {
@@ -896,6 +928,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       console.error('Fetch YouTube CC failed:', error);
       alert('獲取 YouTube CC 字幕失敗');
     } finally {
+      setIsRefreshingLyricsView(false);
       setIsLoadingYouTubeCC(false);
     }
   };
@@ -905,8 +938,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     if (searchSource === 'ai') {
       // AI 模式：清掉快取，強制重新辨識
       setIsSearching(true);
+      setIsRefreshingLyricsView(true);
       setSearchResults([]);
       try {
+        clearLyricsViewState();
         // 先刪除舊的 AI 快取，強制重新辨識
         await apiService.deleteAILyricsCache(track.videoId).catch(() => {});
         const result = await apiService.generateAILyrics(track.videoId);
@@ -932,6 +967,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       } catch (error) {
         console.error('AI lyrics generation failed:', error);
       } finally {
+        setIsRefreshingLyricsView(false);
         setIsSearching(false);
       }
       return;
@@ -954,7 +990,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 選擇歌詞
   const handleSelectLyrics = async (result: LyricsSearchResult) => {
     setIsApplying(true);
+    setIsRefreshingLyricsView(true);
     try {
+      clearLyricsViewState();
       const lyrics = searchSource === 'netease'
         ? await apiService.getLyricsByNeteaseId(track.videoId, result.id)
         : await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
@@ -975,6 +1013,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     } catch (error) {
       console.error('Apply lyrics failed:', error);
     } finally {
+      setIsRefreshingLyricsView(false);
       setIsApplying(false);
     }
   };
@@ -1035,6 +1074,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 渲染歌詞
   const renderLyrics = () => {
     if (isLoading) {
+      return (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress />
+        </Box>
+      );
+    }
+
+    if (isRefreshingLyricsView) {
       return (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
           <CircularProgress />
