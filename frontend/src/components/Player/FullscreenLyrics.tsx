@@ -65,7 +65,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
   const isUltrawide = useMediaQuery('(min-width: 1500px) and (orientation: landscape)');
   const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)'); // 滑鼠裝置
-  const isSmallLandscape = useMediaQuery('(orientation: landscape) and (max-height: 500px)'); // 針對手機橫向
   const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px) and (min-height: 360px)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
