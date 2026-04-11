@@ -1537,9 +1537,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // 設定播放控制按鈕回調
     navigator.mediaSession.setActionHandler('play', () => {
       dispatch(setIsPlaying(true));
-      if (displayModeRef.current !== 'video') {
-        audioRef.current?.play();
-      }
+      audioRef.current?.play();
     });
 
     navigator.mediaSession.setActionHandler('pause', () => {

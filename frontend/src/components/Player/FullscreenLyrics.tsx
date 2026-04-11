@@ -123,6 +123,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [videoCached, setVideoCached] = useState(false);
   const [videoDownloading, setVideoDownloading] = useState(false);
   const [videoDownloadProgress, setVideoDownloadProgress] = useState('');
+  const [videoDownloadError, setVideoDownloadError] = useState('');
 
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
@@ -266,10 +267,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       setVideoDownloading(true);
       setVideoCached(false);
       setVideoDownloadProgress('');
+      setVideoDownloadError('');
 
       let downloadRetryCount = 0;
       const MAX_DOWNLOAD_RETRIES = 3;
       const RETRY_DELAYS = [2000, 5000, 10000];
+      let downloadFailed = false;
 
       const triggerDownload = () => {
         apiService.downloadVideo(track.videoId).catch((err) => {
@@ -279,6 +282,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             console.warn(`🎬 Video download failed (attempt ${downloadRetryCount}/${MAX_DOWNLOAD_RETRIES}), retrying in ${delay / 1000}s`);
             setTimeout(triggerDownload, delay);
           } else {
+            downloadFailed = true;
             console.error(`🎬 Video download failed after ${MAX_DOWNLOAD_RETRIES} retries:`, err);
           }
         });
@@ -296,13 +300,22 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             setVideoCached(true);
             setVideoDownloading(false);
             setVideoDownloadProgress('');
+            setVideoDownloadError('');
             console.log(`🎬 影片下載完成: ${track.title}`);
+            return;
+          }
+          if (downloadFailed && !status.downloading) {
+            setVideoDownloading(false);
+            setVideoDownloadProgress('');
+            setVideoDownloadError('下載失敗，請稍後重試');
+            console.warn(`🎬 影片下載中止: ${track.title}`);
             return;
           }
         } catch { /* continue */ }
       }
       setVideoDownloading(false);
       setVideoDownloadProgress('');
+      setVideoDownloadError('下載逾時，請稍後重試');
     })();
 
     return () => {
@@ -314,6 +327,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   useEffect(() => {
     setVideoCached(false);
     setVideoDownloading(false);
+    setVideoDownloadError('');
     videoPollingVideoIdRef.current = null;
     apiService.videoCacheCleanup().catch(() => {});
   }, [track?.videoId]);
@@ -661,28 +675,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       console.error('🎬 影片跳轉失敗:', e);
     }
   }, [seekTarget, videoReady, viewMode, dispatch]);
-
-  // cached <video> 同步：只在偏差過大時修正（避免頻繁 seek 導致轉圈）
-  useEffect(() => {
-    if (!open || viewMode !== 'video' || !videoCached) return;
-
-    const syncInterval = setInterval(() => {
-      if (recoveryLockRef.current) return; // 恢復期間不執行同步
-
-      const videoEl = document.querySelector('video') as HTMLVideoElement | null;
-      const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
-      if (videoEl && audioEl && videoEl.readyState >= 2) {
-        const drift = Math.abs(videoEl.currentTime - audioEl.currentTime);
-        // 只在偏差超過 3 秒才修正（避免頻繁 seek 造成 buffering 轉圈）
-        if (drift > 3) {
-          videoEl.currentTime = audioEl.currentTime;
-          console.log(`🎬 cached video 同步修正: drift=${drift.toFixed(1)}s`);
-        }
-      }
-    }, 2000);
-
-    return () => clearInterval(syncInterval);
-  }, [open, viewMode, videoCached]);
 
   // 載入儲存的偏好設定（切歌時先 reset 再載入，避免殘留上一首的 offset）
   useEffect(() => {
@@ -1261,7 +1253,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'white', zIndex: 2, textAlign: 'center' }}>
                 <CircularProgress color="inherit" />
                 <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
-                  {videoDownloading ? videoDownloadProgress || '下載中...' : '載入 YouTube 影片...'}
+                  {videoDownloading
+                    ? videoDownloadProgress || '下載中...'
+                    : videoDownloadError || '載入 YouTube 影片...'}
                 </Typography>
               </Box>
             )}
