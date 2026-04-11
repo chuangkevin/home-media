@@ -257,13 +257,13 @@ export class RecommendationController {
   }
 
   /**
-   * GET /api/recommendations/channel/:channelName?limit=20
-   * 獲取單一頻道的影片
+   * GET /api/recommendations/channel/:channelName?page=0&pageSize=20
+   * 獲取單一頻道的影片（分頁）
    */
   async getChannelVideos(req: Request, res: Response): Promise<void> {
     try {
       const { channelName } = req.params;
-      const { limit } = req.query;
+      const { limit, page, pageSize } = req.query;
 
       if (!channelName) {
         res.status(400).json({
@@ -272,17 +272,34 @@ export class RecommendationController {
         return;
       }
 
-      const limitNum = limit ? parseInt(limit as string, 10) : 20;
+      const pageNum = page ? parseInt(page as string, 10) : 0;
+      const pageSizeNum = pageSize
+        ? parseInt(pageSize as string, 10)
+        : (limit ? parseInt(limit as string, 10) : 20);
+
+      if (!Number.isInteger(pageNum) || !Number.isInteger(pageSizeNum) || pageNum < 0 || pageSizeNum < 1 || pageSizeNum > 30) {
+        res.status(400).json({ error: 'Invalid page or pageSize parameter' });
+        return;
+      }
+
+      const fetchLimit = (pageNum + 1) * pageSizeNum + 1;
 
       const videos = await recommendationService.getChannelVideos(
         channelName,
-        limitNum
+        fetchLimit
       );
+
+      const start = pageNum * pageSizeNum;
+      const pagedVideos = videos.slice(start, start + pageSizeNum);
+      const hasMore = videos.length > start + pageSizeNum;
 
       res.json({
         channelName,
-        count: videos.length,
-        videos,
+        page: pageNum,
+        pageSize: pageSizeNum,
+        count: pagedVideos.length,
+        hasMore,
+        videos: pagedVideos,
       });
     } catch (error) {
       logger.error('Get channel videos error:', error);

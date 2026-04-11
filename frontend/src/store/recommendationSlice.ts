@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import apiService from '../services/api.service';
+import apiService, { RecommendationPage } from '../services/api.service';
 import type { Track } from '../types/track.types';
 
 export interface ChannelRecommendation {
@@ -7,7 +7,14 @@ export interface ChannelRecommendation {
   channelThumbnail: string;
   videos: Track[];
   watchCount: number;
-  type?: 'channel' | 'similar'; // 新增：區分推薦類型
+  type?: 'channel' | 'similar' | 'discovery';
+  hasMoreVideos?: boolean;
+}
+
+interface FetchRecommendationResult {
+  recommendations: ChannelRecommendation[];
+  hasMore: boolean;
+  page: number;
 }
 
 interface RecommendationState {
@@ -33,10 +40,15 @@ const initialState: RecommendationState = {
 export const fetchChannelRecommendations = createAsyncThunk(
   'recommendation/fetchChannelRecommendations',
   async ({ page, pageSize = 5, mixed = true }: { page: number; pageSize?: number; mixed?: boolean }) => {
-    if (mixed) {
-      return await apiService.getMixedRecommendations(page, pageSize, 3);
-    }
-    return await apiService.getChannelRecommendations(page, pageSize);
+    const response: RecommendationPage<ChannelRecommendation> = mixed
+      ? await apiService.getMixedRecommendations(page, pageSize, 3)
+      : await apiService.getChannelRecommendations(page, pageSize);
+
+    return {
+      recommendations: response.recommendations,
+      hasMore: response.hasMore,
+      page: response.page,
+    } satisfies FetchRecommendationResult;
   }
 );
 
@@ -47,10 +59,15 @@ export const loadMoreRecommendations = createAsyncThunk(
     const nextPage = state.recommendation.currentPage + 1;
     const mixed = state.recommendation.useMixedMode;
     
-    if (mixed) {
-      return await apiService.getMixedRecommendations(nextPage, 5, 3);
-    }
-    return await apiService.getChannelRecommendations(nextPage, 5);
+    const response: RecommendationPage<ChannelRecommendation> = mixed
+      ? await apiService.getMixedRecommendations(nextPage, 5, 3)
+      : await apiService.getChannelRecommendations(nextPage, 5);
+
+    return {
+      recommendations: response.recommendations,
+      hasMore: response.hasMore,
+      page: response.page,
+    } satisfies FetchRecommendationResult;
   }
 );
 
@@ -62,10 +79,15 @@ export const refreshRecommendations = createAsyncThunk(
     
     await apiService.refreshRecommendations();
     
-    if (mixed) {
-      return await apiService.getMixedRecommendations(0, 5, 3);
-    }
-    return await apiService.getChannelRecommendations(0, 5);
+    const response: RecommendationPage<ChannelRecommendation> = mixed
+      ? await apiService.getMixedRecommendations(0, 5, 3)
+      : await apiService.getChannelRecommendations(0, 5);
+
+    return {
+      recommendations: response.recommendations,
+      hasMore: response.hasMore,
+      page: response.page,
+    } satisfies FetchRecommendationResult;
   }
 );
 
@@ -92,11 +114,11 @@ const recommendationSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(fetchChannelRecommendations.fulfilled, (state, action: PayloadAction<ChannelRecommendation[]>) => {
+      .addCase(fetchChannelRecommendations.fulfilled, (state, action: PayloadAction<FetchRecommendationResult>) => {
         state.loading = false;
-        state.channelRecommendations = action.payload;
-        state.currentPage = 0;
-        state.hasMore = action.payload.length > 0;
+        state.channelRecommendations = action.payload.recommendations;
+        state.currentPage = action.payload.page;
+        state.hasMore = action.payload.hasMore;
         state.lastUpdated = Date.now();
       })
       .addCase(fetchChannelRecommendations.rejected, (state, action) => {
@@ -106,20 +128,20 @@ const recommendationSlice = createSlice({
       .addCase(loadMoreRecommendations.pending, (state) => {
         state.loading = true;
       })
-      .addCase(loadMoreRecommendations.fulfilled, (state, action: PayloadAction<ChannelRecommendation[]>) => {
+      .addCase(loadMoreRecommendations.fulfilled, (state, action: PayloadAction<FetchRecommendationResult>) => {
         state.loading = false;
-        state.channelRecommendations = [...state.channelRecommendations, ...action.payload];
-        state.currentPage += 1;
-        state.hasMore = action.payload.length > 0;
+        state.channelRecommendations = [...state.channelRecommendations, ...action.payload.recommendations];
+        state.currentPage = action.payload.page;
+        state.hasMore = action.payload.hasMore;
       })
       .addCase(loadMoreRecommendations.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message || 'Failed to load more';
       })
-      .addCase(refreshRecommendations.fulfilled, (state, action: PayloadAction<ChannelRecommendation[]>) => {
-        state.channelRecommendations = action.payload;
-        state.currentPage = 0;
-        state.hasMore = action.payload.length > 0;
+      .addCase(refreshRecommendations.fulfilled, (state, action: PayloadAction<FetchRecommendationResult>) => {
+        state.channelRecommendations = action.payload.recommendations;
+        state.currentPage = action.payload.page;
+        state.hasMore = action.payload.hasMore;
         state.lastUpdated = Date.now();
       });
   },

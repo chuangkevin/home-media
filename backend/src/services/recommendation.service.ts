@@ -12,6 +12,16 @@ import logger from '../utils/logger';
 class RecommendationService {
   private readonly VIDEOS_PER_CHANNEL = 20; // 每個頻道推薦 20 首影片（橫向滾動 lazy load）
 
+  private normalizeChannelVideos(videos: YouTubeSearchResult[]): YouTubeSearchResult[] {
+    return videos
+      .filter(v => v.duration > 0 && v.duration <= 600)
+      .sort((a, b) => {
+        const dateA = new Date(a.uploadedAt || 0).getTime();
+        const dateB = new Date(b.uploadedAt || 0).getTime();
+        return dateB - dateA;
+      });
+  }
+
   /**
    * 從設定讀取快取時間
    */
@@ -98,18 +108,20 @@ class RecommendationService {
           const cached = this.getCachedRecommendations(channel.channelName);
           if (cached) {
             logger.info(`[Recommend] Cache hit for channel: ${channel.channelName}`);
+            const normalizedCached = this.normalizeChannelVideos(cached);
             return {
               channelName: channel.channelName,
               channelThumbnail: channel.channelThumbnail,
-              videos: cached,
-              watchCount: channel.watchCount
+              videos: normalizedCached.slice(0, this.VIDEOS_PER_CHANNEL),
+              watchCount: channel.watchCount,
+              hasMoreVideos: normalizedCached.length > this.VIDEOS_PER_CHANNEL,
             };
           }
 
           // 獲取新影片（3s timeout 防止 YouTube rate-limit 時 hang 住）
           logger.info(`[Recommend] No cache. Fetching videos for channel: ${channel.channelName}`);
           const videos = await Promise.race([
-            youtubeService.getChannelVideos(channel.channelName, this.VIDEOS_PER_CHANNEL),
+            youtubeService.getChannelVideos(channel.channelName, this.VIDEOS_PER_CHANNEL + 1),
             new Promise<YouTubeSearchResult[]>(resolve => setTimeout(() => {
               logger.warn(`[Recommend] Timeout fetching videos for channel: ${channel.channelName}`);
               resolve([]);
@@ -117,16 +129,7 @@ class RecommendationService {
           ]);
           logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
 
-
-          // 過濾掉合輯/超長影片（>10 分鐘 = 600 秒）和直播（duration=0）
-          const filtered = videos.filter(v => v.duration > 0 && v.duration <= 600);
-
-          // 🔥 按上傳日期 DESC 排序（最新優先）
-          const sorted = filtered.sort((a, b) => {
-            const dateA = new Date(a.uploadedAt || 0).getTime();
-            const dateB = new Date(b.uploadedAt || 0).getTime();
-            return dateB - dateA; // DESC
-          });
+          const sorted = this.normalizeChannelVideos(videos);
 
           // 快取結果（6 小時）
           if (sorted.length > 0) {
@@ -136,8 +139,9 @@ class RecommendationService {
           return {
             channelName: channel.channelName,
             channelThumbnail: channel.channelThumbnail,
-            videos: sorted,
-            watchCount: channel.watchCount
+            videos: sorted.slice(0, this.VIDEOS_PER_CHANNEL),
+            watchCount: channel.watchCount,
+            hasMoreVideos: sorted.length > this.VIDEOS_PER_CHANNEL,
           };
         })
       );

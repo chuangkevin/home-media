@@ -2,6 +2,23 @@ import axios from 'axios';
 import type { Track, SearchResponse } from '../types/track.types';
 import type { Lyrics, LyricsSearchResult, LyricsSource, LyricsPreferences } from '../types/lyrics.types';
 
+export interface RecommendationPage<T> {
+  page: number;
+  pageSize: number;
+  count: number;
+  hasMore: boolean;
+  recommendations: T[];
+}
+
+export interface ChannelVideosPage {
+  channelName: string;
+  page: number;
+  pageSize: number;
+  count: number;
+  hasMore: boolean;
+  videos: Track[];
+}
+
 // 所有 API 請求都通過 nginx 代理 (/api)
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -355,21 +372,21 @@ class ApiService {
   /**
    * 獲取頻道推薦
    */
-  async getChannelRecommendations(page: number = 0, pageSize: number = 5) {
+  async getChannelRecommendations(page: number = 0, pageSize: number = 5): Promise<RecommendationPage<any>> {
     const response = await this.api.get('/recommendations/channels', {
       params: { page, pageSize },
     });
-    return response.data.recommendations;
+    return response.data;
   }
 
   /**
    * 獲取混合推薦（頻道 + 相似歌曲）
    */
-  async getMixedRecommendations(page: number = 0, pageSize: number = 5, includeCount: number = 3) {
+  async getMixedRecommendations(page: number = 0, pageSize: number = 5, includeCount: number = 3): Promise<RecommendationPage<any>> {
     const response = await this.api.get('/recommendations/mixed', {
       params: { page, pageSize, includeCount },
     });
-    return response.data.recommendations;
+    return response.data;
   }
 
   /**
@@ -403,11 +420,11 @@ class ApiService {
   /**
    * 獲取單一頻道影片
    */
-  async getChannelVideos(channelName: string, limit: number = 20): Promise<Track[]> {
+  async getChannelVideos(channelName: string, page: number = 0, pageSize: number = 6): Promise<ChannelVideosPage> {
     const response = await this.api.get(`/recommendations/channel/${encodeURIComponent(channelName)}`, {
-      params: { limit },
+      params: { page, pageSize },
     });
-    return response.data.videos;
+    return response.data;
   }
 
   /**

@@ -8,8 +8,9 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { ChannelRecommendation } from '../../store/recommendationSlice';
 import type { Track } from '../../types/track.types';
 import { formatUploadedAt } from '../../utils/formatTime';
+import apiService from '../../services/api.service';
 
-const INITIAL_VISIBLE = 6;
+const PAGE_SIZE = 6;
 const LOAD_MORE_STEP = 6;
 
 interface ChannelSectionProps {
@@ -20,25 +21,66 @@ interface ChannelSectionProps {
 }
 
 export default function ChannelSection({ channel, onPlay, onHideChannel, cacheStatus }: ChannelSectionProps) {
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const [loadedVideos, setLoadedVideos] = useState<Track[]>(channel.videos);
+  const [visibleCount, setVisibleCount] = useState(Math.min(channel.videos.length, LOAD_MORE_STEP));
+  const [hasMoreVideos, setHasMoreVideos] = useState(Boolean(channel.hasMoreVideos));
+  const [loadingMoreVideos, setLoadingMoreVideos] = useState(false);
+  const loadingMoreVideosRef = useRef(false);
+  const nextFetchPageRef = useRef(Math.floor(channel.videos.length / PAGE_SIZE));
   const lastCardObserverRef = useRef<IntersectionObserver | null>(null);
   const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)');
 
-  // Reset visible count when channel changes
+  // Reset local pagination when channel changes
   useEffect(() => {
-    setVisibleCount(INITIAL_VISIBLE);
-  }, [channel.channelName]);
+    setLoadedVideos(channel.videos);
+    setVisibleCount(Math.min(channel.videos.length, LOAD_MORE_STEP));
+    nextFetchPageRef.current = Math.floor(channel.videos.length / PAGE_SIZE);
+    setHasMoreVideos(Boolean(channel.hasMoreVideos));
+    setLoadingMoreVideos(false);
+    loadingMoreVideosRef.current = false;
+  }, [channel.channelName, channel.hasMoreVideos, channel.videos]);
+
+  const loadMoreChannelVideos = useCallback(async () => {
+    if (channel.type !== 'channel' || loadingMoreVideosRef.current || !hasMoreVideos) return;
+
+    loadingMoreVideosRef.current = true;
+    setLoadingMoreVideos(true);
+    try {
+      const nextPage = nextFetchPageRef.current;
+      const response = await apiService.getChannelVideos(channel.channelName, nextPage, PAGE_SIZE);
+      setLoadedVideos((prev) => {
+        const merged = [...prev, ...response.videos.filter((video) => !prev.some((existing) => existing.videoId === video.videoId))];
+        return merged;
+      });
+      nextFetchPageRef.current = nextPage + 1;
+      setHasMoreVideos(response.hasMore);
+      setVisibleCount((prev) => prev + LOAD_MORE_STEP);
+    } catch (error) {
+      console.error(`載入更多頻道影片失敗: ${channel.channelName}`, error);
+    } finally {
+      setLoadingMoreVideos(false);
+      loadingMoreVideosRef.current = false;
+    }
+  }, [channel.channelName, channel.type, hasMoreVideos]);
 
   const lastCardRef = useCallback((node: HTMLDivElement | null) => {
     if (lastCardObserverRef.current) lastCardObserverRef.current.disconnect();
     if (!node) return;
     lastCardObserverRef.current = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) {
-        setVisibleCount((prev) => Math.min(prev + LOAD_MORE_STEP, channel.videos.length));
+        if (visibleCount < loadedVideos.length) {
+          setVisibleCount((prev) => Math.min(prev + LOAD_MORE_STEP, loadedVideos.length));
+        } else if (channel.type === 'channel') {
+          void loadMoreChannelVideos();
+        }
       }
     }, { root: node.closest('[data-scroll-root]'), rootMargin: '0px 200px 0px 0px' });
     lastCardObserverRef.current.observe(node);
-  }, [channel.videos.length]);
+  }, [channel.type, loadedVideos.length, loadMoreChannelVideos, visibleCount]);
+
+  const renderedVideos = loadedVideos.slice(0, visibleCount);
+
+  const shouldAttachObserver = visibleCount < loadedVideos.length || (channel.type === 'channel' && hasMoreVideos);
 
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -51,7 +93,7 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const isSimilarRecommendation = channel.type === 'similar';
+  const isSimilarRecommendation = channel.type === 'similar' || channel.type === 'discovery';
 
   return (
     <Box sx={{ mb: 4 }}>
@@ -158,10 +200,10 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           },
         }}
       >
-        {channel.videos.slice(0, visibleCount).map((video, idx) => (
+        {renderedVideos.map((video, idx) => (
           <div
             key={video.videoId}
-            ref={idx === visibleCount - 1 && visibleCount < channel.videos.length ? lastCardRef : null}
+            ref={idx === renderedVideos.length - 1 && shouldAttachObserver ? lastCardRef : null}
             style={{ flexShrink: 0 }}
           >
           <Card
@@ -284,10 +326,9 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           </div>
         ))}
 
-        {/* Loading skeleton for remaining cards */}
-        {visibleCount < channel.videos.length && (
+        {loadingMoreVideos && (
           <Box sx={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-            {Array.from({ length: Math.min(LOAD_MORE_STEP, channel.videos.length - visibleCount) }).map((_, i) => (
+            {Array.from({ length: 2 }).map((_, i) => (
               <Box key={i} sx={{ minWidth: { xs: 200, sm: 220, md: 240 }, flexShrink: 0 }}>
                 <Skeleton variant="rectangular" height={160} sx={{ borderRadius: 1 }} />
                 <Skeleton variant="text" sx={{ mt: 1 }} />

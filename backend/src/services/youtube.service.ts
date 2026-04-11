@@ -530,7 +530,7 @@ class YouTubeService {
     try {
       // 1. 檢查 24 小時快取
       const cached = this.getCachedChannelVideos(channelName, limit);
-      if (cached && cached.length > 0) {
+      if (cached && cached.length >= limit) {
         const cacheAge = Math.floor((Date.now() - cached[0].cachedAt) / 1000 / 60);
         console.log(`✅ 使用頻道影片快取: ${channelName} (快取時間: ${cacheAge}分鐘, ${cached.length} 個影片)`);
         return cached.map(c => ({
@@ -548,7 +548,8 @@ class YouTubeService {
       console.log(`⏳ 獲取頻道影片: ${channelName} (需要搜尋...)`);
 
       // 2. 使用 yt-dlp 搜尋 + 過濾
-      const result: any = await youtubedl(`ytsearch${limit * 3}:${channelName}`, {
+      const rawFetchLimit = Math.max(limit * 5, limit + 40);
+      const result: any = await youtubedl(`ytsearch${rawFetchLimit}:${channelName}`, {
         ...this.getYtDlpBaseOptions(),
         dumpSingleJson: true,
         flatPlaylist: true,
@@ -577,7 +578,8 @@ class YouTubeService {
           views: video.view_count,
           uploadedAt: video.upload_date,
         }))
-        .sort((a, b) => {
+        .filter((video: YouTubeSearchResult) => video.duration > 0 && video.duration <= 600)
+        .sort((a: YouTubeSearchResult, b: YouTubeSearchResult) => {
           // 按上傳日期 DESC 排序（最新優先）
           const dateA = new Date(a.uploadedAt || 0).getTime();
           const dateB = new Date(b.uploadedAt || 0).getTime();
@@ -611,9 +613,9 @@ class YouTubeService {
         `SELECT video_id as videoId, title, thumbnail, duration, views, uploaded_at as uploadedAt, cached_at as cachedAt
          FROM channel_videos_cache
          WHERE channel_name = ? AND cached_at > ?
-         ORDER BY cached_at DESC
+         ORDER BY uploaded_at DESC
          LIMIT ?`
-      );
+       );
 
       return stmt.all(channelName, now - cacheExpiry, limit);
     } catch (error) {

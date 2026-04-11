@@ -33,6 +33,7 @@ export interface ChannelRecommendation {
   channelThumbnail: string;
   videos: YouTubeSearchResult[];
   watchCount: number;
+  hasMoreVideos?: boolean;
 }
 
 /**
