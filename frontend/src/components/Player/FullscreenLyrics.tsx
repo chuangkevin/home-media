@@ -94,6 +94,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const videoSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoNudgeResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHardSeekAtRef = useRef(0);
+  const activeTrackVideoIdRef = useRef(track.videoId);
+  activeTrackVideoIdRef.current = track.videoId;
 
   // 顯示模式
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
@@ -880,13 +882,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
       const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel);
 
-      if (lyrics) {
+      if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         await lyricsCacheService.set(track.videoId, lyrics);
         dispatch(setCurrentLyrics(lyrics));
         dispatch(resetTimeOffset());
         emitSourceUpdate(track.videoId, 'auto', null);
         emitOffsetUpdate(track.videoId, 0);
-      } else {
+      } else if (activeTrackVideoIdRef.current === track.videoId) {
         dispatch(setCurrentLyrics(null));
       }
 
@@ -907,7 +909,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       clearLyricsViewState();
       const lyrics = await apiService.getYouTubeCaptions(track.videoId);
 
-      if (lyrics) {
+      if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         await lyricsCacheService.set(track.videoId, lyrics);
         dispatch(setCurrentLyrics(lyrics));
         dispatch(resetTimeOffset());
@@ -936,7 +938,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         // 先刪除舊的 AI 快取，強制重新辨識
         await apiService.deleteAILyricsCache(track.videoId).catch(() => {});
         const result = await apiService.generateAILyrics(track.videoId);
-        if (result?.lines?.length > 0) {
+        if (result?.lines?.length > 0 && activeTrackVideoIdRef.current === track.videoId) {
           // 直接套用 AI 生成的歌詞
           const lyrics = {
             videoId: track.videoId,
@@ -988,7 +990,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         ? await apiService.getLyricsByNeteaseId(track.videoId, result.id)
         : await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
 
-      if (lyrics) {
+      if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         if (searchSource === 'lrclib') {
           apiService.updateLyricsPreferences(track.videoId, { lrclibId: result.id });
           await lyricsCacheService.setLrclibId(track.videoId, result.id);

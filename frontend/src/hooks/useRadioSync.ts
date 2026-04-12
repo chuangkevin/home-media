@@ -39,6 +39,8 @@ export function useRadioSync() {
     (state: RootState) => state.radio
   );
   const currentLyrics = useSelector((state: RootState) => state.lyrics.currentLyrics);
+  const activeTrackVideoIdRef = useRef<string | null>(currentTrack?.videoId || null);
+  activeTrackVideoIdRef.current = currentTrack?.videoId || null;
 
   // 追蹤上一次的值
   const prevTrackRef = useRef<string | null>(null);
@@ -280,7 +282,7 @@ export function useRadioSync() {
     (async () => {
       try {
         const lyrics = await apiService.getLyrics(syncTrack.videoId, syncTrack.title, syncTrack.channel);
-        if (lyrics) {
+        if (lyrics && activeTrackVideoIdRef.current === syncTrack.videoId) {
           console.log('📻 [Listener] Lyrics loaded for same-track join:', syncTrack.title);
           dispatch(setCurrentLyrics(lyrics));
         }

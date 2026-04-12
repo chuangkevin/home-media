@@ -39,6 +39,8 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const lyricsViewRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const activeTrackVideoIdRef = useRef(track.videoId);
+  activeTrackVideoIdRef.current = track.videoId;
 
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
@@ -317,7 +319,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       // 重新從後端獲取歌詞（後端會自動搜尋 YouTube CC, NetEase, LRCLIB, Genius）
       const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel);
 
-      if (lyrics) {
+      if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         // 更新本地快取
         await lyricsCacheService.set(track.videoId, lyrics);
         // 更新 Redux
@@ -328,7 +330,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         emitSourceUpdate(track.videoId, 'auto', null);
         emitOffsetUpdate(track.videoId, 0);
         console.log(`✅ 已重新載入原始歌詞 (${lyrics.source})`);
-      } else {
+      } else if (activeTrackVideoIdRef.current === track.videoId) {
         dispatch(setCurrentLyrics(null));
         console.log('⚠️ 無法找到歌詞');
       }
@@ -366,7 +368,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         ? await apiService.getLyricsByNeteaseId(track.videoId, result.id)
         : await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
 
-      if (lyrics) {
+      if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         // 儲存選擇（同步到後端和本地）
         if (searchSource === 'lrclib') {
           // LRCLIB

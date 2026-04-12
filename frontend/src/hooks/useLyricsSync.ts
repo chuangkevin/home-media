@@ -20,6 +20,8 @@ export function useLyricsSync(
 ) {
   const dispatch = useDispatch();
   const isRemoteUpdateRef = useRef(false);
+  const activeVideoIdRef = useRef<string | undefined>(videoId);
+  activeVideoIdRef.current = videoId;
 
   // Get current track info for lyrics reload
   const currentTrack = useSelector((state: RootState) => state.player.currentTrack);
@@ -72,7 +74,7 @@ export function useLyricsSync(
         const artist = currentTrack?.channel || '';
         const lyrics = await apiService.getLyrics(data.videoId, title, artist);
 
-        if (lyrics) {
+        if (lyrics && activeVideoIdRef.current === data.videoId) {
           await lyricsCacheService.set(data.videoId, lyrics);
           dispatch(setCurrentLyrics(lyrics));
         }
