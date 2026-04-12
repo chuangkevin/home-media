@@ -30,3 +30,8 @@
 - [ ] 5.2 LyricsView.tsx：歌詞來源切換後呼叫 `emitSourceUpdate`
 - [ ] 5.3 FullscreenLyrics.tsx：同 5.1 + 5.2 的偏移和來源變更觸發 emit
 - [ ] 5.4 接收端套用偏移時跳過 emit（檢查 isRemoteUpdate flag）
+
+## 6. Cross-track stale request guard
+
+- [x] 6.1 AudioPlayer 歌詞載入流程新增 active request token，換歌後舊請求不可覆蓋新歌歌詞
+- [x] 6.2 舊歌詞請求的 error/loading 更新也必須被忽略，避免 B 歌被 A 歌延遲回應污染

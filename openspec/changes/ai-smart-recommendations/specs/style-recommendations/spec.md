@@ -40,3 +40,14 @@ Each recommended track SHALL include a human-readable `reason` string explaining
 #### Scenario: Fallback recommendation
 - **WHEN** a track is recommended via tag matching (no style data)
 - **THEN** the reason indicates fallback, e.g., "Similar tags: indie, rock"
+
+### Requirement: Recommendation startup SHALL tolerate legacy history storage
+首頁推薦 SHALL continue working when `watched_channels` is empty but playable history still exists in `cached_tracks`.
+
+#### Scenario: Legacy history fallback
+- **WHEN** `watched_channels` has no rows but `cached_tracks` has rows with `last_played > 0` and `channel_name`
+- **THEN** the recommendation service SHALL derive seed channels from `cached_tracks` instead of returning an empty recommendation set
+
+#### Scenario: Empty mixed cache must not stick
+- **WHEN** the cached first-page mixed recommendation payload contains zero recommendations
+- **THEN** the controller SHALL bypass that cache entry and regenerate recommendations instead of returning the empty cached response for up to 5 minutes

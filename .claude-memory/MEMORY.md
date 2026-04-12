@@ -53,3 +53,14 @@
 - **決策**:
   - **智慧擴展**: 在 `RecommendationService` 加入 AI 發現模式。當觀看歷史耗盡時，自動請求 Gemini 根據使用者喜好生成發現關鍵字並進行搜尋。
   - **UI 優化**: 實作 `HomeRecommendations` 的 `IntersectionObserver` 無限捲動，並加入 AI 探索中的視覺提示。
+
+## Recommendation cold-start + lyrics stale-request guards (2026-04-12)
+- **問題**:
+  - live 首頁會因 `mixed` 空 cache 或 `watched_channels` 缺資料而整片沒有推薦。
+  - `personalized` API 對舊資料欄位不相容，直接 500。
+  - 換歌後舊歌詞請求/重試回來，會覆蓋新歌歌詞。
+- **決策**:
+  - `recommendation.service.ts` 在 `watched_channels` 為空時，從 `cached_tracks.last_played + channel_name` 回補推薦 seed，兼容舊資料。
+  - `recommendation.controller.ts` 不再快取首頁空的 mixed response，避免空推薦被 5 分鐘 cache 黏住。
+  - `personalized.routes.ts` 改用 `channel_name as channel`，且 recently/most-played 對舊 `play_count=0` 資料更寬容。
+  - `AudioPlayer.tsx` 新增獨立的 `activeLyricsVideoIdRef`，在 pendingTrack 一開始就切換歌詞 request token；所有歌詞成功/失敗/loading 更新都必須先確認仍屬於目前歌曲。

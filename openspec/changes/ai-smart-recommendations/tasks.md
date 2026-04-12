@@ -54,3 +54,8 @@
 - [x] 7.2 Unit test: style similarity scoring + adjacency + skip/complete (12 tests)
 - [x] 7.3 All 48 tests passing
 - [x] 7.4 Final commit, push
+
+## 8. Legacy history compatibility
+
+- [x] 8.1 Fallback to `cached_tracks` when `watched_channels` is empty so old playback history still produces homepage recommendations
+- [x] 8.2 Bypass cached empty first-page mixed recommendations so startup does not stay blank after new history appears

@@ -60,8 +60,30 @@ class RecommendationService {
       logger.info(`[Recommend] Found ${hiddenChannels.size} hidden channels.`);
       
       // 2. 獲取觀看過的頻道（按權重排序）
-      const channels = historyService.getWatchedChannels(100, 'popular')
+      let channels = historyService.getWatchedChannels(100, 'popular')
         .filter(ch => !hiddenChannels.has(ch.channelName)); // 過濾隱藏的頻道
+
+      // 舊資料相容：若 watched_channels 還沒累積，但 cached_tracks 其實已有播放歷史，從 cached_tracks 回補推薦 seed
+      if (channels.length === 0) {
+        logger.warn('[Recommend] watched_channels empty, falling back to cached_tracks history');
+        channels = db.prepare(`
+          SELECT
+            channel_name as channelName,
+            MAX(thumbnail) as channelThumbnail,
+            COUNT(*) as watchCount,
+            MAX(last_played) as lastWatchedAt,
+            MIN(last_played) as firstWatchedAt
+          FROM cached_tracks
+          WHERE last_played > 0 AND channel_name IS NOT NULL AND TRIM(channel_name) != ''
+          GROUP BY channel_name
+          ORDER BY MAX(last_played) DESC, COUNT(*) DESC
+          LIMIT 100
+        `).all().map((row: any) => ({
+          ...row,
+          channelId: '',
+        })).filter((ch: any) => !hiddenChannels.has(ch.channelName));
+      }
+
       logger.info(`[Recommend] Found ${channels.length} watched channels (after filtering hidden).`);
 
       if (channels.length === 0) {

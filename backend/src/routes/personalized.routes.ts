@@ -11,9 +11,9 @@ router.get('/', (_req: Request, res: Response): void => {
 
     // 最近播放 (top 10)
     const recentlyPlayed = db.prepare(`
-      SELECT video_id as videoId, title, channel, thumbnail, duration, last_played as lastPlayed, play_count as playCount
+      SELECT video_id as videoId, title, channel_name as channel, thumbnail, duration, last_played as lastPlayed, play_count as playCount
       FROM cached_tracks
-      WHERE play_count > 0 AND last_played > 0
+      WHERE last_played > 0
       ORDER BY last_played DESC
       LIMIT 10
     `).all();
@@ -21,9 +21,9 @@ router.get('/', (_req: Request, res: Response): void => {
     // 最常播放 (top 10, different from recently played)
     const recentIds = recentlyPlayed.map((t: any) => t.videoId);
     const mostPlayed = db.prepare(`
-      SELECT video_id as videoId, title, channel, thumbnail, duration, play_count as playCount
+      SELECT video_id as videoId, title, channel_name as channel, thumbnail, duration, play_count as playCount
       FROM cached_tracks
-      WHERE play_count >= 3
+      WHERE play_count >= 1
       ORDER BY play_count DESC
       LIMIT 20
     `).all().filter((t: any) => !recentIds.includes(t.videoId)).slice(0, 10);

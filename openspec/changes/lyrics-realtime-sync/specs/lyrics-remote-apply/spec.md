@@ -22,6 +22,17 @@
 - **WHEN** 收到 `lyrics:source-changed` 但 videoId 不等於當前播放歌曲的 videoId
 - **THEN** 系統 SHALL 忽略此事件
 
+### Requirement: Stale lyrics requests SHALL NOT overwrite the active song
+當歌曲切換後，任何舊歌曲的歌詞請求、延遲重試、或慢回應都 SHALL NOT 覆蓋當前歌曲的歌詞、錯誤狀態或 loading state。
+
+#### Scenario: Previous song lyrics resolve late
+- **WHEN** 歌曲 A 的歌詞請求仍在進行中，而播放器已切到歌曲 B
+- **THEN** 歌曲 A 的成功結果 SHALL 被丟棄，不得 dispatch 成為歌曲 B 的 currentLyrics
+
+#### Scenario: Previous song retry resolves after switch
+- **WHEN** 歌曲 A 的 15 秒重試在切到歌曲 B 之後才回來
+- **THEN** 歌曲 A 的結果與錯誤/loading 更新 SHALL 都被忽略
+
 ### Requirement: Anti-loop protection
 收到遠端歌詞事件後套用變更時，系統 SHALL NOT 再次 emit socket 事件，防止無限循環。
 

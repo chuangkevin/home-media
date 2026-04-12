@@ -120,7 +120,13 @@ export class RecommendationController {
       }
 
       // 首頁第一頁用 cache（5 分鐘 TTL），避免每次載入都跑 12s
-      if (pageNum === 0 && mixedCache && (Date.now() - mixedCache.timestamp) < MIXED_CACHE_TTL) {
+      // 但不要把「空推薦」黏住，否則舊資料回補或新播放歷史進來後首頁仍會長時間維持空白。
+      if (
+        pageNum === 0
+        && mixedCache
+        && mixedCache.data?.recommendations?.length > 0
+        && (Date.now() - mixedCache.timestamp) < MIXED_CACHE_TTL
+      ) {
         res.json(mixedCache.data);
         return;
       }
