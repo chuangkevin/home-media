@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import lyricsService from '../services/lyrics.service';
+import youtubeService from '../services/youtube.service';
 import logger from '../utils/logger';
 
 export class LyricsController {
@@ -245,6 +246,15 @@ export class LyricsController {
       if (!videoId) {
         res.status(400).json({
           error: 'Video ID is required',
+        });
+        return;
+      }
+
+      const isValidVideoId = await youtubeService.validateVideoId(videoId);
+      if (!isValidVideoId) {
+        res.status(400).json({
+          error: 'Invalid videoId',
+          videoId,
         });
         return;
       }

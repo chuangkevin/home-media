@@ -37,6 +37,11 @@
 - **WHEN** continuous-player 模式下，SSE 的 `track-change` 已切到歌曲 B，但歌曲 A 的 `lyrics` 事件稍後才到
 - **THEN** 歌曲 A 的 lyrics event SHALL 被忽略，且 `track-change` 當下應先清掉舊歌詞內容
 
+#### Scenario: Invalid videoId must not create lyric cache pollution
+- **WHEN** `/api/lyrics/:videoId` 收到不是有效 YouTube videoId 的請求
+- **THEN** API SHALL 回 `400 Invalid videoId`
+- **AND** 系統 SHALL NOT 繼續用 generic title/artist 搜尋歌詞並寫入該 bogus videoId 的 cache
+
 ### Requirement: Anti-loop protection
 收到遠端歌詞事件後套用變更時，系統 SHALL NOT 再次 emit socket 事件，防止無限循環。
 

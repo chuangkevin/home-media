@@ -36,3 +36,4 @@
 - [x] 6.1 AudioPlayer 歌詞載入流程新增 active request token，換歌後舊請求不可覆蓋新歌歌詞
 - [x] 6.2 舊歌詞請求的 error/loading 更新也必須被忽略，避免 B 歌被 A 歌延遲回應污染
 - [x] 6.3 Continuous-player 的 SSE `lyrics` / `track-change` 事件也加入 current-track guard 與換歌即清空舊歌詞
+- [x] 6.4 `/api/lyrics/:videoId` 對無效 YouTube videoId 直接回 400，避免 bogus videoId 污染歌詞快取
