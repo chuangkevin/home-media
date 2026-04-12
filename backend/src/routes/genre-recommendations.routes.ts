@@ -54,15 +54,20 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     const allRecommendations: any[] = [];
 
     // 輔助函數：去重 + 過濾
+    // 去重邏輯：channel+title 去重（忽略大小寫）
+    // 防止同一藝人的同一首歌不同版本（如 Official MV / Lyric Video）重複出現
     const addTrack = (t: any, reason: string): boolean => {
       if (seenIds.has(t.videoId)) return false;
       const dur = t.duration || 0;
       if (dur <= 0 || dur > 7200) return false;
       const core = (t.title || '').toLowerCase().replace(/[\(\[].*/g, '').trim();
       if (seedLower && core === seedLower) return false;
-      if (seenTitles.has(core)) return false;
+      // channel+title 去重 key
+      const channelLower = (t.channel || '').toLowerCase().trim();
+      const channelTitleKey = `${channelLower}::${core}`;
+      if (seenTitles.has(channelTitleKey)) return false;
       seenIds.add(t.videoId);
-      seenTitles.add(core);
+      seenTitles.add(channelTitleKey);
       allRecommendations.push({
         videoId: t.videoId, title: t.title, channelName: t.channel,
         thumbnail: t.thumbnail, duration: t.duration, score: 0.9,
