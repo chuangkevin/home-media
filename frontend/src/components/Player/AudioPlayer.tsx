@@ -1028,6 +1028,53 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     return () => { cancelled = true; };
   }, [currentTrack?.videoId, currentIndex, playlist]);
 
+  // 歌詞預載入：提前將佇列中歌曲的歌詞快取到 IndexedDB，實現「秒載入」
+  useEffect(() => {
+    if (embedded) return;
+    if (!currentTrack || playlist.length === 0 || currentIndex < 0) return;
+
+    const PRELOAD_LYRICS_AHEAD = 5;
+    let cancelled = false;
+
+    const preloadLyrics = async () => {
+      try {
+        const videoIds: string[] = [];
+        for (let i = 1; i <= PRELOAD_LYRICS_AHEAD; i++) {
+          const idx = currentIndex + i;
+          if (idx >= playlist.length) break;
+          const track = playlist[idx];
+          if (track?.videoId) videoIds.push(track.videoId);
+        }
+
+        if (videoIds.length === 0) return;
+
+        const cachedMap = await lyricsCacheService.hasMany(videoIds);
+        const uncachedVideoIds = videoIds.filter(id => !cachedMap.get(id));
+
+        for (const videoId of uncachedVideoIds) {
+          if (cancelled) break;
+          const track = playlist.find(t => t.videoId === videoId);
+          if (!track) continue;
+
+          console.log(`📝 預載歌詞: ${track.title}`);
+          const lyrics = await apiService.getLyricsForPreload(videoId, track.title, track.channel);
+          if (lyrics && !cancelled) {
+            await lyricsCacheService.set(videoId, lyrics);
+            console.log(`✅ 預載歌詞完成: ${track.title}`);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn(`⚠️ 歌詞預載失敗:`, err);
+        }
+      }
+    };
+
+    preloadLyrics();
+
+    return () => { cancelled = true; };
+  }, [currentTrack?.videoId, currentIndex, playlist]);
+
   // 音訊事件處理（在有曲目時添加）
   useEffect(() => {
     if (embedded) return;
