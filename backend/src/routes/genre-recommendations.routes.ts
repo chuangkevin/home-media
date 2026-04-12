@@ -56,11 +56,25 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     // 輔助函數：去重 + 過濾
     // 去重邏輯：channel+title 去重（忽略大小寫）
     // 防止同一藝人的同一首歌不同版本（如 Official MV / Lyric Video）重複出現
+    // 標題清理：移除所有版本標記，提取核心歌名
+    const normalizeTitle = (title: string): string => {
+      return title
+        .toLowerCase()
+        // 移除所有括號內容（包括版本標記、feat、live 等）
+        .replace(/\s*\([^)]*\)/g, '')
+        .replace(/\s*\[[^\]]*\]/g, '')
+        // 移除常見版本標記關鍵詞
+        .replace(/\s*(official|music video|lyric video|lyrics?|audio|ver\.|version|live|acoustic|remaster|remix|cover)\b/gi, '')
+        // 移除多餘空白
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+    
     const addTrack = (t: any, reason: string): boolean => {
       if (seenIds.has(t.videoId)) return false;
       const dur = t.duration || 0;
       if (dur <= 0 || dur > 7200) return false;
-      const core = (t.title || '').toLowerCase().replace(/[\(\[].*/g, '').trim();
+      const core = normalizeTitle(t.title || '');
       if (seedLower && core === seedLower) return false;
       // channel+title 去重 key
       const channelLower = (t.channel || '').toLowerCase().trim();
