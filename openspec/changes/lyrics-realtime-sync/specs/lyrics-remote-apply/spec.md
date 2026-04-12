@@ -33,6 +33,10 @@
 - **WHEN** 歌曲 A 的 15 秒重試在切到歌曲 B 之後才回來
 - **THEN** 歌曲 A 的結果與錯誤/loading 更新 SHALL 都被忽略
 
+#### Scenario: Continuous stream SSE lyrics arrive for the old song
+- **WHEN** continuous-player 模式下，SSE 的 `track-change` 已切到歌曲 B，但歌曲 A 的 `lyrics` 事件稍後才到
+- **THEN** 歌曲 A 的 lyrics event SHALL 被忽略，且 `track-change` 當下應先清掉舊歌詞內容
+
 ### Requirement: Anti-loop protection
 收到遠端歌詞事件後套用變更時，系統 SHALL NOT 再次 emit socket 事件，防止無限循環。
 

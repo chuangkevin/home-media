@@ -42,10 +42,12 @@ export function useContinuousPlayer(
 ): ContinuousPlayerControls {
   const dispatch = useDispatch();
   const { isEnabled } = useSelector((state: RootState) => state.continuousPlayer);
-  const { playlist, currentIndex, volume } = useSelector((state: RootState) => state.player);
+  const { playlist, currentIndex, volume, currentTrack } = useSelector((state: RootState) => state.player);
 
   /** true = 下一個 pendingTrack 變化是來自 SSE，AudioPlayer 應直接 confirm 而不載入音訊 */
   const isSSEUpdateRef = useRef(false);
+  const activeLyricsVideoIdRef = useRef<string | null>(currentTrack?.videoId || null);
+  activeLyricsVideoIdRef.current = currentTrack?.videoId || null;
 
   /** SSE EventSource */
   const sseRef = useRef<EventSource | null>(null);
@@ -99,10 +101,13 @@ export function useContinuousPlayer(
         };
         // Mark as SSE update so AudioPlayer skips audio loading
         isSSEUpdateRef.current = true;
+        activeLyricsVideoIdRef.current = t.videoId;
         dispatch(setPendingTrack(track));
         dispatch(confirmPendingTrack());
         dispatch(setDuration(t.duration || 0));
         dispatch(setIsPlaying(true));
+        dispatch(setCurrentLyrics(null));
+        dispatch(setLyricsLoading(false));
 
         // Reset position interpolation for new track
         const startPos = typeof msg.position === 'number' ? msg.position : 0;
@@ -129,7 +134,7 @@ export function useContinuousPlayer(
 
       case 'lyrics': {
         const lines = msg.data as LyricsLine[];
-        if (lines?.length) {
+        if (lines?.length && msg.videoId && activeLyricsVideoIdRef.current === msg.videoId) {
           dispatch(setLyricsLoading(false));
           dispatch(setCurrentLyrics({
             videoId: msg.videoId || '',

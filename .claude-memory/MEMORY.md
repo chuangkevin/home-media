@@ -65,3 +65,4 @@
   - `personalized.routes.ts` 改用 `channel_name as channel`，且 recently/most-played 對舊 `play_count=0` 資料更寬容。
   - `AudioPlayer.tsx` 新增獨立的 `activeLyricsVideoIdRef`，在 pendingTrack 一開始就切換歌詞 request token；所有歌詞成功/失敗/loading 更新都必須先確認仍屬於目前歌曲。
   - 同類型 guard 也擴到 `FullscreenLyrics.tsx`、`LyricsView.tsx`、`useLyricsSync.ts`、`useRadioSync.ts`，避免手動換歌、遠端來源同步、或 listener 補載歌詞時把舊歌詞寫回新曲目。
+  - `useContinuousPlayer.ts` 的 SSE `track-change` / `lyrics` 事件也必須套用同樣的 current-track guard，否則 continuous stream/鎖屏模式下舊歌詞仍可能透過 SSE 晚到覆蓋新歌。
