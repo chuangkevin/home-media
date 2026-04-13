@@ -38,6 +38,21 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
   }, [dispatch, channelRecommendations.length]);
 
   useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible' && channelRecommendations.length === 0 && !loading) {
+        dispatch(fetchChannelRecommendations({ page: 0, pageSize: 5, mixed: true }));
+      }
+    };
+
+    window.addEventListener('pageshow', handleVisible);
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => {
+      window.removeEventListener('pageshow', handleVisible);
+      document.removeEventListener('visibilitychange', handleVisible);
+    };
+  }, [dispatch, channelRecommendations.length, loading]);
+
+  useEffect(() => {
     setHiddenChannels(new Set());
   }, [channelRecommendations]);
 
@@ -222,7 +237,7 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
 
   return (
     <Box sx={{ width: '100%' }}>
-      <PersonalizedSection />
+      <PersonalizedSection onPlay={handlePlay} />
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h5" sx={{ fontWeight: 700, fontFamily: '"Syne", sans-serif', letterSpacing: '0.02em' }}>
           為您推薦

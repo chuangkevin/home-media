@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
-import { useDispatch } from 'react-redux';
+import { useState, useEffect, useCallback } from 'react';
+import { useSelector } from 'react-redux';
 import { Box, Typography, Card, CardMedia, CardContent, Skeleton, useMediaQuery } from '@mui/material';
 import apiService from '../../services/api.service';
-import { playNow } from '../../store/playerSlice';
+import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 
 interface PersonalizedItem {
@@ -19,18 +19,50 @@ interface PersonalizedData {
   favorites: PersonalizedItem[];
 }
 
-export default function PersonalizedSection() {
-  const dispatch = useDispatch();
+interface PersonalizedSectionProps {
+  onPlay: (track: Track) => void;
+}
+
+export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps) {
   const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)');
+  const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const [data, setData] = useState<PersonalizedData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    apiService.getPersonalizedRecommendations()
-      .then(data => setData(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const next = await apiService.getPersonalizedRecommendations();
+      setData(next);
+    } catch (error) {
+      console.error('載入個人化推薦失敗:', error);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData, Object.keys(favoriteIds).sort().join('|')]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchData();
+      }
+    };
+    window.addEventListener('pageshow', handleVisible);
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => {
+      window.removeEventListener('pageshow', handleVisible);
+      document.removeEventListener('visibilitychange', handleVisible);
+    };
+  }, [fetchData]);
 
   const handlePlay = (item: PersonalizedItem) => {
     const track: Track = {
@@ -41,7 +73,7 @@ export default function PersonalizedSection() {
       thumbnail: item.thumbnail,
       duration: item.duration || 0,
     };
-    dispatch(playNow(track));
+    onPlay(track);
   };
 
   const renderRow = (title: string, items: PersonalizedItem[], limit: number) => {

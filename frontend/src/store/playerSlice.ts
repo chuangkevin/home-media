@@ -256,6 +256,18 @@ const playerSlice = createSlice({
       state.isLoadingTrack = true;
       state.isPlaying = true; // 標記要播放
     },
+    clearPlaybackSession(state) {
+      state.currentTrack = null;
+      state.pendingTrack = null;
+      state.isLoadingTrack = false;
+      state.isPlaying = false;
+      state.currentTime = 0;
+      state.duration = 0;
+      state.queue = [];
+      state.seekTarget = null;
+      state.playlist = [];
+      state.currentIndex = -1;
+    },
   },
 });
 
@@ -286,6 +298,7 @@ export const {
   reorderPlaylist,
   removeFromPlaylist,
   insertNextInPlaylist,
+  clearPlaybackSession,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;

@@ -25,7 +25,7 @@ import PlaylistSection from './components/Playlist/PlaylistSection';
 import AdminSettings from './components/Admin/AdminSettings';
 import RadioButton from './components/Radio/RadioButton';
 import RadioIndicator from './components/Radio/RadioIndicator';
-import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist, playNow, updateTrackMetadata } from './store/playerSlice';
+import { setPendingTrack, setIsPlaying, addToQueue, setPlaylist, playNow, clearPlaybackSession } from './store/playerSlice';
 import { fetchBlocked } from './store/blockSlice';
 import { fetchFavorites } from './store/favoritesSlice';
 import { RootState, AppDispatch } from './store';
@@ -223,72 +223,17 @@ function AppContent() {
     }
   }, [currentTrack?.videoId]);
 
-  // 頁面載入/重整時，從持久化狀態或 URL 恢復播放
+  // 頁面載入/重整時，清掉上一輪播放 session。
+  // 需求已改成 refresh 不應自動恢復歌曲。
   useEffect(() => {
-    if (currentTrack) return; // Already playing, skip restore
+    dispatch(clearPlaybackSession());
+    playbackStateService.clear();
 
-    const restoreFromPersisted = async (): Promise<boolean> => {
-      const persisted = playbackStateService.restore();
-      if (!persisted || persisted.playlist.length === 0) return false;
-
-      console.log(`🔄 [PWA Recovery] Restoring session: ${persisted.playlist.length} tracks, index=${persisted.currentIndex}`);
-
-      dispatch(setPlaylist(persisted.playlist as Track[]));
-
-      const idx = persisted.currentIndex >= 0 && persisted.currentIndex < persisted.playlist.length
-        ? persisted.currentIndex : 0;
-      const track = persisted.playlist[idx];
-      dispatch(setPendingTrack(track as Track));
-      dispatch(setIsPlaying(true));
-
-      setLyricsDrawerOpen(true);
-
-      if (persisted.currentTime > 5) {
-        playbackStateService.setRecoverySeekTarget(persisted.currentTime);
-      }
-      playbackStateService.clear();
-      return true;
-    };
-
-    const restoreFromUrl = async (): Promise<void> => {
-      const playingVideoId = searchParams.get('playing');
-      if (!playingVideoId) return;
-
-      const cached = await audioCacheService.getMetadata(playingVideoId);
-      const track: Track = {
-        id: playingVideoId,
-        videoId: playingVideoId,
-        title: cached?.title || '載入中...',
-        channel: cached?.channel || '',
-        thumbnail: cached?.thumbnail || `https://i.ytimg.com/vi/${playingVideoId}/hqdefault.jpg`,
-        duration: cached?.duration || 0,
-      };
-      dispatch(setPlaylist([track]));
-      dispatch(setPendingTrack(track));
-      dispatch(setIsPlaying(true));
-
-      if (!cached) {
-        apiService.getVideoInfo(playingVideoId).then(videoInfo => {
-          dispatch(updateTrackMetadata({
-            id: videoInfo.videoId,
-            videoId: videoInfo.videoId,
-            title: videoInfo.title,
-            channel: videoInfo.channel,
-            thumbnail: videoInfo.thumbnail,
-            duration: videoInfo.duration,
-          }));
-        }).catch(() => {
-          const newParams = new URLSearchParams(searchParams);
-          newParams.delete('playing');
-          setSearchParams(newParams, { replace: true });
-        });
-      }
-    };
-
-    // Try persisted state first (handles iOS PWA crash recovery), then URL
-    restoreFromPersisted().then(restored => {
-      if (!restored) restoreFromUrl();
-    });
+    if (searchParams.has('playing')) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('playing');
+      setSearchParams(newParams, { replace: true });
+    }
   }, []); // 只在頁面初始化時執行一次
 
   // 初始化音訊快取服務

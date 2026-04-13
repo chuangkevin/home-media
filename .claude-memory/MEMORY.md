@@ -91,6 +91,11 @@
   - `FullscreenLyrics.tsx` 右側播放清單加寬；左側 `AudioPlayer embedded` 補回 favorite toggle。
   - `seekTarget` 只讓 `AudioPlayer.tsx` 清掉；`FullscreenLyrics.tsx` / `VideoPlayer.tsx` 只能跟隨 seek，不得搶先 `clearSeekTarget()`。
   - `AudioPlayer.tsx` 歌詞載入抽成 shared helper：若 LRCLIB cached/preference 結果 unsynced，必須繼續找 NetEase，再 fallback 回 unsynced lyrics。
-  - `VideoLyricsOverlay.tsx` 刪除，影片模式只保留單一字幕層。
-  - `MorrorLyrics.tsx` 預設效果改成 `focus`，localStorage 仍記錄使用者覆蓋值。
-  - `useCastingControls.ts` 停止把 sender 的後續 play/pause/seek/next/previous 同步到 receiver；`casting.handler.ts` 在 sender disconnect 時也不主動中止 receiver 播放。
+- `VideoLyricsOverlay.tsx` 刪除，影片模式只保留單一字幕層。
+- `MorrorLyrics.tsx` 預設效果改成 `focus`，localStorage 仍記錄使用者覆蓋值。
+- `useCastingControls.ts` 停止把 sender 的後續 play/pause/seek/next/previous 同步到 receiver；`casting.handler.ts` 在 sender disconnect 時也不主動中止 receiver 播放。
+
+## Homepage favorites + reload behavior (2026-04-14)
+- `App.tsx` 不再在 refresh / reload 時從 localStorage 或 `?playing=` 自動恢復歌曲；初始化時直接 `clearPlaybackSession()` + `playbackStateService.clear()`。
+- `PersonalizedSection.tsx` 不應自己直 dispatch `playNow`；改走與首頁推薦共用的 `handlePlay`，確保收藏卡片與推薦卡片播放路徑一致。
+- `PersonalizedSection.tsx` 在收藏清單變更、`pageshow`、以及 `visibilitychange -> visible` 時重新抓資料；`HomeRecommendations.tsx` 若推薦清單為空，也會在回前景時自動補抓一次。
