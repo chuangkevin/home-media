@@ -1353,21 +1353,27 @@ class LyricsService {
       const existing = this.getPreferences(videoId);
 
       if (existing) {
-        // 更新現有記錄
+        const nextTimeOffset = prefs.timeOffset !== undefined ? prefs.timeOffset : existing.timeOffset;
+        const nextLrclibId = prefs.lrclibId !== undefined ? prefs.lrclibId : existing.lrclibId;
+        const nextNeteaseId = prefs.neteaseId !== undefined ? prefs.neteaseId : existing.neteaseId;
+
         db.prepare(`
           UPDATE lyrics_preferences
-          SET time_offset = ?,
-              lrclib_id = ?,
-              netease_id = ?,
-              updated_at = ?
-          WHERE video_id = ?
-        `).run(
-          prefs.timeOffset !== undefined ? prefs.timeOffset : existing.timeOffset,
-          prefs.lrclibId !== undefined ? prefs.lrclibId : existing.lrclibId,
-          prefs.neteaseId !== undefined ? prefs.neteaseId : existing.neteaseId,
-          now,
-          videoId
-        );
+          SET time_offset = @timeOffset,
+              lrclib_id = @lrclibId,
+              netease_id = @neteaseId,
+              updated_at = @updatedAt
+          WHERE video_id = @videoId
+        `).run({
+          timeOffset: nextTimeOffset,
+          lrclibId: nextLrclibId,
+          neteaseId: nextNeteaseId,
+          updatedAt: now,
+          videoId,
+        });
+
+        const verify = this.getPreferences(videoId);
+        logger.info(`🔎 歌詞偏好寫入後驗證: ${videoId} -> lrclib=${verify?.lrclibId} netease=${verify?.neteaseId} offset=${verify?.timeOffset}`);
       } else {
         // 建立新記錄
         db.prepare(`
