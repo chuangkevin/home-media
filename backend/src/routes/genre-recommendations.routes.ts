@@ -4,6 +4,7 @@ import logger from '../utils/logger';
 import youtubeService from '../services/youtube.service';
 import { getUserProfile } from '../services/style-cache.service';
 import { buildTrackIdentity, normalizeTrackTitle } from '../utils/trackIdentity';
+import { extractTrackInfo } from '../services/gemini.service';
 
 const router = Router();
 
@@ -46,8 +47,24 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
       .get(videoId) as any;
 
     // 優先用 DB，fallback 用 query params（新歌可能還沒入 cached_tracks）
-    const title = seedTrack?.title || (req.query.title as string) || '';
-    const artist = seedTrack?.channel_name || (req.query.artist as string) || '';
+    const rawTitle = seedTrack?.title || (req.query.title as string) || '';
+    const rawArtist = seedTrack?.channel_name || (req.query.artist as string) || '';
+    let title = rawTitle;
+    let artist = rawArtist;
+
+    try {
+      const extracted = await extractTrackInfo(rawTitle, rawArtist);
+      if (extracted?.title) {
+        title = extracted.title;
+      }
+      if (extracted?.artist) {
+        artist = extracted.artist;
+      }
+      console.log(`🎵 [Similar] Seed normalized: raw="${rawArtist} - ${rawTitle}" -> artist="${artist}", title="${title}"`);
+    } catch (err) {
+      console.warn('⚠️ [Similar] Failed to normalize seed metadata, fallback to raw title/channel:', err);
+    }
+
     const seenIds = new Set([videoId]);
     const seenTitles = new Set<string>();
     const seedLower = normalizeTrackTitle(title);
