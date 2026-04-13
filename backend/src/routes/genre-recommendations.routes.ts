@@ -3,6 +3,7 @@ import { getDatabase } from '../config/database';
 import logger from '../utils/logger';
 import youtubeService from '../services/youtube.service';
 import { getUserProfile } from '../services/style-cache.service';
+import { buildTrackIdentity, normalizeTrackTitle } from '../utils/trackIdentity';
 
 const router = Router();
 
@@ -49,7 +50,7 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     const artist = seedTrack?.channel_name || (req.query.artist as string) || '';
     const seenIds = new Set([videoId]);
     const seenTitles = new Set<string>();
-    const seedLower = title.toLowerCase().replace(/[\(\[].*/g, '').trim();
+    const seedLower = normalizeTrackTitle(title);
     const sameArtistMax = Math.min(10, Math.floor(limit / 2));
     const allRecommendations: any[] = [];
 
@@ -57,31 +58,16 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     // 去重邏輯：channel+title 去重（忽略大小寫）
     // 防止同一藝人的同一首歌不同版本（如 Official MV / Lyric Video）重複出現
     // 標題清理：移除所有版本標記，提取核心歌名
-    const normalizeTitle = (title: string): string => {
-      return title
-        .toLowerCase()
-        // 移除所有括號內容（包括版本標記、feat、live 等）
-        .replace(/\s*\([^)]*\)/g, '')
-        .replace(/\s*\[[^\]]*\]/g, '')
-        // 移除常見版本標記關鍵詞
-        .replace(/\s*(official|music video|lyric video|lyrics?|audio|ver\.|version|live|acoustic|remaster|remix|cover)\b/gi, '')
-        // 移除多餘空白
-        .replace(/\s+/g, ' ')
-        .trim();
-    };
-    
     const addTrack = (t: any, reason: string): boolean => {
       if (seenIds.has(t.videoId)) return false;
       const dur = t.duration || 0;
       if (dur <= 0 || dur > 7200) return false;
-      const core = normalizeTitle(t.title || '');
+      const core = normalizeTrackTitle(t.title || '');
       if (seedLower && core === seedLower) return false;
-      // channel+title 去重 key
-      const channelLower = (t.channel || '').toLowerCase().trim();
-      const channelTitleKey = `${channelLower}::${core}`;
-      if (seenTitles.has(channelTitleKey)) return false;
+      const identityKey = buildTrackIdentity(t.title || '', t.channel || '');
+      if (seenTitles.has(identityKey)) return false;
       seenIds.add(t.videoId);
-      seenTitles.add(channelTitleKey);
+      seenTitles.add(identityKey);
       allRecommendations.push({
         videoId: t.videoId, title: t.title, channelName: t.channel,
         thumbnail: t.thumbnail, duration: t.duration, score: 0.9,

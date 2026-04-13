@@ -5,6 +5,7 @@ import { appendToPlaylist } from '../store/playerSlice';
 import apiService from '../services/api.service';
 import type { Track } from '../types/track.types';
 import type { BlockedItem } from '../store/blockSlice';
+import { buildTrackIdentity } from '../utils/trackIdentity';
 
 /**
  * 自動播放佇列 Hook
@@ -57,14 +58,14 @@ export function useAutoQueue(enabled = true) {
           const existingVideoIds = new Set(playlist.map(t => t.videoId));
           // 同藝人+歌名去重（不同 videoId 但實質相同的歌，如 official MV vs lyric video）
           const existingTitleKeys = new Set(
-            playlist.map(t => `${(t.channel || '').toLowerCase().trim()}::${(t.title || '').toLowerCase().trim()}`)
+            playlist.map(t => buildTrackIdentity(t.title || '', t.channel || ''))
           );
           const newTracks: Track[] = recommendations
             .filter((rec: any) => {
               // 過濾掉已存在的 videoId
               if (existingVideoIds.has(rec.videoId)) return false;
               // 過濾掉同藝人+歌名（忽略大小寫）
-              const titleKey = `${(rec.channelName || '').toLowerCase().trim()}::${(rec.title || '').toLowerCase().trim()}`;
+              const titleKey = buildTrackIdentity(rec.title || '', rec.channelName || rec.channel || '');
               if (existingTitleKeys.has(titleKey)) {
                 console.log(`⏭️ 跳過重複歌曲: ${rec.title} (同藝人+歌名)`);
                 return false;

@@ -7,7 +7,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "format": "prettier --write \"src/**/*.{ts,tsx}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "test:e2e:live": "node -e \"if(!process.env.LIVE_BASE_URL){console.error('Set LIVE_BASE_URL explicitly for live Playwright runs.');process.exit(1)}\" && playwright test"
   },
   "dependencies": {
     "@emotion/react": "^11.11.3",
@@ -26,6 +27,7 @@
     "socket.io-client": "^4.6.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/opencc-js": "^1.0.3",
     "@types/react": "^18.2.47",
     "@types/react-beautiful-dnd": "^13.1.8",

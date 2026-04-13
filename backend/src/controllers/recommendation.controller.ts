@@ -6,6 +6,7 @@ import axios from 'axios';
 import { generateDiscoveryQueries } from '../services/gemini.service';
 import { getUserProfile } from '../services/style-cache.service';
 import youtubeService from '../services/youtube.service';
+import { buildTrackIdentity } from '../utils/trackIdentity';
 
 // Mixed recommendations cache (避免每次首頁載入都跑 12s 的 AI + 搜尋)
 let mixedCache: { data: any; timestamp: number } | null = null;
@@ -193,9 +194,14 @@ export class RecommendationController {
           allSimilar.push(...result.value);
         }
       }
-      const uniqueSimilar = Array.from(
-        new Map(allSimilar.map((t) => [t.videoId, t])).values()
-      ).slice(0, 10);
+      const uniqueSimilarMap = new Map<string, any>();
+      for (const track of allSimilar) {
+        const identity = buildTrackIdentity(track.title || '', track.channelName || track.channel || '');
+        if (!uniqueSimilarMap.has(identity)) {
+          uniqueSimilarMap.set(identity, track);
+        }
+      }
+      const uniqueSimilar = Array.from(uniqueSimilarMap.values()).slice(0, 10);
 
       // 組裝混合推薦
       const mixedRecommendations: any[] = [];
