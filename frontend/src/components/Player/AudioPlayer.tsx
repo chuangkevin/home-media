@@ -1325,8 +1325,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         completeSentRef.current = true;
         apiService.recordComplete(currentVideoIdRef.current).catch(() => {});
       }
+
+      // Clear MediaSession playback state when track ends
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'none';
+      }
+
       // 🚀 iOS 背景快速換歌：優先用預建 blob URL，失敗才走 Redux
       if (!quickStartNextTrack(audio)) {
+        // If at end of playlist with no pre-loaded next track, clear metadata too
+        const isLastTrack = currentIndexRef.current + 1 >= playlistRef.current.length && !nextTrackBlobUrlRef.current;
+        if (isLastTrack && 'mediaSession' in navigator) {
+          navigator.mediaSession.metadata = null;
+        }
         wasCompletedRef.current = true;
         dispatch(playNext());
       }
@@ -1576,6 +1587,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   useEffect(() => {
     if (embedded) return;
     if (!currentTrack || !('mediaSession' in navigator)) {
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.metadata = null;
+        navigator.mediaSession.playbackState = 'none';
+      }
       return;
     }
 
@@ -1709,8 +1724,26 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 同步 playbackState — iOS 鎖螢幕靠此判斷是否維持 audio session
   useEffect(() => {
     if (embedded || !('mediaSession' in navigator)) return;
+    // If metadata was already cleared (playlist ended), don't restore 'paused' state
+    if (!isPlaying && !navigator.mediaSession.metadata) return;
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
   }, [isPlaying, embedded]);
+
+  // 頁面關閉/卸載 + component unmount 時清除 MediaSession，避免 iOS 鎖屏殘留
+  useEffect(() => {
+    if (embedded || !('mediaSession' in navigator)) return;
+    const clearMediaSession = () => {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+    };
+    window.addEventListener('beforeunload', clearMediaSession);
+    window.addEventListener('pagehide', clearMediaSession);
+    return () => {
+      window.removeEventListener('beforeunload', clearMediaSession);
+      window.removeEventListener('pagehide', clearMediaSession);
+      clearMediaSession();
+    };
+  }, [embedded]);
 
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
