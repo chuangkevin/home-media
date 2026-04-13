@@ -751,11 +751,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 }
               }
 
-              // 2. 檢查本地快取（只用 AI 生成的快取，跳過傳統來源）
+              // 2. 檢查本地快取。只要本地已有有效歌詞，就應該直接秒開，
+              // 不要因為來源不是 manual 就放棄，否則 streaming path 會比 cached path 更慢。
               const cachedLyrics = await lyricsCacheService.get(videoId);
-              if (cachedLyrics && cachedLyrics.source === 'manual' && isCurrentLyricsRequest(videoId)) {
-                // AI 生成的快取，直接用
-                console.log(`📝 歌詞從 AI 快取載入: ${pendingTrack.title}`);
+              if (cachedLyrics && cachedLyrics.lines?.length > 0 && isCurrentLyricsRequest(videoId)) {
+                console.log(`📝 歌詞從本地快取載入: ${pendingTrack.title} (${cachedLyrics.source})`);
                 dispatch(setCurrentLyrics(cachedLyrics));
                 dispatch(setLyricsLoading(false));
                 return;
