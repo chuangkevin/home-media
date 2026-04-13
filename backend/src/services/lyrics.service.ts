@@ -1356,15 +1356,15 @@ class LyricsService {
         // 更新現有記錄
         db.prepare(`
           UPDATE lyrics_preferences
-          SET time_offset = COALESCE(?, time_offset),
-              lrclib_id = COALESCE(?, lrclib_id),
-              netease_id = COALESCE(?, netease_id),
+          SET time_offset = ?,
+              lrclib_id = ?,
+              netease_id = ?,
               updated_at = ?
           WHERE video_id = ?
         `).run(
-          prefs.timeOffset !== undefined ? prefs.timeOffset : null,
-          prefs.lrclibId !== undefined ? prefs.lrclibId : null,
-          prefs.neteaseId !== undefined ? prefs.neteaseId : null,
+          prefs.timeOffset !== undefined ? prefs.timeOffset : existing.timeOffset,
+          prefs.lrclibId !== undefined ? prefs.lrclibId : existing.lrclibId,
+          prefs.neteaseId !== undefined ? prefs.neteaseId : existing.neteaseId,
           now,
           videoId
         );
