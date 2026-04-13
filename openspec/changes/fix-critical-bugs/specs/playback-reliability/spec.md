@@ -58,3 +58,29 @@ When a track finishes playing on iOS Safari with the screen locked, the system S
 #### Scenario: Normal foreground playback (no regression)
 - **WHEN** a track ends while the app is in foreground
 - **THEN** the existing `timeupdate`-based end detection at `trackDuration - 0.5s` fires as before, and the setTimeout fallback is cleared to prevent double-trigger
+
+### Requirement: Stale low-priority preloads MUST NOT starve active playback on iPhone/PWA
+When the player is already streaming the current track, low-priority audio preloads SHALL yield to the active playback request instead of accumulating across track changes.
+
+#### Scenario: User skips through several tracks on iPhone/PWA
+- **WHEN** the user changes tracks repeatedly while background cache downloads are still in progress
+- **THEN** stale low-priority downloads for old tracks are aborted
+- **AND** the active track keeps its playback/download path without being blocked by previous preloads
+
+#### Scenario: iPhone preloads upcoming tracks
+- **WHEN** the player preloads upcoming tracks on iPhone/PWA
+- **THEN** at most one low-priority audio preload runs at a time
+- **AND** the current track remains playable even after multiple consecutive skips
+
+### Requirement: Video tab MUST hand off from streaming video to cached video per track
+When the lyrics drawer stays on the `影片` tab and the song changes, the UI SHALL show the current track's streaming video first, then switch to cached `<video>` only after that specific track finishes downloading.
+
+#### Scenario: User presses next while drawer stays on video tab
+- **WHEN** a new track becomes current and its video is not cached yet
+- **THEN** the drawer renders the YouTube streaming video fallback immediately
+- **AND** it does not reuse the previous track's cached-video state
+
+#### Scenario: Cached video becomes available for the new track
+- **WHEN** the current track's video download completes while the drawer is still on `影片`
+- **THEN** the UI switches to the cached `<video>` for that same track
+- **AND** the cached video re-syncs from the audio element's current time instead of reusing a stale sync marker from the previous track
