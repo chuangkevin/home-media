@@ -32,23 +32,7 @@ export class YouTubeController {
       }
 
       const limitNum = limit ? parseInt(limit as string, 10) : 20;
-      let results = await youtubeService.search(q, limitNum);
-
-      // 增加隨機性：對搜尋結果的前 15 筆進行有限度的洗牌 (Shuffle)
-      // 這能讓使用者每次搜尋同一關鍵字時，順序有所不同，增加新鮮感
-      if (results.length > 5) {
-        const shuffleCount = Math.min(results.length, 15);
-        const toShuffle = results.slice(0, shuffleCount);
-        const remaining = results.slice(shuffleCount);
-        
-        // Fisher-Yates Shuffle
-        for (let i = toShuffle.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [toShuffle[i], toShuffle[j]] = [toShuffle[j], toShuffle[i]];
-        }
-        
-        results = [...toShuffle, ...remaining];
-      }
+      const results = await youtubeService.search(q, limitNum);
 
       res.json({
         query: q,
