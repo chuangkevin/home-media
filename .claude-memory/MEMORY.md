@@ -65,5 +65,15 @@
   - `personalized.routes.ts` 改用 `channel_name as channel`，且 recently/most-played 對舊 `play_count=0` 資料更寬容。
   - `AudioPlayer.tsx` 新增獨立的 `activeLyricsVideoIdRef`，在 pendingTrack 一開始就切換歌詞 request token；所有歌詞成功/失敗/loading 更新都必須先確認仍屬於目前歌曲。
   - 同類型 guard 也擴到 `FullscreenLyrics.tsx`、`LyricsView.tsx`、`useLyricsSync.ts`、`useRadioSync.ts`，避免手動換歌、遠端來源同步、或 listener 補載歌詞時把舊歌詞寫回新曲目。
-  - `useContinuousPlayer.ts` 的 SSE `track-change` / `lyrics` 事件也必須套用同樣的 current-track guard，否則 continuous stream/鎖屏模式下舊歌詞仍可能透過 SSE 晚到覆蓋新歌。
-  - `lyrics.controller.ts` 在 `/api/lyrics/:videoId` 前先驗證 YouTube `videoId` 格式，避免 bogus videoId 仍用 generic title/artist 搜到歌詞並污染 lyrics cache。
+- `useContinuousPlayer.ts` 的 SSE `track-change` / `lyrics` 事件也必須套用同樣的 current-track guard，否則 continuous stream/鎖屏模式下舊歌詞仍可能透過 SSE 晚到覆蓋新歌。
+- `lyrics.controller.ts` 在 `/api/lyrics/:videoId` 前先驗證 YouTube `videoId` 格式，避免 bogus videoId 仍用 generic title/artist 搜到歌詞並污染 lyrics cache。
+
+## iPhone PWA playback stability + video handoff (2026-04-13)
+- **問題**:
+  - iPhone / PWA 連播幾首後，前端同時拉當前曲背景快取與多首預載，容易讓 active audio request 被一堆 stale downloads 競爭，最後播放卡死。
+  - 在歌詞 Drawer 的 `影片` tab 換歌時，首幀可能沿用上一首的 cached-video state，沒有先回退到 YouTube 串流畫面；download 完成後 cached `<video>` 也可能因舊 `dataset.synced` 而不同步。
+- **決策**:
+  - `audio-cache.service.ts` 對 low-priority preload 加上單一併發槽，並提供 `abortAllExcept()`；`AudioPlayer.tsx` 在換歌時會取消舊歌預載，只保留目前曲目。
+  - iPhone 上音訊預載從 3 首降到 1 首，80% 補預載也同樣遵守較低併發，優先保護目前播放穩定度。
+  - `AudioPlayer.tsx` 的背景/假播放 recovery 不得因 `displayMode === 'video'` 而停用；audio element 既然是唯一音源，就必須在影片模式下也繼續做 stalled/end recovery。
+  - `FullscreenLyrics.tsx` 用 track-aware 的 `videoCachedForId` 判斷是否真的有當前歌曲的 cached video，並在換歌時重置 cached `<video>` 的 sync state；影片 tab 必須先顯示串流影片，下載完成再無縫切到 cached `<video>`。

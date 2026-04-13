@@ -122,6 +122,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 影片快取狀態
   const [videoCached, setVideoCached] = useState(false);
+  const [videoCachedForId, setVideoCachedForId] = useState<string | null>(null);
   const [videoDownloading, setVideoDownloading] = useState(false);
   const [videoDownloadProgress, setVideoDownloadProgress] = useState('');
   const [videoDownloadError, setVideoDownloadError] = useState('');
@@ -247,6 +248,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 影片快取：Drawer 開啟就開始下載（不限影片 tab），但輪詢是輕量 API call 不影響 iOS PWA
   const videoPollingVideoIdRef = useRef<string | null>(null);
+  const showCachedVideo = videoCached && videoCachedForId === track.videoId;
   useEffect(() => {
     if (!open || !track?.videoId) return;
     // 避免同一首歌重複觸發 polling
@@ -259,7 +261,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       try {
         const status = await apiService.getVideoCacheStatus(track.videoId);
         if (cancelled) return;
-        if (status.cached) { setVideoCached(true); setVideoDownloading(false); return; }
+        if (status.cached) {
+          setVideoCached(true);
+          setVideoCachedForId(track.videoId);
+          setVideoDownloading(false);
+          return;
+        }
       } catch {
         if (cancelled) return;
       }
@@ -267,6 +274,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       // 觸發下載
       setVideoDownloading(true);
       setVideoCached(false);
+      setVideoCachedForId(null);
       setVideoDownloadProgress('');
       setVideoDownloadError('');
 
@@ -299,6 +307,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           const status = await apiService.getVideoCacheStatus(track.videoId);
           if (status.cached) {
             setVideoCached(true);
+            setVideoCachedForId(track.videoId);
             setVideoDownloading(false);
             setVideoDownloadProgress('');
             setVideoDownloadError('');
@@ -327,8 +336,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 換歌時才重設影片快取狀態（不在 drawer 開關時重設）
   useEffect(() => {
     setVideoCached(false);
+    setVideoCachedForId(null);
     setVideoDownloading(false);
     setVideoDownloadError('');
+    setVideoReady(false);
+    if (cachedVideoRef.current) {
+      delete cachedVideoRef.current.dataset.synced;
+    }
     videoPollingVideoIdRef.current = null;
     apiService.videoCacheCleanup().catch(() => {});
   }, [track?.videoId]);
@@ -1213,8 +1227,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     return (
       <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
-        {videoCached && (
+        {showCachedVideo && (
           <video
+            key={`cached-video-${track.videoId}`}
             ref={cachedVideoRef}
             src={apiService.getVideoCacheStreamUrl(track.videoId)}
             controls
@@ -1237,12 +1252,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             muted
           />
         )}
-        {viewMode === 'video' && videoCached && (
+        {viewMode === 'video' && showCachedVideo && (
           <VideoLyricsOverlay translations={translations} />
         )}
-        {!videoCached && (
+        {!showCachedVideo && (
           <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
             <div
+              key={`yt-video-${track.videoId}`}
               ref={videoContainerRef}
               style={{
                 width: '100%',

@@ -233,6 +233,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
   // Reset 80% preload flag when track changes
   useEffect(() => { preload80TriggeredRef.current = false; }, [currentTrack?.videoId]);
+  useEffect(() => {
+    if (!currentTrack?.videoId) return;
+    // iPhone/PWA 背景播放時，舊歌預載不應持續佔住下載槽。
+    audioCacheService.abortAllExcept([currentTrack.videoId]);
+  }, [currentTrack?.videoId]);
 
   // SponsorBlock: 載入跳過片段
   useEffect(() => {
@@ -278,6 +283,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       crossfade.cancelCrossfade();
     }
     crossfade.resetPreload();
+    audioCacheService.abortAllExcept([pendingTrack.videoId]);
 
     // Record skip signal if previous track was not completed and played less than 50%
     if (audioRef.current && currentVideoIdRef.current && !wasCompletedRef.current) {
@@ -949,16 +955,18 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     if (embedded) return;
     if (!currentTrack || playlist.length === 0 || currentIndex < 0) return;
 
-    const PRELOAD_AHEAD = 3;
+    const PRELOAD_AHEAD = isIOSDevice ? 1 : 3;
     let cancelled = false;
+    const preloadVideoIds: string[] = [];
 
     const preloadTasks = [];
     for (let i = 1; i <= PRELOAD_AHEAD; i++) {
       const idx = currentIndex + i;
       if (idx >= playlist.length) break;
 
-      const track = playlist[idx];
-      preloadTasks.push((async () => {
+        const track = playlist[idx];
+        preloadVideoIds.push(track.videoId);
+        preloadTasks.push((async () => {
         try {
           // 已在前端快取？跳過
           const cached = await audioCacheService.get(track.videoId);
@@ -975,7 +983,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             channel: track.channel,
             thumbnail: track.thumbnail,
             duration: track.duration,
-          });
+          }, { priority: 'low' });
           if (!cancelled) {
             console.log(`✅ 預載完成 (+${i}): ${track.title}`);
           }
@@ -990,7 +998,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // Fire-and-forget: don't await Promise.all
     Promise.all(preloadTasks).catch(() => {});
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      preloadVideoIds.forEach(videoId => audioCacheService.abortDownload(videoId));
+    };
   }, [currentTrack?.videoId, currentIndex, playlist]);
 
   // 歌詞預載入：提前將佇列中歌曲的歌詞快取到 IndexedDB，實現「秒載入」
@@ -1128,7 +1139,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         preload80TriggeredRef.current = true;
         const pl = playlistRef.current;
         const ci = currentIndexRef.current;
-        const PRELOAD_AHEAD = 3;
+        const PRELOAD_AHEAD = isIOSDevice ? 1 : 3;
         for (let i = 1; i <= PRELOAD_AHEAD; i++) {
           const idx = ci + i;
           if (idx >= pl.length) break;
@@ -1142,7 +1153,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 channel: track.channel,
                 thumbnail: track.thumbnail,
                 duration: track.duration,
-              }).catch(() => {});
+              }, { priority: 'low' }).catch(() => {});
             }
           }).catch(() => {});
         }
@@ -1357,7 +1368,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       console.warn(`⚠️ Audio stalled (${stalledRetryCount + 1}/${MAX_STALLED_RETRIES})`);
       if (stalledTimeout) clearTimeout(stalledTimeout);
       stalledTimeout = setTimeout(() => {
-        if (audio.paused === false && audio.currentTime === lastCurrentTime && displayModeRef.current !== 'video') {
+        if (audio.paused === false && audio.currentTime === lastCurrentTime) {
           stalledRetryCount++;
           console.log(`🔄 嘗試重新載入音訊 (${stalledRetryCount}/${MAX_STALLED_RETRIES})...`);
           const currentSrc = audio.src;
@@ -1399,7 +1410,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // iOS 後台播放 fallback：即使在鎖屏時也定期檢查是否到達結尾
     // （因為 iOS 鎖屏時 timeupdate 事件會停止，ended 事件也不可靠）
     const iosBackgroundCheckInterval = setInterval(() => {
-      if (displayMode === 'video' || !audio.src || !isPlayingRef.current) return;
+      if (!audio.src || !isPlayingRef.current) return;
 
       const trackDur = currentTrack?.duration || audio.duration;
       if (!trackDur || trackDur <= 0) return;
@@ -1425,7 +1436,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     const checkFakePlayback = setInterval(() => {
       if (document.hidden) return; // Skip fake playback detection when backgrounded
-      if (!audio.paused && isPlaying && displayMode !== 'video') {
+      if (!audio.paused && isPlaying) {
         const timeSinceUpdate = Date.now() - lastTimeUpdate;
         // 如果超過 4 秒沒有時間更新，可能是假播放
         if (timeSinceUpdate > 4000 && audio.currentTime === lastCurrentTime && audio.currentTime > 0) {

@@ -35,6 +35,9 @@ class AudioCacheService {
   private initPromise: Promise<void> | null = null;
   private inFlightDownloads = new Map<string, Promise<string>>();
   private inFlightControllers = new Map<string, AbortController>();
+  private readonly MAX_LOW_PRIORITY_DOWNLOADS = 1;
+  private activeLowPriorityDownloads = 0;
+  private lowPriorityQueue: Array<() => void> = [];
 
   // 快取設置（預設值）
   private MAX_CACHE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB 最大快取
@@ -490,15 +493,55 @@ class AudioCacheService {
     }
   }
 
-  async fetchAndCache(videoId: string, streamUrl: string, metadata?: CachedAudioMetadata): Promise<string> {
+  abortAllExcept(videoIdsToKeep: string[]): void {
+    const keep = new Set(videoIdsToKeep.filter(Boolean));
+    for (const videoId of [...this.inFlightControllers.keys()]) {
+      if (!keep.has(videoId)) {
+        this.abortDownload(videoId);
+      }
+    }
+  }
+
+  private async acquireLowPrioritySlot(): Promise<() => void> {
+    if (this.activeLowPriorityDownloads < this.MAX_LOW_PRIORITY_DOWNLOADS) {
+      this.activeLowPriorityDownloads += 1;
+      return () => {
+        this.activeLowPriorityDownloads = Math.max(0, this.activeLowPriorityDownloads - 1);
+        const next = this.lowPriorityQueue.shift();
+        if (next) next();
+      };
+    }
+
+    return await new Promise((resolve) => {
+      this.lowPriorityQueue.push(() => {
+        this.activeLowPriorityDownloads += 1;
+        resolve(() => {
+          this.activeLowPriorityDownloads = Math.max(0, this.activeLowPriorityDownloads - 1);
+          const next = this.lowPriorityQueue.shift();
+          if (next) next();
+        });
+      });
+    });
+  }
+
+  async fetchAndCache(
+    videoId: string,
+    streamUrl: string,
+    metadata?: CachedAudioMetadata,
+    options?: { priority?: 'high' | 'low' }
+  ): Promise<string> {
     if (this.inFlightDownloads.has(videoId)) {
       return this.inFlightDownloads.get(videoId)!;
     }
 
     const controller = new AbortController();
     this.inFlightControllers.set(videoId, controller);
+    const priority = options?.priority || 'high';
 
     const downloadPromise = (async () => {
+      const releaseLowPrioritySlot = priority === 'low'
+        ? await this.acquireLowPrioritySlot()
+        : null;
       try {
         console.log(`⏬ Downloading audio: ${videoId}`);
         const startTime = Date.now();
@@ -542,6 +585,9 @@ class AudioCacheService {
         }
         throw error;
       } finally {
+        if (releaseLowPrioritySlot) {
+          releaseLowPrioritySlot();
+        }
         this.inFlightDownloads.delete(videoId);
         this.inFlightControllers.delete(videoId);
       }
@@ -566,7 +612,7 @@ class AudioCacheService {
       }
 
       console.log(`🔄 Preloading: ${videoId}`);
-      await this.fetchAndCache(videoId, streamUrl, metadata);
+      await this.fetchAndCache(videoId, streamUrl, metadata, { priority: 'low' });
     } catch (error) {
       // 預載失敗不影響主流程
       console.warn(`Preload failed for ${videoId}:`, error);
