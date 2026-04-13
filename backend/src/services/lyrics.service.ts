@@ -420,15 +420,27 @@ class LyricsService {
     };
 
     try {
-      const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
+      // Pure string cleaning — no Gemini dependency
+      const cleanTitle = this.cleanSongTitle(title, artist);
+      const cleanArtist = artist ? this.cleanArtistName(artist) : '';
 
-      // Build fallback search queries: title+artist → title only → simplified title
+      // CJK-only fallback for mixed-language titles
+      const CJK_PREFIX = /^([\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\u3400-\u4dbf]+)/;
+      const cjkTitle = CJK_PREFIX.exec(cleanTitle)?.[1] ?? null;
+      const cjkArtist = cleanArtist ? (CJK_PREFIX.exec(cleanArtist)?.[1] ?? null) : null;
+
+      // Build fallback search queries: title+artist → title only → CJK-only → simplified
       const searchQueries: string[] = [];
       if (cleanArtist) {
         searchQueries.push(`${cleanTitle} ${cleanArtist}`);
         searchQueries.push(cleanTitle);
       } else {
         searchQueries.push(cleanTitle);
+      }
+      if (cjkTitle && cjkTitle !== cleanTitle) {
+        const bestCJKArtist = (cjkArtist && cjkArtist !== cleanArtist) ? cjkArtist : cleanArtist;
+        if (bestCJKArtist) searchQueries.push(`${cjkTitle} ${bestCJKArtist}`);
+        searchQueries.push(cjkTitle);
       }
       const simplified = this.simplifyTitle(cleanTitle);
       if (simplified !== cleanTitle) {
@@ -522,37 +534,40 @@ class LyricsService {
     artist?: string
   ): Promise<Lyrics | null> {
     try {
-      // 清理標題（regex 優先，Gemini fallback）
-      const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
+      // Pure string cleaning — no Gemini dependency
+      const tier1Title = this.cleanSongTitle(title, artist);
+      const tier1Artist = artist ? this.cleanArtistName(artist) : '';
 
-      logger.info(`[LRCLIB] Starting search for: ${cleanTitle}`);
+      logger.info(`[LRCLIB] Starting search for: ${tier1Title}`);
 
-      // Build fallback URLs: title+artist → title only → simplified title → CJK-only (for mixed-lang titles)
-      const CJK_RE = /^([\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\u3400-\u4dbf]+)/;
-      const cjkTitle = CJK_RE.exec(cleanTitle)?.[1] ?? null;
-      const cjkArtist = cleanArtist ? (CJK_RE.exec(cleanArtist)?.[1] ?? null) : null;
-      // Only use CJK-only variant when the cleaned title/artist contain mixed language
-      const hasMixedTitle = cjkTitle !== null && cjkTitle !== cleanTitle;
-      const hasMixedArtist = cjkArtist !== null && cjkArtist !== cleanArtist;
+      // For CJK+English mixed titles, also extract CJK-only variant
+      // e.g. "晴天 Sunny Day" → "晴天", "周杰倫 Jay Chou" → "周杰倫"
+      const CJK_PREFIX = /^([\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\u3400-\u4dbf]+)/;
+      const cjkTitle = CJK_PREFIX.exec(tier1Title)?.[1] ?? null;
+      const cjkArtist = tier1Artist ? (CJK_PREFIX.exec(tier1Artist)?.[1] ?? null) : null;
+      const hasMixedTitle = cjkTitle !== null && cjkTitle !== tier1Title;
+      const hasMixedArtist = cjkArtist !== null && cjkArtist !== tier1Artist;
+
+      // Build search URL list (tier1 → CJK-only fallback → simplified)
+      const mkURL = (t: string, a?: string) =>
+        a ? `https://lrclib.net/api/search?track_name=${encodeURIComponent(t)}&artist_name=${encodeURIComponent(a)}`
+          : `https://lrclib.net/api/search?track_name=${encodeURIComponent(t)}`;
 
       const searchURLs: string[] = [];
-      if (cleanArtist) {
-        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(cleanArtist)}`);
-        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`);
-      } else {
-        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`);
+      if (tier1Artist) {
+        searchURLs.push(mkURL(tier1Title, tier1Artist));
       }
-      // CJK-only fallbacks: "晴天 Sunny Day" → "晴天", "周杰倫 Jay Chou" → "周杰倫"
+      searchURLs.push(mkURL(tier1Title));
+      // CJK-only fallbacks
       if (hasMixedTitle) {
-        const cjkArtistOrClean = hasMixedArtist ? cjkArtist! : (cleanArtist || '');
-        if (cjkArtistOrClean) {
-          searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cjkTitle!)}&artist_name=${encodeURIComponent(cjkArtistOrClean)}`);
-        }
-        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cjkTitle!)}`);
+        const bestCJKArtist = hasMixedArtist ? cjkArtist! : tier1Artist;
+        if (bestCJKArtist) searchURLs.push(mkURL(cjkTitle!, bestCJKArtist));
+        searchURLs.push(mkURL(cjkTitle!));
       }
-      const simplified = this.simplifyTitle(cleanTitle);
-      if (simplified !== cleanTitle) {
-        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(simplified)}`);
+      const simplified = this.simplifyTitle(tier1Title);
+      if (simplified !== tier1Title) {
+        searchURLs.push(mkURL(simplified, tier1Artist));
+        searchURLs.push(mkURL(simplified));
       }
 
       let results: LRCLIBResponse[] = [];
@@ -1023,8 +1038,9 @@ class LyricsService {
         return null;
       }
 
-      // 用 Gemini/regex 清理 YouTube 標題雜訊（跟 LRCLIB/NetEase 一樣）
-      const { cleanTitle, cleanArtist } = await this.extractWithGemini(title, artist);
+      // Pure string cleaning — no Gemini dependency
+      const cleanTitle = this.cleanSongTitle(title, artist);
+      const cleanArtist = artist ? this.cleanArtistName(artist) : '';
 
       const options = {
         apiKey,
