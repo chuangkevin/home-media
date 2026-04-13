@@ -130,6 +130,25 @@ class LyricsService {
       console.log(`🎵 [LyricsService] Step 2: Starting YouTube CC in background (lowest priority)...`);
       const ytCCPromise = this.fetchYouTubeCaptions(videoId).catch(() => null);
 
+      // 2.5 先嘗試使用使用者偏好 ID，但若 metadata 明顯不匹配就忽略，避免錯歌詞黏住
+      const preferences = this.getPreferences(videoId);
+      if (preferences?.lrclibId) {
+        const preferred = await this.getLyricsByLRCLIBId(videoId, preferences.lrclibId, title, artist);
+        if (preferred) {
+          this.saveToCache(preferred);
+          this.logAttemptSummary(attemptResults, startTime);
+          return preferred;
+        }
+      }
+      if (preferences?.neteaseId) {
+        const preferred = await this.getLyricsByNeteaseId(videoId, preferences.neteaseId, title, artist);
+        if (preferred) {
+          this.saveToCache(preferred);
+          this.logAttemptSummary(attemptResults, startTime);
+          return preferred;
+        }
+      }
+
       // 3. 優先 LRCLIB（幾乎都有 timestamp，歌詞滾動最佳體驗）
       console.log(`🎵 [LyricsService] Step 3: Fetching from LRCLIB (priority for synced)...`);
       const lrclibStart = Date.now();
@@ -1141,7 +1160,7 @@ class LyricsService {
   /**
    * 透過 LRCLIB ID 獲取特定歌詞
    */
-  async getLyricsByLRCLIBId(videoId: string, lrclibId: number): Promise<Lyrics | null> {
+  async getLyricsByLRCLIBId(videoId: string, lrclibId: number, expectedTitle?: string, expectedArtist?: string): Promise<Lyrics | null> {
     try {
       console.log(`🎼 [LRCLIB] Fetching lyrics by ID: ${lrclibId}`);
 
@@ -1153,6 +1172,11 @@ class LyricsService {
       }
 
       const data = (await response.json()) as LRCLIBResponse;
+
+      if (expectedTitle && expectedArtist && !this.isLyricsMetadataMatch(expectedTitle, expectedArtist, data.trackName, data.artistName)) {
+        logger.warn(`⚠️ LRCLIB ID ${lrclibId} metadata mismatch for ${videoId}: expected ${expectedArtist} - ${expectedTitle}, got ${data.artistName} - ${data.trackName}`);
+        return null;
+      }
 
       // 優先使用同步歌詞
       if (data.syncedLyrics) {
@@ -1251,7 +1275,7 @@ class LyricsService {
   /**
    * 透過網易雲音樂 ID 獲取特定歌詞
    */
-  async getLyricsByNeteaseId(videoId: string, neteaseId: number): Promise<Lyrics | null> {
+  async getLyricsByNeteaseId(videoId: string, neteaseId: number, _expectedTitle?: string, _expectedArtist?: string): Promise<Lyrics | null> {
     const NETEASE_TIMEOUT = 15000;
 
     const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
@@ -1342,6 +1366,24 @@ class LyricsService {
       logger.error(`獲取歌詞偏好失敗: ${videoId}`, error);
       return null;
     }
+  }
+
+  private isLyricsMetadataMatch(expectedTitle: string, expectedArtist: string, actualTitle: string, actualArtist: string): boolean {
+    const normalize = (text: string) => String(text || '')
+      .toLowerCase()
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/\s*\[[^\]]*\]/g, '')
+      .replace(/[^a-z0-9\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]+/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const expectedT = normalize(expectedTitle);
+    const expectedA = normalize(expectedArtist);
+    const actualT = normalize(actualTitle);
+    const actualA = normalize(actualArtist);
+
+    if (!expectedT || !expectedA || !actualT || !actualA) return true;
+    return (actualT.includes(expectedT) || expectedT.includes(actualT)) && (actualA.includes(expectedA) || expectedA.includes(actualA));
   }
 
   /**
