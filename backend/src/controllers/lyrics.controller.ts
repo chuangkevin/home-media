@@ -34,14 +34,20 @@ export class LyricsController {
   async updatePreferences(req: Request, res: Response): Promise<void> {
     try {
       const { videoId } = req.params;
-      const { timeOffset, lrclibId, neteaseId } = req.body;
+      const hasTimeOffset = Object.prototype.hasOwnProperty.call(req.body || {}, 'timeOffset');
+      const hasLrclibId = Object.prototype.hasOwnProperty.call(req.body || {}, 'lrclibId');
+      const hasNeteaseId = Object.prototype.hasOwnProperty.call(req.body || {}, 'neteaseId');
+
+      const timeOffset = hasTimeOffset ? req.body.timeOffset : undefined;
+      const lrclibId = hasLrclibId ? req.body.lrclibId : undefined;
+      const neteaseId = hasNeteaseId ? req.body.neteaseId : undefined;
 
       if (!videoId) {
         res.status(400).json({ error: 'Video ID is required' });
         return;
       }
 
-      console.log(`💾 [Lyrics Prefs] Update: videoId=${videoId}, timeOffset=${timeOffset}, lrclibId=${lrclibId}, neteaseId=${neteaseId}`);
+      console.log(`💾 [Lyrics Prefs] Update: videoId=${videoId}, hasTimeOffset=${hasTimeOffset}, hasLrclibId=${hasLrclibId}, hasNeteaseId=${hasNeteaseId}, timeOffset=${timeOffset}, lrclibId=${lrclibId}, neteaseId=${neteaseId}`);
 
       await lyricsService.updatePreferences(videoId, { timeOffset, lrclibId, neteaseId });
 
