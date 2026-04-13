@@ -141,8 +141,9 @@ Return ONLY valid JSON, no other text:
       const model = genai.getGenerativeModel({
         model: 'gemini-2.5-flash',
         generationConfig: {
-          maxOutputTokens: 8192,  // large enough to cover thinking + output tokens
+          maxOutputTokens: 2048,         // generous budget for thinking + output
           temperature: 0,
+          responseMimeType: 'application/json', // forces raw JSON, no markdown wrapper
         },
       });
 
