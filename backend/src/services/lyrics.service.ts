@@ -1354,23 +1354,37 @@ class LyricsService {
 
       if (existing) {
         const nextTimeOffset = prefs.timeOffset !== undefined ? prefs.timeOffset : existing.timeOffset;
-        const nextLrclibId = prefs.lrclibId !== undefined ? prefs.lrclibId : existing.lrclibId;
         const nextNeteaseId = prefs.neteaseId !== undefined ? prefs.neteaseId : existing.neteaseId;
 
-        db.prepare(`
-          UPDATE lyrics_preferences
-          SET time_offset = @timeOffset,
-              lrclib_id = @lrclibId,
-              netease_id = @neteaseId,
-              updated_at = @updatedAt
-          WHERE video_id = @videoId
-        `).run({
-          timeOffset: nextTimeOffset,
-          lrclibId: nextLrclibId,
-          neteaseId: nextNeteaseId,
-          updatedAt: now,
-          videoId,
-        });
+        if (prefs.lrclibId === null) {
+          db.prepare(`
+            UPDATE lyrics_preferences
+            SET time_offset = ?,
+                lrclib_id = NULL,
+                netease_id = ?,
+                updated_at = ?
+            WHERE video_id = ?
+          `).run(nextTimeOffset, nextNeteaseId, now, videoId);
+        } else if (prefs.neteaseId === null) {
+          db.prepare(`
+            UPDATE lyrics_preferences
+            SET time_offset = ?,
+                lrclib_id = ?,
+                netease_id = NULL,
+                updated_at = ?
+            WHERE video_id = ?
+          `).run(nextTimeOffset, prefs.lrclibId !== undefined ? prefs.lrclibId : existing.lrclibId, now, videoId);
+        } else {
+          const nextLrclibId = prefs.lrclibId !== undefined ? prefs.lrclibId : existing.lrclibId;
+          db.prepare(`
+            UPDATE lyrics_preferences
+            SET time_offset = ?,
+                lrclib_id = ?,
+                netease_id = ?,
+                updated_at = ?
+            WHERE video_id = ?
+          `).run(nextTimeOffset, nextLrclibId, nextNeteaseId, now, videoId);
+        }
 
         const verify = this.getPreferences(videoId);
         logger.info(`🔎 歌詞偏好寫入後驗證: ${videoId} -> lrclib=${verify?.lrclibId} netease=${verify?.neteaseId} offset=${verify?.timeOffset}`);
