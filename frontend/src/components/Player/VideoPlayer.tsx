@@ -208,9 +208,9 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
               const audioTime = audioEl?.currentTime || 0;
 
               if (event.data === 1) {
-                // iframe 開始播放 — 立即同步到 audio 位置
+                // iframe 開始播放 — 立即同步到 audio 位置（閾值降至 0.3s，與 periodic sync 一致）
                 const videoTime = event.target.getCurrentTime();
-                if (Math.abs(videoTime - audioTime) > 1) {
+                if (Math.abs(videoTime - audioTime) > 0.3) {
                   event.target.seekTo(audioTime, true);
                 }
               } else if (event.data === 2 || event.data === -1) {

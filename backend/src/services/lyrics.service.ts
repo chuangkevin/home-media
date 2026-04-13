@@ -130,7 +130,7 @@ class LyricsService {
       console.log(`🎵 [LyricsService] Step 2: Starting YouTube CC in background (lowest priority)...`);
       const ytCCPromise = this.fetchYouTubeCaptions(videoId).catch(() => null);
 
-      // 2.5 先嘗試使用使用者偏好 ID，但若 metadata 明顯不匹配就忽略，避免錯歌詞黏住
+      // 2.5 先嘗試使用使用者偏好 ID，但若 metadata 明顯不匹配就清除，避免錯歌詞黏住
       const preferences = this.getPreferences(videoId);
       if (preferences?.lrclibId) {
         const preferred = await this.getLyricsByLRCLIBId(videoId, preferences.lrclibId, title, artist);
@@ -139,6 +139,9 @@ class LyricsService {
           this.logAttemptSummary(attemptResults, startTime);
           return preferred;
         }
+        // Preference ID failed (mismatch or API error) — clear it so auto-search takes over
+        logger.warn(`⚠️ Clearing stale lrclib_id=${preferences.lrclibId} for ${videoId}`);
+        this.updatePreferences(videoId, { lrclibId: null });
       }
       if (preferences?.neteaseId) {
         const preferred = await this.getLyricsByNeteaseId(videoId, preferences.neteaseId, title, artist);
@@ -147,6 +150,9 @@ class LyricsService {
           this.logAttemptSummary(attemptResults, startTime);
           return preferred;
         }
+        // Preference ID failed — clear it so auto-search takes over
+        logger.warn(`⚠️ Clearing stale netease_id=${preferences.neteaseId} for ${videoId}`);
+        this.updatePreferences(videoId, { neteaseId: null });
       }
 
       // 3. 優先 LRCLIB（幾乎都有 timestamp，歌詞滾動最佳體驗）
