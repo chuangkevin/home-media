@@ -141,7 +141,7 @@ Return ONLY valid JSON, no other text:
       const model = genai.getGenerativeModel({
         model: 'gemini-2.5-flash',
         generationConfig: {
-          maxOutputTokens: 150,
+          maxOutputTokens: 512,  // increased — 150 was too small for 2.5 Flash thinking tokens
           temperature: 0,
         },
       });
@@ -149,7 +149,7 @@ Return ONLY valid JSON, no other text:
       // 15s timeout — 避免 Gemini hang 住導致整條歌詞管線卡死
       const result = await Promise.race([
         model.generateContent(prompt),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Gemini extractTrackInfo timeout (15s)')), 15000)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('extractTrackInfo timeout (15s)')), 15000)),
       ]);
       const text = result.response.text().trim();
 

@@ -527,13 +527,28 @@ class LyricsService {
 
       logger.info(`[LRCLIB] Starting search for: ${cleanTitle}`);
 
-      // Build fallback URLs: title+artist → title only → simplified title
+      // Build fallback URLs: title+artist → title only → simplified title → CJK-only (for mixed-lang titles)
+      const CJK_RE = /^([\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\u3400-\u4dbf]+)/;
+      const cjkTitle = CJK_RE.exec(cleanTitle)?.[1] ?? null;
+      const cjkArtist = cleanArtist ? (CJK_RE.exec(cleanArtist)?.[1] ?? null) : null;
+      // Only use CJK-only variant when the cleaned title/artist contain mixed language
+      const hasMixedTitle = cjkTitle !== null && cjkTitle !== cleanTitle;
+      const hasMixedArtist = cjkArtist !== null && cjkArtist !== cleanArtist;
+
       const searchURLs: string[] = [];
       if (cleanArtist) {
         searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}&artist_name=${encodeURIComponent(cleanArtist)}`);
         searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`);
       } else {
         searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cleanTitle)}`);
+      }
+      // CJK-only fallbacks: "晴天 Sunny Day" → "晴天", "周杰倫 Jay Chou" → "周杰倫"
+      if (hasMixedTitle) {
+        const cjkArtistOrClean = hasMixedArtist ? cjkArtist! : (cleanArtist || '');
+        if (cjkArtistOrClean) {
+          searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cjkTitle!)}&artist_name=${encodeURIComponent(cjkArtistOrClean)}`);
+        }
+        searchURLs.push(`https://lrclib.net/api/search?track_name=${encodeURIComponent(cjkTitle!)}`);
       }
       const simplified = this.simplifyTitle(cleanTitle);
       if (simplified !== cleanTitle) {
