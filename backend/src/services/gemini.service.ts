@@ -138,10 +138,12 @@ Return ONLY valid JSON, no other text:
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const genai = new GoogleGenerativeAI(currentKey);
+      // Use gemini-1.5-flash (no thinking mode) — gemini-2.5-flash thinking tokens count
+      // against maxOutputTokens and truncate the JSON even at 512 tokens
       const model = genai.getGenerativeModel({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-1.5-flash',
         generationConfig: {
-          maxOutputTokens: 512,  // increased — 150 was too small for 2.5 Flash thinking tokens
+          maxOutputTokens: 256,
           temperature: 0,
         },
       });
