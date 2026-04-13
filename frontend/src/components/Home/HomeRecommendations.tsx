@@ -12,7 +12,11 @@ import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 
-export default function HomeRecommendations() {
+interface HomeRecommendationsProps {
+  onSearch?: (query: string) => void;
+}
+
+export default function HomeRecommendations({ onSearch }: HomeRecommendationsProps) {
   const dispatch = useDispatch<AppDispatch>();
   const { channelRecommendations, loading, hasMore } = useSelector(
     (state: RootState) => state.recommendation
@@ -244,6 +248,7 @@ export default function HomeRecommendations() {
             onPlay={handlePlay}
             onHideChannel={handleHideChannel}
             cacheStatus={cacheStatus}
+            onChannelSearch={onSearch}
           />
         </div>
       ))}

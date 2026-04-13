@@ -9,13 +9,13 @@ router.get('/', (_req: Request, res: Response): void => {
   try {
     const db = getDatabase();
 
-    // 最近播放 (top 10)
+    // 最近播放 (top 20)
     const recentlyPlayed = db.prepare(`
       SELECT video_id as videoId, title, channel_name as channel, thumbnail, duration, last_played as lastPlayed, play_count as playCount
       FROM cached_tracks
       WHERE last_played > 0
       ORDER BY last_played DESC
-      LIMIT 10
+      LIMIT 20
     `).all();
 
     // 最常播放 (top 10, different from recently played)
@@ -25,17 +25,17 @@ router.get('/', (_req: Request, res: Response): void => {
       FROM cached_tracks
       WHERE play_count >= 1
       ORDER BY play_count DESC
-      LIMIT 20
+      LIMIT 60
     `).all().filter((t: any) => !recentIds.includes(t.videoId)).slice(0, 10);
 
-    // 收藏 (if favorites table exists)
+    // 收藏 (top 20)
     let favorites: any[] = [];
     try {
       favorites = db.prepare(`
         SELECT video_id as videoId, title, channel, thumbnail, duration
         FROM favorites
         ORDER BY favorited_at DESC
-        LIMIT 10
+        LIMIT 20
       `).all();
     } catch {
       // favorites table may not exist yet

@@ -107,14 +107,10 @@ export function setupCastingHandlers(io: Server, socket: Socket): void {
     if (device) {
       logger.info(`Device disconnected: ${device.name} (${device.id})`);
 
-      // 通知其他裝置 cast 已結束
+      // 射後不理：來源端斷線時不主動中止接收端播放。
       const session = castingService.getSessionBySource(device.id);
       if (session) {
-        session.targetIds.forEach((targetId) => {
-          io.to(`device:${targetId}`).emit('cast:ended', {
-            sourceId: device.id,
-          });
-        });
+        castingService.endSession(session.id);
       }
 
       // 更新裝置列表

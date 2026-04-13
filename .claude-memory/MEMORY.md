@@ -73,7 +73,24 @@
   - iPhone / PWA 連播幾首後，前端同時拉當前曲背景快取與多首預載，容易讓 active audio request 被一堆 stale downloads 競爭，最後播放卡死。
   - 在歌詞 Drawer 的 `影片` tab 換歌時，首幀可能沿用上一首的 cached-video state，沒有先回退到 YouTube 串流畫面；download 完成後 cached `<video>` 也可能因舊 `dataset.synced` 而不同步。
 - **決策**:
-  - `audio-cache.service.ts` 對 low-priority preload 加上單一併發槽，並提供 `abortAllExcept()`；`AudioPlayer.tsx` 在換歌時會取消舊歌預載，只保留目前曲目。
-  - iPhone 上音訊預載從 3 首降到 1 首，80% 補預載也同樣遵守較低併發，優先保護目前播放穩定度。
-  - `AudioPlayer.tsx` 的背景/假播放 recovery 不得因 `displayMode === 'video'` 而停用；audio element 既然是唯一音源，就必須在影片模式下也繼續做 stalled/end recovery。
-  - `FullscreenLyrics.tsx` 用 track-aware 的 `videoCachedForId` 判斷是否真的有當前歌曲的 cached video，並在換歌時重置 cached `<video>` 的 sync state；影片 tab 必須先顯示串流影片，下載完成再無縫切到 cached `<video>`。
+- `audio-cache.service.ts` 對 low-priority preload 加上單一併發槽，並提供 `abortAllExcept()`；`AudioPlayer.tsx` 在換歌時會取消舊歌預載，只保留目前曲目。
+- iPhone 上音訊預載從 3 首降到 1 首，80% 補預載也同樣遵守較低併發，優先保護目前播放穩定度。
+- `AudioPlayer.tsx` 的背景/假播放 recovery 不得因 `displayMode === 'video'` 而停用；audio element 既然是唯一音源，就必須在影片模式下也繼續做 stalled/end recovery。
+- `FullscreenLyrics.tsx` 用 track-aware 的 `videoCachedForId` 判斷是否真的有當前歌曲的 cached video，並在換歌時重置 cached `<video>` 的 sync state；影片 tab 必須先顯示串流影片，下載完成再無縫切到 cached `<video>`。
+
+## Desktop UX + video lyrics polish (2026-04-13)
+- **問題**:
+  - iMac / pointer-fine 桌面螢幕下，首頁仍依賴水平捲動瀏覽，右側播放清單偏窄，滑鼠操作很差。
+  - Landscape drawer 左側 embedded player 少了收藏操作。
+  - 影片模式 seek 會被 `FullscreenLyrics.tsx` / `VideoPlayer.tsx` 提前 `clearSeekTarget()` 吃掉，導致 audio 沒有確實跟著 seek。
+  - 若本地/偏好的 LRCLIB 結果是 unsynced，前端會過早接受它，不再續找 NetEase。
+  - cached video 路徑會同時渲染兩層歌詞 overlay。
+  - cast 行為實際上是 controller/receiver 鏡像控制，不符合「射後不理」。
+- **決策**:
+  - `ChannelSection.tsx` / `PersonalizedSection.tsx` 在 `isDesktop` 下改成不依賴水平捲動的 grid 版面；最近播放與收藏各 20 筆，其餘桌面區塊 10 筆，頻道頭像/標題點下去直接帶搜尋。
+  - `FullscreenLyrics.tsx` 右側播放清單加寬；左側 `AudioPlayer embedded` 補回 favorite toggle。
+  - `seekTarget` 只讓 `AudioPlayer.tsx` 清掉；`FullscreenLyrics.tsx` / `VideoPlayer.tsx` 只能跟隨 seek，不得搶先 `clearSeekTarget()`。
+  - `AudioPlayer.tsx` 歌詞載入抽成 shared helper：若 LRCLIB cached/preference 結果 unsynced，必須繼續找 NetEase，再 fallback 回 unsynced lyrics。
+  - `VideoLyricsOverlay.tsx` 刪除，影片模式只保留單一字幕層。
+  - `MorrorLyrics.tsx` 預設效果改成 `focus`，localStorage 仍記錄使用者覆蓋值。
+  - `useCastingControls.ts` 停止把 sender 的後續 play/pause/seek/next/previous 同步到 receiver；`casting.handler.ts` 在 sender disconnect 時也不主動中止 receiver 播放。

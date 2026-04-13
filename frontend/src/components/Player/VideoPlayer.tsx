@@ -5,7 +5,7 @@ import MusicVideoIcon from '@mui/icons-material/MusicVideo';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import type { Track } from '../../types/track.types';
-import { setDuration, clearSeekTarget, setDisplayMode } from '../../store/playerSlice';
+import { setDuration, setDisplayMode } from '../../store/playerSlice';
 import { RootState } from '../../store';
 
 interface VideoPlayerProps {
@@ -343,12 +343,11 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
     if (seekTarget !== null && playerRef.current && playerRef.current.seekTo) {
       isSeekingRef.current = true;
       playerRef.current.seekTo(seekTarget, true);
-      dispatch(clearSeekTarget());
       setTimeout(() => {
         isSeekingRef.current = false;
       }, 500);
     }
-  }, [seekTarget, dispatch]);
+  }, [seekTarget]);
 
   // 切換回音訊模式（使用視覺化器）
   const handleSwitchToAudio = () => {

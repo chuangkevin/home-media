@@ -27,7 +27,7 @@ import { RootState, AppDispatch } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying, clearSeekTarget, reorderPlaylist, removeFromPlaylist, playNext } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, reorderPlaylist, removeFromPlaylist, playNext } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -35,7 +35,6 @@ import { useLyricsSync } from '../../hooks/useLyricsSync';
 import AudioPlayer from './AudioPlayer';
 import PlayerControls from './PlayerControls';
 import MorrorLyrics from './MorrorLyrics';
-import VideoLyricsOverlay from './VideoLyricsOverlay';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 // DeleteOutlineIcon removed — swipe gesture replaced delete button
@@ -680,16 +679,19 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 處理影片 seek 操作（拖動進度條）
   useEffect(() => {
-    if (!videoReady || viewMode !== 'video' || !playerRef.current || seekTarget === null) return;
+    if (seekTarget === null || viewMode !== 'video') return;
 
     try {
-      console.log(`🎬 FullscreenLyrics: 影片跳轉到 ${seekTarget.toFixed(1)}s`);
-      playerRef.current.seekTo(seekTarget, true);
-      dispatch(clearSeekTarget());
+      if (showCachedVideo && cachedVideoRef.current) {
+        cachedVideoRef.current.currentTime = seekTarget;
+      } else if (videoReady && playerRef.current?.seekTo) {
+        console.log(`🎬 FullscreenLyrics: 影片跳轉到 ${seekTarget.toFixed(1)}s`);
+        playerRef.current.seekTo(seekTarget, true);
+      }
     } catch (e) {
       console.error('🎬 影片跳轉失敗:', e);
     }
-  }, [seekTarget, videoReady, viewMode, dispatch]);
+  }, [seekTarget, videoReady, viewMode, showCachedVideo]);
 
   // 載入儲存的偏好設定（切歌時先 reset 再載入，避免殘留上一首的 offset）
   useEffect(() => {
@@ -1252,9 +1254,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             muted
           />
         )}
-        {viewMode === 'video' && showCachedVideo && (
-          <VideoLyricsOverlay translations={translations} />
-        )}
         {!showCachedVideo && (
           <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
             <div
@@ -1569,7 +1568,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         {showLandscapeSidePanel && !isMorrorFullscreen && (
           <Box
             sx={{
-              width: 280,
+              width: isUltrawide ? 320 : 300,
               flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
@@ -1920,7 +1919,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       {isLandscape && !isMorrorFullscreen && (
         <Box
           sx={{
-            width: 320,
+            width: isUltrawide ? 440 : (isDesktop ? 380 : 320),
             flexShrink: 0,
             borderLeft: 1,
             borderColor: 'divider',

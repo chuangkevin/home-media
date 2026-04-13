@@ -32,13 +32,8 @@ export function useSocketConnection() {
         dispatch(setDevices(devices));
       },
       onCastReceive: (data) => {
-        dispatch(
-          setIsReceiver({
-            isReceiver: true,
-            sourceId: data.sourceId,
-            sourceName: data.sourceName,
-          })
-        );
+        // 射後不理：接收端只吃初始 payload，不維持與來源端綁定的 receiver 狀態。
+        dispatch(setIsReceiver({ isReceiver: false }));
         // 設定待播放曲目
         dispatch(setPendingTrack(data.track));
         dispatch(setIsPlaying(data.isPlaying));

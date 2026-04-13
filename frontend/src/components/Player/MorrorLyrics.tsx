@@ -303,7 +303,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
   const [accentColor, setAccentColor] = useState(DEFAULT_COLOR);
   const [effect, setEffect] = useState<LyricsEffect>(() => {
     const saved = localStorage.getItem('morror-effect');
-    return (saved as LyricsEffect) || 'karaoke';
+    return (saved as LyricsEffect) || 'focus';
   });
   const prevLineIndexRef = useRef(-1);
   const [animKey, setAnimKey] = useState(0);

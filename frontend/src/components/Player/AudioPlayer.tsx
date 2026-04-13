@@ -19,6 +19,7 @@ import { useCrossfade } from '../../hooks/useCrossfade';
 import { useContinuousPlayer } from '../../hooks/useContinuousPlayer';
 import { socketService } from '../../services/socket.service';
 import type { Track } from '../../types/track.types';
+import type { Lyrics } from '../../types/lyrics.types';
 import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
 import { toggleFavorite } from '../../store/favoritesSlice';
 
@@ -217,6 +218,64 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<null | HTMLElement>(null);
 
   const isCurrentLyricsRequest = useCallback((videoId: string) => activeLyricsVideoIdRef.current === videoId, []);
+
+  const loadLyricsWithPreferences = useCallback(async (track: Track): Promise<Lyrics | null> => {
+    const videoId = track.videoId;
+    let unsyncedFallback: Lyrics | null = null;
+
+    const cachedLyrics = await lyricsCacheService.get(videoId);
+    if (cachedLyrics?.lines?.length) {
+      if (cachedLyrics.isSynced || cachedLyrics.source !== 'lrclib') {
+        return cachedLyrics;
+      }
+      unsyncedFallback = cachedLyrics;
+    }
+
+    let lrclibId: number | null = null;
+    let neteaseId: number | null = null;
+    try {
+      console.log(`🔍 查詢後端歌詞偏好: ${videoId}`);
+      const backendPrefs = await apiService.getLyricsPreferences(videoId);
+      if (backendPrefs?.lrclibId) lrclibId = backendPrefs.lrclibId;
+      if (backendPrefs?.neteaseId) neteaseId = backendPrefs.neteaseId;
+    } catch (error) {
+      console.log(`⚠️ 後端獲取失敗，使用本地快取 preference`, error);
+      const localPref = await lyricsCacheService.getPreference(videoId);
+      if (localPref?.lrclibId) lrclibId = localPref.lrclibId;
+      if (localPref?.neteaseId) neteaseId = localPref.neteaseId;
+    }
+
+    if (lrclibId) {
+      const lrclibLyrics = await apiService.getLyricsByLRCLIBId(videoId, lrclibId);
+      if (lrclibLyrics?.lines?.length) {
+        if (lrclibLyrics.isSynced) {
+          return lrclibLyrics;
+        }
+        unsyncedFallback = lrclibLyrics;
+      }
+    }
+
+    if (neteaseId) {
+      const neteaseLyrics = await apiService.getLyricsByNeteaseId(videoId, neteaseId);
+      if (neteaseLyrics?.lines?.length) {
+        if (neteaseLyrics.isSynced) {
+          return neteaseLyrics;
+        }
+        if (!unsyncedFallback) {
+          unsyncedFallback = neteaseLyrics;
+        }
+      }
+    }
+
+    let lyrics = await apiService.getLyrics(videoId, track.title, track.channel);
+    if (!lyrics && !unsyncedFallback) {
+      console.log(`🔄 歌詞第一次查無結果，15s 後重試: ${track.title}`);
+      await new Promise(r => setTimeout(r, 15000));
+      lyrics = await apiService.getLyrics(videoId, track.title, track.channel);
+    }
+
+    return lyrics?.lines?.length ? lyrics : unsyncedFallback;
+  }, []);
 
   // 保持 isPlayingRef 同步
   useEffect(() => {
@@ -418,58 +477,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           (async () => {
             dispatch(setLyricsLoading(true));
             try {
-              // 0. 先檢查本地快取（preload 會提前存好；使用者改偏好時也同步更新快取）
-              //    快取命中就秒載入，不必再打兩支 API（getLyricsPreferences + getLyricsByLRCLIBId）
-              const cachedLyrics = await lyricsCacheService.get(videoId);
-              if (cachedLyrics && isCurrentLyricsRequest(videoId)) {
-                console.log(`📝 歌詞從本地快取載入: ${pendingTrack.title} (來源: ${cachedLyrics.source})`);
-                dispatch(setCurrentLyrics(cachedLyrics));
-                dispatch(setLyricsLoading(false));
-                return;
-              }
-
-              // 1. 快取無資料 → 嘗試偏好 ID（跨裝置同步的使用者選擇）
-              let lrclibId: number | null = null;
-              let neteaseId: number | null = null;
-              try {
-                console.log(`🔍 查詢後端歌詞偏好: ${videoId}`);
-                const backendPrefs = await apiService.getLyricsPreferences(videoId);
-                if (backendPrefs?.lrclibId) lrclibId = backendPrefs.lrclibId;
-                if (backendPrefs?.neteaseId) neteaseId = backendPrefs.neteaseId;
-              } catch (error) {
-                console.log(`⚠️ 後端獲取失敗，使用本地快取 preference`, error);
-                const localPref = await lyricsCacheService.getPreference(videoId);
-                if (localPref?.lrclibId) lrclibId = localPref.lrclibId;
-                if (localPref?.neteaseId) neteaseId = localPref.neteaseId;
-              }
-
-              if (lrclibId) {
-                const lrcLibLyrics = await apiService.getLyricsByLRCLIBId(videoId, lrclibId);
-                if (lrcLibLyrics && isCurrentLyricsRequest(videoId)) {
-                  dispatch(setCurrentLyrics(lrcLibLyrics));
-                  lyricsCacheService.set(videoId, lrcLibLyrics).catch(() => {});
-                  dispatch(setLyricsLoading(false));
-                  return;
-                }
-              }
-
-              if (neteaseId) {
-                const neteaseLyrics = await apiService.getLyricsByNeteaseId(videoId, neteaseId);
-                if (neteaseLyrics && isCurrentLyricsRequest(videoId)) {
-                  dispatch(setCurrentLyrics(neteaseLyrics));
-                  lyricsCacheService.set(videoId, neteaseLyrics).catch(() => {});
-                  dispatch(setLyricsLoading(false));
-                  return;
-                }
-              }
-
-              // 2. 從後端自動搜尋（失敗自動重試 1 次）
-              let lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
-              if (!lyrics) {
-                console.log(`🔄 歌詞第一次查無結果，15s 後重試: ${pendingTrack.title}`);
-                await new Promise(r => setTimeout(r, 15000));
-                lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
-              }
+              const lyrics = await loadLyricsWithPreferences(pendingTrack);
               if (lyrics && isCurrentLyricsRequest(videoId)) {
                 console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
                 dispatch(setCurrentLyrics(lyrics));
@@ -688,57 +696,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           dispatch(setLyricsLoading(true));
           (async () => {
             try {
-              // 0. 先檢查本地快取（preload 會提前存好；使用者改偏好時也同步更新快取）
-              const cachedLyrics = await lyricsCacheService.get(videoId);
-              if (cachedLyrics && cachedLyrics.lines?.length > 0 && isCurrentLyricsRequest(videoId)) {
-                console.log(`📝 歌詞從本地快取載入: ${pendingTrack.title} (${cachedLyrics.source})`);
-                dispatch(setCurrentLyrics(cachedLyrics));
-                dispatch(setLyricsLoading(false));
-                return;
-              }
-
-              // 1. 快取無資料 → 嘗試偏好 ID
-              let lrclibId: number | null = null;
-              let neteaseId: number | null = null;
-              try {
-                console.log(`🔍 查詢後端歌詞偏好: ${videoId}`);
-                const backendPrefs = await apiService.getLyricsPreferences(videoId);
-                if (backendPrefs?.lrclibId) lrclibId = backendPrefs.lrclibId;
-                if (backendPrefs?.neteaseId) neteaseId = backendPrefs.neteaseId;
-              } catch (error) {
-                console.log(`⚠️ 後端獲取失敗，使用本地快取 preference`, error);
-                const localPref = await lyricsCacheService.getPreference(videoId);
-                if (localPref?.lrclibId) lrclibId = localPref.lrclibId;
-                if (localPref?.neteaseId) neteaseId = localPref.neteaseId;
-              }
-
-              if (lrclibId) {
-                const lrcLibLyrics = await apiService.getLyricsByLRCLIBId(videoId, lrclibId);
-                if (lrcLibLyrics && isCurrentLyricsRequest(videoId)) {
-                  dispatch(setCurrentLyrics(lrcLibLyrics));
-                  lyricsCacheService.set(videoId, lrcLibLyrics).catch(() => {});
-                  dispatch(setLyricsLoading(false));
-                  return;
-                }
-              }
-
-              if (neteaseId) {
-                const neteaseLyrics = await apiService.getLyricsByNeteaseId(videoId, neteaseId);
-                if (neteaseLyrics && isCurrentLyricsRequest(videoId)) {
-                  dispatch(setCurrentLyrics(neteaseLyrics));
-                  lyricsCacheService.set(videoId, neteaseLyrics).catch(() => {});
-                  dispatch(setLyricsLoading(false));
-                  return;
-                }
-              }
-
-              // 3. 傳統來源為主（時間戳準確），用 SponsorBlock offset 對齊（失敗自動重試 1 次）
-              let lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
-              if (!lyrics) {
-                console.log(`🔄 歌詞第一次查無結果，15s 後重試: ${pendingTrack.title}`);
-                await new Promise(r => setTimeout(r, 15000));
-                lyrics = await apiService.getLyrics(videoId, pendingTrack.title, pendingTrack.channel);
-              }
+              let lyrics = await loadLyricsWithPreferences(pendingTrack);
               if (lyrics && lyrics.lines?.length > 0 && isCurrentLyricsRequest(videoId)) {
                 // 用 SponsorBlock music_offtopic 計算 offset
                 // 如果影片前面有非音樂段落，歌詞時間戳需要加上 offset
@@ -1796,6 +1754,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 {onOpenLyrics && (
                   <IconButton onClick={onOpenLyrics}><LyricsIcon /></IconButton>
                 )}
+                <IconButton onClick={() => {
+                  dispatch(toggleFavorite({
+                    videoId: displayTrack.videoId,
+                    title: displayTrack.title,
+                    channel: displayTrack.channel,
+                    thumbnail: displayTrack.thumbnail,
+                    duration: displayTrack.duration,
+                  }));
+                }}>
+                  {favoriteIds[displayTrack.videoId]
+                    ? <FavoriteIcon sx={{ color: 'error.main' }} />
+                    : <FavoriteBorderIcon />}
+                </IconButton>
                 <IconButton onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}><PlaylistAddIcon /></IconButton>
               </Box>
             </Box>

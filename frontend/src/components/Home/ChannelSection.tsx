@@ -18,9 +18,10 @@ interface ChannelSectionProps {
   onPlay: (track: Track) => void;
   onHideChannel?: (channelName: string) => void;
   cacheStatus?: Map<string, boolean>; // videoId -> isCached
+  onChannelSearch?: (query: string) => void;
 }
 
-export default function ChannelSection({ channel, onPlay, onHideChannel, cacheStatus }: ChannelSectionProps) {
+export default function ChannelSection({ channel, onPlay, onHideChannel, cacheStatus, onChannelSearch }: ChannelSectionProps) {
   const [loadedVideos, setLoadedVideos] = useState<Track[]>(channel.videos);
   const [visibleCount, setVisibleCount] = useState(Math.min(channel.videos.length, LOAD_MORE_STEP));
   const [hasMoreVideos, setHasMoreVideos] = useState(Boolean(channel.hasMoreVideos));
@@ -63,6 +64,12 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
     }
   }, [channel.channelName, channel.type, hasMoreVideos]);
 
+  useEffect(() => {
+    if (!isDesktop || channel.type !== 'channel') return;
+    if (loadedVideos.length >= desktopLimit || !hasMoreVideos || loadingMoreVideosRef.current) return;
+    void loadMoreChannelVideos();
+  }, [isDesktop, channel.type, loadedVideos.length, hasMoreVideos, loadMoreChannelVideos]);
+
   const lastCardRef = useCallback((node: HTMLDivElement | null) => {
     if (lastCardObserverRef.current) lastCardObserverRef.current.disconnect();
     if (!node) return;
@@ -78,9 +85,12 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
     lastCardObserverRef.current.observe(node);
   }, [channel.type, loadedVideos.length, loadMoreChannelVideos, visibleCount]);
 
-  const renderedVideos = loadedVideos.slice(0, visibleCount);
+  const desktopLimit = 10;
+  const renderedVideos = isDesktop
+    ? loadedVideos.slice(0, desktopLimit)
+    : loadedVideos.slice(0, visibleCount);
 
-  const shouldAttachObserver = visibleCount < loadedVideos.length || (channel.type === 'channel' && hasMoreVideos);
+  const shouldAttachObserver = !isDesktop && (visibleCount < loadedVideos.length || (channel.type === 'channel' && hasMoreVideos));
 
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -115,11 +125,16 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           </Box>
         ) : (
           channel.channelThumbnail && (
-            <Avatar src={channel.channelThumbnail} sx={{ mr: 2, width: 40, height: 40 }} />
+            <Avatar
+              src={channel.channelThumbnail}
+              sx={{ mr: 2, width: 40, height: 40, cursor: onChannelSearch ? 'pointer' : 'default' }}
+              onClick={() => onChannelSearch?.(channel.channelName)}
+            />
           )
         )}
         <Typography
           variant="h6"
+          onClick={() => onChannelSearch?.(channel.channelName)}
           sx={{
             fontWeight: 600,
             fontFamily: '"Syne", sans-serif',
@@ -130,6 +145,7 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
             WebkitBackgroundClip: isSimilarRecommendation ? 'text' : 'inherit',
             WebkitTextFillColor: isSimilarRecommendation ? 'transparent' : 'inherit',
             flex: 1,
+            cursor: onChannelSearch ? 'pointer' : 'default',
           }}
         >
           {channel.channelName}
@@ -180,8 +196,9 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
       <Box
         data-scroll-root
         sx={{
-          display: 'flex',
-          overflowX: 'auto',
+          display: isDesktop ? 'grid' : 'flex',
+          gridTemplateColumns: isDesktop ? 'repeat(auto-fill, minmax(220px, 1fr))' : undefined,
+          overflowX: isDesktop ? 'hidden' : 'auto',
           gap: 2,
           pb: 2,
           '&::-webkit-scrollbar': {
@@ -200,7 +217,7 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           },
         }}
       >
-        {renderedVideos.map((video, idx) => (
+          {renderedVideos.map((video, idx) => (
           <div
             key={video.videoId}
             ref={idx === renderedVideos.length - 1 && shouldAttachObserver ? lastCardRef : null}
@@ -208,8 +225,9 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           >
           <Card
             sx={{
-              minWidth: { xs: 200, sm: 220, md: 240 },
-              maxWidth: { xs: 200, sm: 220, md: 240 },
+              minWidth: isDesktop ? 0 : { xs: 200, sm: 220, md: 240 },
+              maxWidth: isDesktop ? 'none' : { xs: 200, sm: 220, md: 240 },
+              width: isDesktop ? '100%' : undefined,
               flexShrink: 0,
               cursor: 'pointer',
               position: 'relative',
@@ -338,6 +356,11 @@ export default function ChannelSection({ channel, onPlay, onHideChannel, cacheSt
           </Box>
         )}
       </Box>
+      {isDesktop && channel.type === 'channel' && hasMoreVideos && onChannelSearch && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -0.5, px: 0.5 }}>
+          點頻道頭像或標題可直接搜尋更多 {channel.channelName} 內容
+        </Typography>
+      )}
     </Box>
   );
 }

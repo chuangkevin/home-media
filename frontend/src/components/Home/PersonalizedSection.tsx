@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useDispatch } from 'react-redux';
-import { Box, Typography, Card, CardMedia, CardContent, Skeleton } from '@mui/material';
+import { Box, Typography, Card, CardMedia, CardContent, Skeleton, useMediaQuery } from '@mui/material';
 import apiService from '../../services/api.service';
 import { playNow } from '../../store/playerSlice';
 import type { Track } from '../../types/track.types';
@@ -21,6 +21,7 @@ interface PersonalizedData {
 
 export default function PersonalizedSection() {
   const dispatch = useDispatch();
+  const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)');
   const [data, setData] = useState<PersonalizedData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -43,16 +44,32 @@ export default function PersonalizedSection() {
     dispatch(playNow(track));
   };
 
-  const renderRow = (title: string, items: PersonalizedItem[]) => {
+  const renderRow = (title: string, items: PersonalizedItem[], limit: number) => {
     if (!items || items.length === 0) return null;
+    const visibleItems = items.slice(0, limit);
     return (
       <Box sx={{ mb: 2 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1, px: 1 }}>{title}</Typography>
-        <Box sx={{ display: 'flex', overflowX: 'auto', gap: 1.5, px: 1, pb: 1, '&::-webkit-scrollbar': { display: 'none' } }}>
-          {items.map(item => (
+        <Box sx={{
+          display: isDesktop ? 'grid' : 'flex',
+          gridTemplateColumns: isDesktop ? 'repeat(auto-fill, minmax(160px, 1fr))' : undefined,
+          overflowX: isDesktop ? 'hidden' : 'auto',
+          gap: 1.5,
+          px: 1,
+          pb: 1,
+          '&::-webkit-scrollbar': { display: 'none' },
+        }}>
+          {visibleItems.map(item => (
             <Card
               key={item.videoId}
-              sx={{ minWidth: 140, maxWidth: 140, flexShrink: 0, cursor: 'pointer', borderRadius: 2 }}
+              sx={{
+                minWidth: isDesktop ? 0 : 140,
+                maxWidth: isDesktop ? 'none' : 140,
+                width: isDesktop ? '100%' : undefined,
+                flexShrink: 0,
+                cursor: 'pointer',
+                borderRadius: 2,
+              }}
               onClick={() => handlePlay(item)}
             >
               <CardMedia
@@ -81,9 +98,9 @@ export default function PersonalizedSection() {
     return (
       <Box sx={{ mb: 2 }}>
         <Skeleton variant="text" width={120} height={28} sx={{ mx: 1 }} />
-        <Box sx={{ display: 'flex', gap: 1.5, px: 1 }}>
+        <Box sx={{ display: isDesktop ? 'grid' : 'flex', gridTemplateColumns: isDesktop ? 'repeat(4, minmax(0, 1fr))' : undefined, gap: 1.5, px: 1 }}>
           {[1, 2, 3].map(i => (
-            <Skeleton key={i} variant="rectangular" width={140} height={120} sx={{ borderRadius: 2, flexShrink: 0 }} />
+            <Skeleton key={i} variant="rectangular" width={isDesktop ? '100%' : 140} height={120} sx={{ borderRadius: 2, flexShrink: 0 }} />
           ))}
         </Box>
       </Box>
@@ -94,9 +111,9 @@ export default function PersonalizedSection() {
 
   return (
     <>
-      {renderRow('最近播放', data.recentlyPlayed)}
-      {renderRow('最常播放', data.mostPlayed)}
-      {renderRow('我的收藏', data.favorites)}
+      {renderRow('最近播放', data.recentlyPlayed, isDesktop ? 20 : 10)}
+      {renderRow('最常播放', data.mostPlayed, 10)}
+      {renderRow('我的收藏', data.favorites, isDesktop ? 20 : 10)}
     </>
   );
 }

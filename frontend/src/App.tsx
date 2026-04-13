@@ -494,7 +494,7 @@ function AppContent() {
                   onAddToQueue={handleAddToQueue}
                 />
               ) : (
-                !loading && <HomeRecommendations />
+                !loading && <HomeRecommendations onSearch={handleSearch} />
               )}
             </>
           } />
