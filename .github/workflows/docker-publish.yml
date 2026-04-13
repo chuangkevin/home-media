@@ -9,6 +9,7 @@ on:
       - 'backend/**'
       - 'docker-compose*.yml'
       - '.github/workflows/docker-publish.yml'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 env:
