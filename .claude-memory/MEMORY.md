@@ -109,3 +109,4 @@
 - `App.tsx` 的 PWA viewport 校正不能在 scroll 路徑上持續觸發，否則 mobile 首頁會出現整頁抖動/閃爍；保留初次載入、pageshow、orientation 與 visible-return 的主動重算即可。
 - `HomeRecommendations.tsx` / `PersonalizedSection.tsx` 的前景 refresh 要做節流與 in-flight 去重，避免 iPhone PWA 一次 pageshow/visibility 連發時重複刷新造成骨架屏閃爍。
 - `FullscreenLyrics.tsx` 的 cached `<video controls>` 必須把使用者 seek 反向 dispatch 到 Redux/audio，否則影片畫面雖然跳轉，實際音訊時間不會跟上。
+- `PersonalizedSection.tsx` 的 `fetchData` 不得依賴 `data` 本身；否則 `setData()` 會讓 callback identity 改變，進而觸發 `useEffect(...,[fetchData])` 無限重抓 personalized API，造成首頁閃爍。

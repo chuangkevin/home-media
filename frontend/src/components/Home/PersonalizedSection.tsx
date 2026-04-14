@@ -28,14 +28,19 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
   const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const [data, setData] = useState<PersonalizedData | null>(null);
   const [loading, setLoading] = useState(true);
+  const dataRef = useRef<PersonalizedData | null>(null);
   const inFlightRef = useRef<Promise<void> | null>(null);
   const restoreThrottleRef = useRef(0);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   const fetchData = useCallback(async (options?: { silent?: boolean }) => {
     if (inFlightRef.current) {
       return inFlightRef.current;
     }
-    const silent = options?.silent && data !== null;
+    const silent = options?.silent && dataRef.current !== null;
     if (!silent) {
       setLoading(true);
     }
@@ -55,7 +60,7 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
     })();
     inFlightRef.current = request;
     return request;
-  }, [data]);
+  }, []);
 
   useEffect(() => {
     void fetchData();
