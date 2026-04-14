@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { Box, Typography, Card, CardMedia, CardContent, Skeleton, useMediaQuery } from '@mui/material';
 import apiService from '../../services/api.service';
@@ -28,23 +28,33 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
   const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const [data, setData] = useState<PersonalizedData | null>(null);
   const [loading, setLoading] = useState(true);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const restoreThrottleRef = useRef(0);
 
   const fetchData = useCallback(async (options?: { silent?: boolean }) => {
+    if (inFlightRef.current) {
+      return inFlightRef.current;
+    }
     const silent = options?.silent && data !== null;
     if (!silent) {
       setLoading(true);
     }
-    try {
-      const next = await apiService.getPersonalizedRecommendations();
-      setData(next);
-    } catch (error) {
-      console.error('載入個人化推薦失敗:', error);
-      // 前景 refresh / pull 後若請求偶發失敗，保留舊資料避免整區消失。
-    } finally {
-      if (!silent) {
-        setLoading(false);
+    const request = (async () => {
+      try {
+        const next = await apiService.getPersonalizedRecommendations();
+        setData(next);
+      } catch (error) {
+        console.error('載入個人化推薦失敗:', error);
+        // 前景 refresh / pull 後若請求偶發失敗，保留舊資料避免整區消失。
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
+        inFlightRef.current = null;
       }
-    }
+    })();
+    inFlightRef.current = request;
+    return request;
   }, [data]);
 
   useEffect(() => {
@@ -59,6 +69,10 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
 
   useEffect(() => {
     const handleVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - restoreThrottleRef.current < 1500) return;
+      restoreThrottleRef.current = now;
       if (document.visibilityState === 'visible') {
         void fetchData({ silent: true });
       }

@@ -90,6 +90,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const cachedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const cachedVideoUserSeekingRef = useRef(false);
   const videoSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoNudgeResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHardSeekAtRef = useRef(0);
@@ -566,6 +567,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const videoEl = cachedVideoRef.current;
       const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
       if (!videoEl || !audioEl) return;
+
+      if (cachedVideoUserSeekingRef.current) return;
 
       // 恢復鎖：剛從鎖屏/背景回來時跳過同步，讓影片先 buffer
       if (recoveryLockRef.current) return;
@@ -1249,6 +1252,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 videoEl.currentTime = audioEl.currentTime;
                 console.log(`🎬 cached video 同步到 audio: ${audioEl.currentTime.toFixed(1)}s`);
               }
+            }}
+            onSeeking={(e) => {
+              const videoEl = e.target as HTMLVideoElement;
+              cachedVideoUserSeekingRef.current = true;
+              dispatch(seekTo(videoEl.currentTime));
+            }}
+            onSeeked={() => {
+              setTimeout(() => {
+                cachedVideoUserSeekingRef.current = false;
+              }, 200);
             }}
             onPause={() => {}}
             muted

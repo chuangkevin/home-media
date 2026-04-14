@@ -288,25 +288,27 @@ function AppContent() {
       });
     };
 
+    const handleVisibilitySync = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleViewportSync();
+      }
+    };
+
     scheduleViewportSync();
     window.addEventListener('resize', applyViewportHeight);
-    window.addEventListener('scroll', applyViewportHeight, { passive: true });
     window.visualViewport?.addEventListener('resize', applyViewportHeight);
-    window.visualViewport?.addEventListener('scroll', applyViewportHeight);
     window.addEventListener('orientationchange', scheduleViewportSync);
     window.addEventListener('pageshow', scheduleViewportSync);
     window.addEventListener('load', scheduleViewportSync);
-    document.addEventListener('visibilitychange', scheduleViewportSync);
+    document.addEventListener('visibilitychange', handleVisibilitySync);
 
     return () => {
       window.removeEventListener('resize', applyViewportHeight);
-      window.removeEventListener('scroll', applyViewportHeight);
       window.visualViewport?.removeEventListener('resize', applyViewportHeight);
-      window.visualViewport?.removeEventListener('scroll', applyViewportHeight);
       window.removeEventListener('orientationchange', scheduleViewportSync);
       window.removeEventListener('pageshow', scheduleViewportSync);
       window.removeEventListener('load', scheduleViewportSync);
-      document.removeEventListener('visibilitychange', scheduleViewportSync);
+      document.removeEventListener('visibilitychange', handleVisibilitySync);
     };
   }, []);
 

@@ -24,6 +24,7 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
   // playlist selector removed - playNow handles insertion
 
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const restoreThrottleRef = useRef(0);
   const [cacheStatus, setCacheStatus] = useState<Map<string, boolean>>(new Map());
   const [hiddenChannels, setHiddenChannels] = useState<Set<string>>(new Set());
 
@@ -39,6 +40,10 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
 
   useEffect(() => {
     const handleVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - restoreThrottleRef.current < 1500) return;
+      restoreThrottleRef.current = now;
       if (document.visibilityState === 'visible' && channelRecommendations.length === 0 && !loading) {
         dispatch(fetchChannelRecommendations({ page: 0, pageSize: 5, mixed: true }));
       }

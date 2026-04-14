@@ -104,3 +104,8 @@
 - `PlaybackHistory.tsx` 也要走和首頁推薦一致的播放路徑與前景 refresh。播放清單頁的「最近播放」不能自己直 dispatch `playNow` 並忽略 pageshow / visibility refresh。
 - `backend/src/routes/history-playback.routes.ts` 不能再用 `play_count > 0` 當播放紀錄條件；實際 UX 要看 `last_played > 0`，否則首頁有最近播放、播放清單頁卻空白。
 - `backend/src/routes/history-playback.routes.ts` 要用 `channel_name as channel`，不能查不存在的 `channel` 欄位；首頁 recently-played 與播放清單頁的欄位對映必須一致。
+
+## Homepage flicker + cached-video seek control (2026-04-14)
+- `App.tsx` 的 PWA viewport 校正不能在 scroll 路徑上持續觸發，否則 mobile 首頁會出現整頁抖動/閃爍；保留初次載入、pageshow、orientation 與 visible-return 的主動重算即可。
+- `HomeRecommendations.tsx` / `PersonalizedSection.tsx` 的前景 refresh 要做節流與 in-flight 去重，避免 iPhone PWA 一次 pageshow/visibility 連發時重複刷新造成骨架屏閃爍。
+- `FullscreenLyrics.tsx` 的 cached `<video controls>` 必須把使用者 seek 反向 dispatch 到 Redux/audio，否則影片畫面雖然跳轉，實際音訊時間不會跟上。
