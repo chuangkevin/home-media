@@ -162,7 +162,14 @@ export class RecommendationController {
           recentTracks.map(track =>
             axios.get(
               `http://localhost:3001/api/recommendations/similar/${track.videoId}`,
-              { params: { limit: includeNum }, timeout: 2000 }
+              {
+                params: {
+                  limit: includeNum,
+                  title: track.title,
+                  artist: track.channelName,
+                },
+                timeout: 5000,
+              }
             ).then((r: any) => r.data?.recommendations || [])
           )
         ),
@@ -182,14 +189,25 @@ export class RecommendationController {
                 : buildDiscoveryQueriesFallback(listenedArtists, recentTracks.map(track => track.title));
               if (queries.length === 0) return null;
 
-              const query = queries[Math.floor(Math.random() * queries.length)];
-              const results = await youtubeService.search(query, 6);
-
               const listenedSet = new Set(listenedArtists.map((a: string) => a.toLowerCase()));
-              const newResults = results.filter(r =>
-                !listenedSet.has((r.channel || '').toLowerCase())
-              ).slice(0, 5);
+              const collected = new Map<string, any>();
+              const shuffledQueries = [...queries].sort(() => Math.random() - 0.5).slice(0, 2);
 
+              for (const query of shuffledQueries) {
+                const results = await youtubeService.search(query, 8);
+                for (const result of results) {
+                  const channel = (result.channel || '').toLowerCase();
+                  if (listenedSet.has(channel)) continue;
+                  const identity = `${result.videoId}`;
+                  if (!collected.has(identity)) {
+                    collected.set(identity, result);
+                  }
+                  if (collected.size >= 8) break;
+                }
+                if (collected.size >= 8) break;
+              }
+
+              const newResults = Array.from(collected.values()).slice(0, 5);
               return newResults.length > 0 ? newResults : null;
             } catch (err) {
               logger.warn('AI discovery recommendations failed:', err);

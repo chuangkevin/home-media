@@ -114,3 +114,5 @@
 ## Recommendation feed depth + style mix (2026-04-14)
 - `RecommendationService.getChannelRecommendations()` 不能只切固定 `pageSize` 個候選頻道後就停；若其中幾個頻道抓不到影片，首頁會縮成 2~3 個 section，且 `hasMore` 錯誤變成 false。必須 overfetch 候選頻道，補到 pageSize 個有效 section 為止。
 - `RecommendationController.getMixedRecommendations()` 的首頁第一頁應提早混入 style/similar/discovery section，而不是幾乎只回歷史頻道；否則推薦會看起來「不智慧」且種類太少。
+- `getMixedRecommendations()` 內部呼叫 `/api/recommendations/similar/:videoId` 時，必須把 `title + artist(channelName)` 一起帶入 query params，避免 seed metadata 缺失讓 similar route 退化成空 artist / 垃圾結果。
+- style/discovery 不能只打一個隨機 query 就決定成敗；至少要合併多個 query 的結果，再去掉已聽過頻道，首頁第一頁才比較穩定會出現真正的探索區塊。
