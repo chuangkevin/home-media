@@ -31,10 +31,11 @@ import StorageIcon from '@mui/icons-material/Storage';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../../store';
 import { fetchPlaylists, fetchPlaylist, deletePlaylist, updatePlaylist, clearCurrentPlaylist } from '../../store/playlistSlice';
-import { setPlaylist, setPendingTrack, setIsPlaying } from '../../store/playerSlice';
+import { setPlaylist, setPendingTrack, setIsPlaying, playNow } from '../../store/playerSlice';
 import CreatePlaylistDialog from './CreatePlaylistDialog';
 import apiService, { type Playlist } from '../../services/api.service';
 import PlaybackHistory from '../History/PlaybackHistory';
+import type { Track } from '../../types/track.types';
 
 interface PlaylistSectionProps {
   onPlaylistSelect?: (playlistId: string) => void;
@@ -131,6 +132,10 @@ export default function PlaylistSection({ onPlaylistSelect }: PlaylistSectionPro
 
   const handleBackToList = () => {
     dispatch(clearCurrentPlaylist());
+  };
+
+  const handleHistoryPlay = (track: Track) => {
+    dispatch(playNow(track));
   };
 
   // 顯示播放清單詳情
@@ -240,7 +245,7 @@ export default function PlaylistSection({ onPlaylistSelect }: PlaylistSectionPro
             最近播放
           </Typography>
         </Box>
-        <PlaybackHistory />
+        <PlaybackHistory onPlay={handleHistoryPlay} />
       </Box>
 
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>

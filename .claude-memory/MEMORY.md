@@ -101,3 +101,4 @@
 - `PersonalizedSection.tsx` 在收藏清單變更、`pageshow`、以及 `visibilitychange -> visible` 時重新抓資料；`HomeRecommendations.tsx` 若推薦清單為空，也會在回前景時自動補抓一次。
 - `PersonalizedSection.tsx` refresh 改成 stale-while-revalidate：前景刷新或收藏變更時保留既有內容，不要先清空畫面。`HomeRecommendations.tsx` 不再用整頁 early-return empty state 蓋掉觀看紀錄/收藏。
 - `App.tsx` 的 `--app-dvh` 會在初次載入時連續多次重算，並取 `visualViewport.height` 與 `innerHeight` 的較大值；PWA 不應該要靠下拉一次才貼齊螢幕底部。
+- `PlaybackHistory.tsx` 也要走和首頁推薦一致的播放路徑與前景 refresh。播放清單頁的「最近播放」不能自己直 dispatch `playNow` 並忽略 pageshow / visibility refresh。

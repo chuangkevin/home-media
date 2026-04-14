@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import { useDispatch } from 'react-redux';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -14,8 +13,6 @@ import {
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import apiService, { type PlaybackHistoryTrack } from '../../services/api.service';
-import { playNow } from '../../store/playerSlice';
-import type { AppDispatch } from '../../store';
 import type { Track } from '../../types/track.types';
 
 function groupByDate(tracks: PlaybackHistoryTrack[]): Record<string, PlaybackHistoryTrack[]> {
@@ -39,17 +36,48 @@ function groupByDate(tracks: PlaybackHistoryTrack[]): Record<string, PlaybackHis
   return groups;
 }
 
-export default function PlaybackHistory() {
-  const dispatch = useDispatch<AppDispatch>();
+interface PlaybackHistoryProps {
+  onPlay: (track: Track) => void;
+}
+
+export default function PlaybackHistory({ onPlay }: PlaybackHistoryProps) {
   const [tracks, setTracks] = useState<PlaybackHistoryTrack[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const fetchData = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent && tracks.length > 0;
+    if (!silent) {
+      setLoading(true);
+    }
+    try {
+      const data = await apiService.getPlaybackHistory(100);
+      setTracks(data);
+    } catch (error) {
+      console.error('載入播放紀錄失敗:', error);
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  }, [tracks.length]);
+
   useEffect(() => {
-    apiService.getPlaybackHistory(100)
-      .then(data => setTracks(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    void fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchData({ silent: true });
+      }
+    };
+    window.addEventListener('pageshow', handleVisible);
+    document.addEventListener('visibilitychange', handleVisible);
+    return () => {
+      window.removeEventListener('pageshow', handleVisible);
+      document.removeEventListener('visibilitychange', handleVisible);
+    };
+  }, [fetchData]);
 
   const handlePlay = (t: PlaybackHistoryTrack) => {
     const track: Track = {
@@ -60,7 +88,7 @@ export default function PlaybackHistory() {
       thumbnail: t.thumbnail,
       duration: t.duration,
     };
-    dispatch(playNow(track));
+    onPlay(track);
   };
 
   if (loading) {
