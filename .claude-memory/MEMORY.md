@@ -99,3 +99,5 @@
 - `App.tsx` 不再在 refresh / reload 時從 localStorage 或 `?playing=` 自動恢復歌曲；初始化時直接 `clearPlaybackSession()` + `playbackStateService.clear()`。
 - `PersonalizedSection.tsx` 不應自己直 dispatch `playNow`；改走與首頁推薦共用的 `handlePlay`，確保收藏卡片與推薦卡片播放路徑一致。
 - `PersonalizedSection.tsx` 在收藏清單變更、`pageshow`、以及 `visibilitychange -> visible` 時重新抓資料；`HomeRecommendations.tsx` 若推薦清單為空，也會在回前景時自動補抓一次。
+- `PersonalizedSection.tsx` refresh 改成 stale-while-revalidate：前景刷新或收藏變更時保留既有內容，不要先清空畫面。`HomeRecommendations.tsx` 不再用整頁 early-return empty state 蓋掉觀看紀錄/收藏。
+- `App.tsx` 的 `--app-dvh` 會在初次載入時連續多次重算，並取 `visualViewport.height` 與 `innerHeight` 的較大值；PWA 不應該要靠下拉一次才貼齊螢幕底部。

@@ -213,28 +213,6 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
     }
   };
 
-  if (channelRecommendations.length === 0 && !loading) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '60vh',
-          gap: 2,
-        }}
-      >
-        <Typography variant="h5" color="text.secondary">
-          開始播放音樂以獲得個人化推薦
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          您還沒有觀看歷史，請先搜尋並播放一些歌曲
-        </Typography>
-      </Box>
-    );
-  }
-
   return (
     <Box sx={{ width: '100%' }}>
       <PersonalizedSection onPlay={handlePlay} />
@@ -267,6 +245,28 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
           />
         </div>
       ))}
+
+      {visibleRecommendations.length === 0 && !loading && (
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '28vh',
+            gap: 1.5,
+            color: 'text.secondary',
+            textAlign: 'center',
+          }}
+        >
+          <Typography variant="h6" color="text.secondary">
+            開始播放音樂以獲得個人化推薦
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            推薦暫時為空時，觀看紀錄與收藏仍應保留顯示。
+          </Typography>
+        </Box>
+      )}
 
       {loading && (
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 6, gap: 2 }}>

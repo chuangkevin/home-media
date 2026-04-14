@@ -269,34 +269,44 @@ function AppContent() {
   // 改用 visualViewport 驅動 CSS 變數，避免內容頂到靈動島或高度錯亂。
   useEffect(() => {
     const applyViewportHeight = () => {
-      const vvHeight = window.visualViewport?.height ?? window.innerHeight;
+      const vvHeight = window.visualViewport?.height ?? 0;
       const fullHeight = window.innerHeight;
+      const stableHeight = Math.max(vvHeight, fullHeight);
       // 鍵盤彈出時 visualViewport.height 會大幅縮小，此時不更新高度
       // 避免整個佈局被壓縮、播放器跑位
-      if (fullHeight - vvHeight > 100) return;
-      document.documentElement.style.setProperty('--app-dvh', `${vvHeight}px`);
+      if (vvHeight > 0 && fullHeight - vvHeight > 100) return;
+      document.documentElement.style.setProperty('--app-dvh', `${stableHeight}px`);
     };
 
-    const handleVisible = () => {
+    const scheduleViewportSync = () => {
       requestAnimationFrame(() => {
         applyViewportHeight();
+        setTimeout(applyViewportHeight, 60);
         setTimeout(applyViewportHeight, 120);
+        setTimeout(applyViewportHeight, 240);
+        setTimeout(applyViewportHeight, 500);
       });
     };
 
-    applyViewportHeight();
+    scheduleViewportSync();
     window.addEventListener('resize', applyViewportHeight);
+    window.addEventListener('scroll', applyViewportHeight, { passive: true });
     window.visualViewport?.addEventListener('resize', applyViewportHeight);
-    window.addEventListener('orientationchange', handleVisible);
-    window.addEventListener('pageshow', handleVisible);
-    document.addEventListener('visibilitychange', handleVisible);
+    window.visualViewport?.addEventListener('scroll', applyViewportHeight);
+    window.addEventListener('orientationchange', scheduleViewportSync);
+    window.addEventListener('pageshow', scheduleViewportSync);
+    window.addEventListener('load', scheduleViewportSync);
+    document.addEventListener('visibilitychange', scheduleViewportSync);
 
     return () => {
       window.removeEventListener('resize', applyViewportHeight);
+      window.removeEventListener('scroll', applyViewportHeight);
       window.visualViewport?.removeEventListener('resize', applyViewportHeight);
-      window.removeEventListener('orientationchange', handleVisible);
-      window.removeEventListener('pageshow', handleVisible);
-      document.removeEventListener('visibilitychange', handleVisible);
+      window.visualViewport?.removeEventListener('scroll', applyViewportHeight);
+      window.removeEventListener('orientationchange', scheduleViewportSync);
+      window.removeEventListener('pageshow', scheduleViewportSync);
+      window.removeEventListener('load', scheduleViewportSync);
+      document.removeEventListener('visibilitychange', scheduleViewportSync);
     };
   }, []);
 

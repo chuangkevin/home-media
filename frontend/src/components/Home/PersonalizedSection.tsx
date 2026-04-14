@@ -29,31 +29,38 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
   const [data, setData] = useState<PersonalizedData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent && data !== null;
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const next = await apiService.getPersonalizedRecommendations();
       setData(next);
     } catch (error) {
       console.error('載入個人化推薦失敗:', error);
-      setData(null);
+      // 前景 refresh / pull 後若請求偶發失敗，保留舊資料避免整區消失。
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [data]);
 
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
 
   useEffect(() => {
-    void fetchData();
+    if (data !== null) {
+      void fetchData({ silent: true });
+    }
   }, [fetchData, Object.keys(favoriteIds).sort().join('|')]);
 
   useEffect(() => {
     const handleVisible = () => {
       if (document.visibilityState === 'visible') {
-        void fetchData();
+        void fetchData({ silent: true });
       }
     };
     window.addEventListener('pageshow', handleVisible);
