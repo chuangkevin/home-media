@@ -11,7 +11,7 @@ router.get('/', (req: Request, res: Response): void => {
   try {
     const db = getDatabase();
     const tracks = db.prepare(`
-      SELECT video_id as videoId, title, channel, thumbnail, duration,
+      SELECT video_id as videoId, title, channel_name as channel, thumbnail, duration,
              play_count as playCount, last_played as lastPlayed
       FROM cached_tracks
       WHERE last_played > 0
