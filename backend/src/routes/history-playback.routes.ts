@@ -14,7 +14,7 @@ router.get('/', (req: Request, res: Response): void => {
       SELECT video_id as videoId, title, channel, thumbnail, duration,
              play_count as playCount, last_played as lastPlayed
       FROM cached_tracks
-      WHERE play_count > 0 AND last_played > 0
+      WHERE last_played > 0
       ORDER BY last_played DESC
       LIMIT ?
     `).all(limit);
