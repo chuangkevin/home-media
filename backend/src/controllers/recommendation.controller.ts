@@ -12,6 +12,18 @@ import { buildTrackIdentity } from '../utils/trackIdentity';
 let mixedCache: { data: any; timestamp: number } | null = null;
 const MIXED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+function buildDiscoveryQueriesFallback(listenedArtists: string[], recentTitles: string[]): string[] {
+  const artists = listenedArtists.filter(Boolean).slice(0, 3);
+  const titles = recentTitles.filter(Boolean).slice(0, 2);
+  const queries = [
+    artists.length > 0 ? `${artists.join(' ')} similar artists playlist` : '',
+    artists.length > 1 ? `${artists[0]} ${artists[1]} related songs` : '',
+    titles.length > 0 ? `${titles[0]} songs with similar vibe` : '',
+    artists.length > 0 ? `${artists[0]} dream pop indie alternative` : '',
+  ];
+  return [...new Set(queries.map(query => query.trim()).filter(Boolean))];
+}
+
 /**
  * 推薦控制器
  */
@@ -34,7 +46,7 @@ export class RecommendationController {
         return;
       }
 
-      const recommendations = await recommendationService.getChannelRecommendations(
+      const result = await recommendationService.getChannelRecommendations(
         pageNum,
         pageSizeNum
       );
@@ -42,9 +54,9 @@ export class RecommendationController {
       res.json({
         page: pageNum,
         pageSize: pageSizeNum,
-        count: recommendations.length,
-        hasMore: recommendations.length === pageSizeNum,
-        recommendations,
+        count: result.recommendations.length,
+        hasMore: result.hasMore,
+        recommendations: result.recommendations,
       });
     } catch (error) {
       logger.error('Get channel recommendations error:', error);
@@ -134,14 +146,14 @@ export class RecommendationController {
 
       // 頻道推薦 + 相似歌曲 + AI 發現：全部並行
       const recentTracks = db.prepare(`
-        SELECT video_id as videoId
+        SELECT video_id as videoId, title, channel_name as channelName
         FROM cached_tracks
         WHERE last_played > 0
         ORDER BY last_played DESC
         LIMIT 5
-      `).all() as Array<{ videoId: string }>;
+      `).all() as Array<{ videoId: string; title: string; channelName: string }>;
 
-      const [channelRecommendations, similarResults, discoveryResult] = await Promise.all([
+      const [channelPage, similarResults, discoveryResult] = await Promise.all([
         // 1. 頻道推薦
         recommendationService.getChannelRecommendations(pageNum, pageSizeNum),
 
@@ -159,14 +171,15 @@ export class RecommendationController {
         Promise.race([
           (async () => {
             try {
-              const profile = await getUserProfile();
-              if (!profile) return null;
-
               const listenedArtists = db.prepare(
                 `SELECT DISTINCT channel_name FROM watched_channels ORDER BY watch_count DESC LIMIT 20`
               ).all().map((r: any) => r.channel_name);
 
-              const queries = await generateDiscoveryQueries(profile, listenedArtists);
+              const profile = await getUserProfile();
+              const aiQueries = profile ? await generateDiscoveryQueries(profile, listenedArtists) : [];
+              const queries = aiQueries.length > 0
+                ? aiQueries
+                : buildDiscoveryQueriesFallback(listenedArtists, recentTracks.map(track => track.title));
               if (queries.length === 0) return null;
 
               const query = queries[Math.floor(Math.random() * queries.length)];
@@ -202,35 +215,31 @@ export class RecommendationController {
         }
       }
       const uniqueSimilar = Array.from(uniqueSimilarMap.values()).slice(0, 10);
+      const channelRecommendations = channelPage.recommendations;
 
       // 組裝混合推薦
       const mixedRecommendations: any[] = [];
 
-      for (const channel of channelRecommendations) {
-        mixedRecommendations.push({ type: 'channel', ...channel });
-
-        // 在第一個頻道後插入相似推薦
-        if (uniqueSimilar.length > 0 && mixedRecommendations.length <= 2) {
-          mixedRecommendations.push({
-            type: 'similar',
-            channelName: '根據您的收聽記錄',
-            channelThumbnail: '',
-            videos: uniqueSimilar.map((t: any) => ({
-              videoId: t.videoId,
-              title: t.title,
-              thumbnail: t.thumbnail,
-              duration: t.duration || 0,
-              channel: t.channelName || t.channel || '',
-              uploadedAt: t.uploadedAt || '',
-            })),
-            watchCount: 0,
-          });
-        }
+      const styleSections: any[] = [];
+      if (uniqueSimilar.length > 0) {
+        styleSections.push({
+          type: 'similar',
+          channelName: '根據您的收聽記錄',
+          channelThumbnail: '',
+          videos: uniqueSimilar.map((t: any) => ({
+            videoId: t.videoId,
+            title: t.title,
+            thumbnail: t.thumbnail,
+            duration: t.duration || 0,
+            channel: t.channelName || t.channel || '',
+            uploadedAt: t.uploadedAt || '',
+          })),
+          watchCount: 0,
+        });
       }
 
-      // 插入 AI 發現推薦
       if (discoveryResult) {
-        mixedRecommendations.splice(1, 0, {
+        styleSections.push({
           type: 'discovery',
           channelName: `🔮 AI 為你發現`,
           channelThumbnail: '',
@@ -246,11 +255,23 @@ export class RecommendationController {
         });
       }
 
+      if (pageNum === 0 && channelRecommendations.length > 0) {
+        mixedRecommendations.push({ type: 'channel', ...channelRecommendations[0] });
+        mixedRecommendations.push(...styleSections.slice(0, 2));
+        for (const channel of channelRecommendations.slice(1)) {
+          mixedRecommendations.push({ type: 'channel', ...channel });
+        }
+      } else {
+        for (const channel of channelRecommendations) {
+          mixedRecommendations.push({ type: 'channel', ...channel });
+        }
+      }
+
       const responseData = {
         page: pageNum,
         pageSize: pageSizeNum,
         count: mixedRecommendations.length,
-        hasMore: channelRecommendations.length === pageSizeNum,
+        hasMore: channelPage.hasMore,
         recommendations: mixedRecommendations,
       };
 

@@ -5,6 +5,11 @@ import historyService from './history.service';
 import youtubeService from './youtube.service';
 import logger from '../utils/logger';
 
+interface ChannelRecommendationPage {
+  recommendations: ChannelRecommendation[];
+  hasMore: boolean;
+}
+
 /**
  * 推薦服務
  * 負責生成基於觀看歷史的推薦內容
@@ -47,7 +52,7 @@ class RecommendationService {
   async getChannelRecommendations(
     page: number = 0,
     pageSize: number = 5
-  ): Promise<ChannelRecommendation[]> {
+  ): Promise<ChannelRecommendationPage> {
     try {
       logger.info(`[Recommend] Starting recommendation generation (page: ${page}, size: ${pageSize})`);
       
@@ -88,7 +93,7 @@ class RecommendationService {
 
       if (channels.length === 0) {
         logger.warn('[Recommend] No watch history found. Cannot generate recommendations.');
-        return [];
+        return { recommendations: [], hasMore: false };
       }
 
       // 3. 加權隨機排序（不再固定順序）
@@ -112,23 +117,30 @@ class RecommendationService {
       
       if (page >= historyPageCount) {
         logger.info(`[Recommend] History exhausted (page ${page} >= ${historyPageCount}). Entering AI Discovery Mode.`);
-        return await this.getDiscoveryRecommendations(page, pageSize, channels.map(c => c.channelName));
+        const discovery = await this.getDiscoveryRecommendations(page, pageSize, channels.map(c => c.channelName));
+        return {
+          recommendations: discovery,
+          hasMore: discovery.length === pageSize,
+        };
       }
 
       // 5. 分頁 (觀看歷史路徑)
-      const pageChannels = scoredChannels.slice(
-        page * pageSize,
-        (page + 1) * pageSize
-      );
-      logger.info(`[Recommend] Sliced channels for current page. Found ${pageChannels.length} channels for this page.`);
+      // 不能只切固定 pageSize 後就停，否則這一頁只要有幾個頻道抓不到影片，首頁就會縮成 2~3 個 section。
+      const startIndex = page * pageSize;
+      let cursor = startIndex;
+      const collected: ChannelRecommendation[] = [];
 
-      // 6. 為每個頻道獲取影片（並發請求）
-      const recommendations = await Promise.all(
-        pageChannels.map(async (channel) => {
-          logger.info(`[Recommend] Processing channel: ${channel.channelName}`);
-          // 檢查 6 小時快取
-          const cached = this.getCachedRecommendations(channel.channelName);
-          if (cached) {
+      while (cursor < scoredChannels.length && collected.length < pageSize) {
+        const batch = scoredChannels.slice(cursor, cursor + Math.max(pageSize * 2, 8));
+        cursor += batch.length;
+        logger.info(`[Recommend] Overfetch history channels: cursor=${cursor}, batch=${batch.length}, collected=${collected.length}`);
+
+        const recommendations = await Promise.all(
+          batch.map(async (channel) => {
+            logger.info(`[Recommend] Processing channel: ${channel.channelName}`);
+            // 檢查 6 小時快取
+            const cached = this.getCachedRecommendations(channel.channelName);
+            if (cached) {
             logger.info(`[Recommend] Cache hit for channel: ${channel.channelName}`);
             const normalizedCached = this.normalizeChannelVideos(cached);
             return {
@@ -158,24 +170,29 @@ class RecommendationService {
             this.cacheRecommendations(channel.channelName, sorted);
           }
 
-          return {
-            channelName: channel.channelName,
-            channelThumbnail: channel.channelThumbnail,
-            videos: sorted.slice(0, this.VIDEOS_PER_CHANNEL),
-            watchCount: channel.watchCount,
-            hasMoreVideos: sorted.length > this.VIDEOS_PER_CHANNEL,
-          };
-        })
-      );
+            return {
+              channelName: channel.channelName,
+              channelThumbnail: channel.channelThumbnail,
+              videos: sorted.slice(0, this.VIDEOS_PER_CHANNEL),
+              watchCount: channel.watchCount,
+              hasMoreVideos: sorted.length > this.VIDEOS_PER_CHANNEL,
+            };
+          })
+        );
 
-      logger.info('[Recommend] Finished processing all channels for the page.');
+        const validRecommendations = recommendations.filter(r => r.videos.length > 0);
+        for (const recommendation of validRecommendations) {
+          if (collected.length >= pageSize) break;
+          collected.push(recommendation);
+        }
+      }
 
-      // 7. 過濾掉沒有影片的頻道
-      const validRecommendations = recommendations.filter(r => r.videos.length > 0);
+      logger.info(`[Recommend] Finished processing page with ${collected.length} valid recommendations.`);
 
-      logger.info(`[Recommend] Found ${validRecommendations.length} valid recommendations.`);
-
-      return validRecommendations;
+      return {
+        recommendations: collected,
+        hasMore: cursor < scoredChannels.length,
+      };
     } catch (error) {
       logger.error('Failed to get channel recommendations:', error);
       throw error;

@@ -110,3 +110,7 @@
 - `HomeRecommendations.tsx` / `PersonalizedSection.tsx` 的前景 refresh 要做節流與 in-flight 去重，避免 iPhone PWA 一次 pageshow/visibility 連發時重複刷新造成骨架屏閃爍。
 - `FullscreenLyrics.tsx` 的 cached `<video controls>` 必須把使用者 seek 反向 dispatch 到 Redux/audio，否則影片畫面雖然跳轉，實際音訊時間不會跟上。
 - `PersonalizedSection.tsx` 的 `fetchData` 不得依賴 `data` 本身；否則 `setData()` 會讓 callback identity 改變，進而觸發 `useEffect(...,[fetchData])` 無限重抓 personalized API，造成首頁閃爍。
+
+## Recommendation feed depth + style mix (2026-04-14)
+- `RecommendationService.getChannelRecommendations()` 不能只切固定 `pageSize` 個候選頻道後就停；若其中幾個頻道抓不到影片，首頁會縮成 2~3 個 section，且 `hasMore` 錯誤變成 false。必須 overfetch 候選頻道，補到 pageSize 個有效 section 為止。
+- `RecommendationController.getMixedRecommendations()` 的首頁第一頁應提早混入 style/similar/discovery section，而不是幾乎只回歷史頻道；否則推薦會看起來「不智慧」且種類太少。
