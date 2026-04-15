@@ -111,6 +111,7 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
+  const navHeight = isUltrawide ? 48 : 'calc(60px + env(safe-area-inset-bottom, 0px))';
 
   const getNavValue = () => {
     if (location.pathname === '/playlists') return '/playlists';
@@ -133,7 +134,6 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
     <Paper
       sx={{
         flexShrink: 0,
-        paddingBottom: isUltrawide ? 0 : 'env(safe-area-inset-bottom, 0px)',
         borderTop: '1px solid',
         borderColor: 'divider',
         background: (theme) =>
@@ -148,28 +148,34 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
       <BottomNavigation
         value={getNavValue()}
         showLabels
-        sx={{ minHeight: isUltrawide ? 48 : 60, height: isUltrawide ? 48 : 60, background: 'transparent' }}
+        sx={{
+          minHeight: navHeight,
+          height: navHeight,
+          pb: isUltrawide ? 0 : 'env(safe-area-inset-bottom, 0px)',
+          boxSizing: 'border-box',
+          background: 'transparent',
+        }}
       >
         <BottomNavigationAction
           label="首頁"
           value="/"
           icon={<HomeIcon sx={{ fontSize: isUltrawide ? 20 : 24 }} />}
           onClick={() => handleClick('/')}
-          sx={{ py: isUltrawide ? 0.5 : 1 }}
+          sx={{ py: isUltrawide ? 0.5 : 1, minHeight: 'inherit' }}
         />
         <BottomNavigationAction
           label="播放清單"
           value="/playlists"
           onClick={() => handleClick('/playlists')}
           icon={<QueueMusicIcon sx={{ fontSize: isUltrawide ? 20 : 24 }} />}
-          sx={{ py: isUltrawide ? 0.5 : 1 }}
+          sx={{ py: isUltrawide ? 0.5 : 1, minHeight: 'inherit' }}
         />
         <BottomNavigationAction
           label="設定"
           value="/admin"
           icon={<SettingsIcon sx={{ fontSize: isUltrawide ? 20 : 24 }} />}
           onClick={() => handleClick('/admin')}
-          sx={{ py: isUltrawide ? 0.5 : 1 }}
+          sx={{ py: isUltrawide ? 0.5 : 1, minHeight: 'inherit' }}
         />
       </BottomNavigation>
     </Paper>
