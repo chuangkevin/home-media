@@ -45,6 +45,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const pendingBlobUrlRef = useRef<string | null>(null);
   const wasCompletedRef = useRef(false);
   const completeSentRef = useRef(false);
+  const pauseSyncSuppressedUntilRef = useRef(0);
+  const isCachedRef = useRef(false);
+  const videoModeNetworkStallCountRef = useRef(0);
+  const lastVideoModeNetworkStallAtRef = useRef(0);
+  const videoModeFallbackTriggeredRef = useRef(false);
   // iOS 背景快速換歌：預先準備好下一首的 blob URL，ended 時直接播放不等 Redux
   const nextTrackBlobUrlRef = useRef<string | null>(null);
   const nextTrackInfoRef = useRef<{ videoId: string; title: string; channel: string; thumbnail: string; duration: number } | null>(null);
@@ -207,6 +212,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 快取狀態
   const [isCached, setIsCached] = useState(false);
   const [cacheToast, setCacheToast] = useState(false);
+  const [networkToast, setNetworkToast] = useState('');
 
   // SponsorBlock 跳過片段
   const [skipToast, setSkipToast] = useState('');
@@ -282,9 +288,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  useEffect(() => {
+    isCachedRef.current = isCached;
+  }, [isCached]);
+
   // 保持 displayModeRef 同步
   useEffect(() => {
     displayModeRef.current = displayMode;
+  }, [displayMode]);
+
+  useEffect(() => {
+    if (displayMode !== 'video') {
+      videoModeNetworkStallCountRef.current = 0;
+      videoModeFallbackTriggeredRef.current = false;
+    }
   }, [displayMode]);
 
   // Keep playlist/index refs fresh so closures inside handleTimeUpdate stay current
@@ -292,6 +309,50 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
   // Reset 80% preload flag when track changes
   useEffect(() => { preload80TriggeredRef.current = false; }, [currentTrack?.videoId]);
+  useEffect(() => {
+    videoModeNetworkStallCountRef.current = 0;
+    videoModeFallbackTriggeredRef.current = false;
+  }, [currentTrack?.videoId]);
+
+  const suppressPauseSync = useCallback((durationMs: number = 800) => {
+    pauseSyncSuppressedUntilRef.current = Math.max(
+      pauseSyncSuppressedUntilRef.current,
+      Date.now() + durationMs
+    );
+  }, []);
+
+  const pauseInternally = useCallback((audioEl: HTMLMediaElement | null, durationMs: number = 800) => {
+    if (!audioEl) return;
+    suppressPauseSync(durationMs);
+    audioEl.pause();
+  }, [suppressPauseSync]);
+
+  const maybeFallbackToAudioOnly = useCallback((reason: 'waiting' | 'stalled') => {
+    if (displayModeRef.current !== 'video' || isCachedRef.current || videoModeFallbackTriggeredRef.current) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastVideoModeNetworkStallAtRef.current > 8000) {
+      videoModeNetworkStallCountRef.current = 0;
+    }
+    lastVideoModeNetworkStallAtRef.current = now;
+    videoModeNetworkStallCountRef.current += 1;
+
+    if (videoModeNetworkStallCountRef.current < 2) {
+      return;
+    }
+
+    videoModeFallbackTriggeredRef.current = true;
+    videoModeNetworkStallCountRef.current = 0;
+    if (currentVideoIdRef.current) {
+      audioCacheService.abortDownload(currentVideoIdRef.current);
+    }
+    console.warn(`⚠️ 影片模式弱網路卡頓 (${reason})，切回純音訊模式保播放連續性`);
+    dispatch(setDisplayMode('visualizer'));
+    setNetworkToast('網路不穩，已切回純音訊模式保持播放');
+  }, [dispatch]);
+
   useEffect(() => {
     if (!currentTrack?.videoId) return;
     // iPhone/PWA 背景播放時，舊歌預載不應持續佔住下載槽。
@@ -395,7 +456,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           currentVideoIdRef.current = videoId;
           if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
           currentBlobUrlRef.current = blobUrl;
-          audio.pause();
+          pauseInternally(audio);
           audio.currentTime = 0;
           audio.src = blobUrl;
           audio.load();
@@ -607,7 +668,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         const audio = audioRef.current!;
 
         // 停止舊音訊（避免舊音訊繼續播放）
-        audio.pause();
+        pauseInternally(audio);
         audio.currentTime = 0;
 
         // audio.src 已在上面的流程中設定（串流 URL）
@@ -1324,6 +1385,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const handleStalled = () => {
       if (stalledRetryCount >= MAX_STALLED_RETRIES) return; // 不再重試
       console.warn(`⚠️ Audio stalled (${stalledRetryCount + 1}/${MAX_STALLED_RETRIES})`);
+      maybeFallbackToAudioOnly('stalled');
       if (stalledTimeout) clearTimeout(stalledTimeout);
       stalledTimeout = setTimeout(() => {
         if (audio.paused === false && audio.currentTime === lastCurrentTime) {
@@ -1341,6 +1403,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     const handleWaiting = () => {
       console.log('⏳ Audio waiting - 等待緩衝...');
+      maybeFallbackToAudioOnly('waiting');
       // 设置超时自动恢复播放，防止卡住
       setTimeout(() => {
         if (audio && !audio.paused && audio.readyState >= 2 && isPlaying) {
@@ -1412,7 +1475,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             // 策略 2: 暫停後重新播放
             () => {
               console.log('🔄 策略 2: 暫停重播');
-              audio.pause();
+              pauseInternally(audio, 500);
               return new Promise<void>((resolve) => {
                 setTimeout(() => {
                   audio.play().then(resolve).catch(() => resolve());
@@ -1452,6 +1515,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // YouTube iframe 已被靜音（event.target.mute()），audio 必須正常播放
     const handlePlaying = () => {
       // no-op：不再靜音 audio（舊架構遺留已移除）
+      videoModeNetworkStallCountRef.current = 0;
+    };
+
+    const handlePause = () => {
+      if (Date.now() < pauseSyncSuppressedUntilRef.current) return;
+      if (audio.ended) return;
+
+      const trackDuration = currentTrack?.duration || audio.duration || 0;
+      if (trackDuration > 0 && audio.currentTime >= trackDuration - 0.5) return;
+      if (!currentVideoIdRef.current || !isPlayingRef.current) return;
+
+      console.log('⏸️ Native audio pause detected, syncing player state');
+      dispatch(setIsPlaying(false));
     };
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
@@ -1461,6 +1537,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     audio.addEventListener('stalled', handleStalled);
     audio.addEventListener('waiting', handleWaiting);
     audio.addEventListener('playing', handlePlaying);
+    audio.addEventListener('pause', handlePause);
     audio.addEventListener('seeked', handleSeeked);
 
     // iOS 鎖屏恢復：頁面回到前台時自動恢復播放 + 檢查是否已超過歌曲結尾
@@ -1513,6 +1590,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       audio.removeEventListener('stalled', handleStalled);
       audio.removeEventListener('waiting', handleWaiting);
       audio.removeEventListener('playing', handlePlaying);
+      audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('seeked', handleSeeked);
     };
   }, [currentTrack, displayMode, isPlaying, dispatch]);
@@ -1942,6 +2020,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         autoHideDuration={2000}
         onClose={() => setSkipToast('')}
         message={`🚫 ${skipToast}`}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ top: 'max(8px, env(safe-area-inset-top, 8px)) !important' }}
+      />
+      <Snackbar
+        open={!!networkToast}
+        autoHideDuration={2800}
+        onClose={() => setNetworkToast('')}
+        message={`⚠️ ${networkToast}`}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
         sx={{ top: 'max(8px, env(safe-area-inset-top, 8px)) !important' }}
       />

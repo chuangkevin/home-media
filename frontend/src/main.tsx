@@ -64,6 +64,14 @@ function createPremiumTheme(mode: 'light' | 'dark') {
     components: {
       MuiCssBaseline: {
         styleOverrides: `
+          :root {
+            --app-dvh: 100vh;
+          }
+          html, body, #root {
+            height: 100%;
+            min-height: 100%;
+            overflow: hidden;
+          }
           * { box-sizing: border-box; }
           ::-webkit-scrollbar { width: 6px; height: 6px; }
           ::-webkit-scrollbar-track { background: transparent; }

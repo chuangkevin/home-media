@@ -32,6 +32,7 @@ interface CachedUrl {
 class YouTubeService {
   private urlCache: Map<string, CachedUrl> = new Map();
   private pendingRequests: Map<string, Promise<string>> = new Map(); // 防止重複請求
+  private pendingSearchRequests: Map<string, Promise<YouTubeSearchResult[]>> = new Map();
   private readonly URL_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 小時（YouTube URL 有效期）
   private readonly SEARCH_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 小時（搜尋結果快取）
   private readonly CHANNEL_CACHE_TTL = 60 * 60 * 1000; // 1 小時（推薦用頻道快取）
@@ -79,100 +80,121 @@ class YouTubeService {
    * 包含搜尋結果快取以提升效能
    */
   async search(query: string, limit: number = 20): Promise<YouTubeSearchResult[]> {
+    const normalizedQuery = query.trim().toLowerCase();
+    const searchKey = `${normalizedQuery}:${limit}`;
+
     try {
       // 檢查搜尋結果快取
-      const cached = this.getCachedSearchResults(query);
+      const cached = this.getCachedSearchResults(normalizedQuery);
       if (cached && cached.length > 0) {
         console.log(`✅ 使用搜尋快取: "${query}" (${cached.length} 個結果)`);
         logger.info(`Using cached search results for: ${query}`);
         return cached;
       }
 
-      console.log(`🔍 搜尋: ${query}`);
-      logger.info(`Searching YouTube for: ${query}`);
+      const pendingSearch = this.pendingSearchRequests.get(searchKey);
+      if (pendingSearch) {
+        console.log(`⏳ 等待現有搜尋完成: "${query}"`);
+        logger.info(`Waiting for pending search request for: ${query}`);
+        return pendingSearch;
+      }
 
-      const startTime = Date.now();
-
-      let tracks: YouTubeSearchResult[];
+      const requestPromise = this.executeSearch(query, limit, normalizedQuery);
+      this.pendingSearchRequests.set(searchKey, requestPromise);
 
       try {
-        // 優先使用 youtube-sr（快速，無需 yt-dlp 進程）
-        // 8 秒逾時：youtube-sr 有時會 hang，逾時後自動 fallback 到 yt-dlp
-        const srTimeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('youtube-sr timeout')), 8000)
-        );
-        const videos = await Promise.race([
-          YouTube.search(query, { limit, type: 'video' }),
-          srTimeout,
-        ]);
-
-        tracks = videos
-          .filter((video) => video.id) // 過濾掉無效結果
-          .map((video) => ({
-            id: video.id || '',
-            videoId: video.id || '',
-            title: video.title || 'Unknown Title',
-            channel: video.channel?.name || 'Unknown Channel',
-            duration: video.duration ? Math.floor(video.duration / 1000) : 0, // ms → seconds
-            thumbnail: video.thumbnail?.url || '',
-            uploadedAt: (video as any).uploadedAt || (video as any).publishedAt || (video as any).uploadDate || '',
-            views: (video as any).views || 0,
-          }));
-
-        const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`✅ [youtube-sr] 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
-        logger.info(`[youtube-sr] Found ${tracks.length} results for: ${query} in ${searchTime}s`);
-      } catch (srError) {
-        // youtube-sr 失敗，回退到 yt-dlp
-        console.warn(`⚠️ youtube-sr 搜尋失敗，回退到 yt-dlp:`, srError);
-        logger.warn('youtube-sr search failed, falling back to yt-dlp:', srError);
-
-        const result: any = await youtubedl(`ytsearch${limit}:${query}`, {
-          ...this.getYtDlpBaseOptions(),
-          dumpSingleJson: true,
-          flatPlaylist: true,
-          geoBypassCountry: 'TW',
-          extractorArgs: 'youtube:lang=zh-TW',
-        } as any);
-
-        const entries = result?.entries || [];
-
-        const videoEntries = entries.filter((video: any) => {
-          const id = video.id || '';
-          return id.length === 11 && !id.startsWith('UC');
-        });
-
-        tracks = videoEntries.map((video: any) => ({
-          id: video.id || '',
-          videoId: video.id || '',
-          title: video.title || 'Unknown Title',
-          channel: video.channel || video.uploader || 'Unknown Channel',
-          duration: video.duration || 0,
-          thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
-          views: video.view_count || 0,
-          uploadedAt: video.upload_date || video.uploadedAt || '',
-          tags: video.tags || [],
-          categories: video.categories || [],
-          description: video.description || '',
-          language: video.language || null,
-        }));
-
-        const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`✅ [yt-dlp fallback] 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
-        logger.info(`[yt-dlp fallback] Found ${tracks.length} results for: ${query} in ${searchTime}s`);
+        return await requestPromise;
+      } finally {
+        this.pendingSearchRequests.delete(searchKey);
       }
-
-      // 快取搜尋結果
-      if (tracks.length > 0) {
-        this.cacheSearchResults(query, tracks);
-      }
-
-      return tracks;
     } catch (error) {
       console.error(`❌ 搜尋失敗:`, error);
       logger.error('YouTube search error:', error);
       throw new Error(`Failed to search YouTube: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  private async executeSearch(query: string, limit: number, normalizedQuery: string): Promise<YouTubeSearchResult[]> {
+    console.log(`🔍 搜尋: ${query}`);
+    logger.info(`Searching YouTube for: ${query}`);
+
+    const startTime = Date.now();
+
+    let tracks: YouTubeSearchResult[];
+
+    try {
+      // 優先使用 youtube-sr（快速，無需 yt-dlp 進程）
+      // 8 秒逾時：youtube-sr 有時會 hang，逾時後自動 fallback 到 yt-dlp
+      const srTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('youtube-sr timeout')), 8000)
+      );
+      const videos = await Promise.race([
+        YouTube.search(query, { limit, type: 'video' }),
+        srTimeout,
+      ]);
+
+      tracks = videos
+        .filter((video) => video.id) // 過濾掉無效結果
+        .map((video) => ({
+          id: video.id || '',
+          videoId: video.id || '',
+          title: video.title || 'Unknown Title',
+          channel: video.channel?.name || 'Unknown Channel',
+          duration: video.duration ? Math.floor(video.duration / 1000) : 0, // ms → seconds
+          thumbnail: video.thumbnail?.url || '',
+          uploadedAt: (video as any).uploadedAt || (video as any).publishedAt || (video as any).uploadDate || '',
+          views: (video as any).views || 0,
+        }));
+
+      const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`✅ [youtube-sr] 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
+      logger.info(`[youtube-sr] Found ${tracks.length} results for: ${query} in ${searchTime}s`);
+    } catch (srError) {
+      // youtube-sr 失敗，回退到 yt-dlp
+      console.warn(`⚠️ youtube-sr 搜尋失敗，回退到 yt-dlp:`, srError);
+      logger.warn('youtube-sr search failed, falling back to yt-dlp:', srError);
+
+      const result: any = await youtubedl(`ytsearch${limit}:${query}`, {
+        ...this.getYtDlpBaseOptions(),
+        dumpSingleJson: true,
+        flatPlaylist: true,
+        geoBypassCountry: 'TW',
+        extractorArgs: 'youtube:lang=zh-TW',
+      } as any);
+
+      const entries = result?.entries || [];
+
+      const videoEntries = entries.filter((video: any) => {
+        const id = video.id || '';
+        return id.length === 11 && !id.startsWith('UC');
+      });
+
+      tracks = videoEntries.map((video: any) => ({
+        id: video.id || '',
+        videoId: video.id || '',
+        title: video.title || 'Unknown Title',
+        channel: video.channel || video.uploader || 'Unknown Channel',
+        duration: video.duration || 0,
+        thumbnail: video.thumbnail || video.thumbnails?.[0]?.url || '',
+        views: video.view_count || 0,
+        uploadedAt: video.upload_date || video.uploadedAt || '',
+        tags: video.tags || [],
+        categories: video.categories || [],
+        description: video.description || '',
+        language: video.language || null,
+      }));
+
+      const searchTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`✅ [yt-dlp fallback] 找到 ${tracks.length} 個結果 (耗時: ${searchTime}秒)`);
+      logger.info(`[yt-dlp fallback] Found ${tracks.length} results for: ${query} in ${searchTime}s`);
+    }
+
+    // 快取搜尋結果
+    if (tracks.length > 0) {
+      this.cacheSearchResults(normalizedQuery, tracks);
+    }
+
+    return tracks;
   }
 
   /**

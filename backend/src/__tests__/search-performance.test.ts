@@ -13,6 +13,7 @@ vi.mock('youtube-sr', () => ({
 }));
 
 import YouTube from 'youtube-sr';
+import youtubeService from '../services/youtube.service';
 
 describe('Search with youtube-sr', () => {
   it('should map youtube-sr results to YouTubeSearchResult type', async () => {
@@ -110,6 +111,35 @@ describe('Search with youtube-sr', () => {
     }
 
     expect(usedFallback).toBe(true);
+  });
+
+  it('should dedupe concurrent identical searches', async () => {
+    const mockVideos = [
+      {
+        id: 'dQw4w9WgXcQ',
+        title: 'Rick Astley - Never Gonna Give You Up',
+        channel: { name: 'Rick Astley' },
+        duration: 213000,
+        thumbnail: { url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg' },
+      },
+    ];
+
+    const deferred = new Promise<any[]>((resolve) => {
+      setTimeout(() => resolve(mockVideos), 30);
+    });
+    (YouTube.search as ReturnType<typeof vi.fn>).mockReturnValue(deferred);
+
+    const query = `parallel-dedupe-${Date.now()}`;
+    const [first, second, third] = await Promise.all([
+      youtubeService.search(query, 20),
+      youtubeService.search(query, 20),
+      youtubeService.search(query, 20),
+    ]);
+
+    expect(YouTube.search).toHaveBeenCalledTimes(1);
+    expect(first).toHaveLength(1);
+    expect(second[0].videoId).toBe('dQw4w9WgXcQ');
+    expect(third[0].title).toContain('Rick Astley');
   });
 });
 

@@ -48,6 +48,7 @@ class ApiService {
   async searchTracks(query: string, limit: number = 20): Promise<Track[]> {
     const response = await this.api.get<SearchResponse>('/search', {
       params: { q: query, limit },
+      timeout: 60000,
     });
     return response.data.results;
   }

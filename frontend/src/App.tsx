@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
@@ -267,24 +267,40 @@ function AppContent() {
 
   // iPhone Safari/PWA 鎖屏回前景後，100dvh/100% 有時不會立刻重算。
   // 改用 visualViewport 驅動 CSS 變數，避免內容頂到靈動島或高度錯亂。
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const pendingTimers = new Set<number>();
+
     const applyViewportHeight = () => {
       const vvHeight = window.visualViewport?.height ?? 0;
       const fullHeight = window.innerHeight;
-      const stableHeight = Math.max(vvHeight, fullHeight);
+      const clientHeight = document.documentElement.clientHeight;
+      const stableHeight = Math.max(vvHeight, fullHeight, clientHeight);
+      const activeElement = document.activeElement as HTMLElement | null;
+      const isEditableFocused = Boolean(activeElement) && (
+        activeElement?.tagName === 'INPUT'
+        || activeElement?.tagName === 'TEXTAREA'
+        || activeElement?.isContentEditable
+      );
       // 鍵盤彈出時 visualViewport.height 會大幅縮小，此時不更新高度
       // 避免整個佈局被壓縮、播放器跑位
-      if (vvHeight > 0 && fullHeight - vvHeight > 100) return;
+      if (isEditableFocused && vvHeight > 0 && fullHeight - vvHeight > 100) return;
       document.documentElement.style.setProperty('--app-dvh', `${stableHeight}px`);
     };
 
+    const clearPendingTimers = () => {
+      pendingTimers.forEach((timerId) => window.clearTimeout(timerId));
+      pendingTimers.clear();
+    };
+
     const scheduleViewportSync = () => {
-      requestAnimationFrame(() => {
-        applyViewportHeight();
-        setTimeout(applyViewportHeight, 60);
-        setTimeout(applyViewportHeight, 120);
-        setTimeout(applyViewportHeight, 240);
-        setTimeout(applyViewportHeight, 500);
+      clearPendingTimers();
+      const delays = [0, 60, 120, 240, 500, 900, 1400, 2000, 2800];
+      delays.forEach((delay) => {
+        const timerId = window.setTimeout(() => {
+          pendingTimers.delete(timerId);
+          requestAnimationFrame(applyViewportHeight);
+        }, delay);
+        pendingTimers.add(timerId);
       });
     };
 
@@ -295,19 +311,22 @@ function AppContent() {
     };
 
     scheduleViewportSync();
-    window.addEventListener('resize', applyViewportHeight);
-    window.visualViewport?.addEventListener('resize', applyViewportHeight);
+    window.addEventListener('resize', scheduleViewportSync);
+    window.visualViewport?.addEventListener('resize', scheduleViewportSync);
     window.addEventListener('orientationchange', scheduleViewportSync);
     window.addEventListener('pageshow', scheduleViewportSync);
     window.addEventListener('load', scheduleViewportSync);
+    window.addEventListener('focus', scheduleViewportSync);
     document.addEventListener('visibilitychange', handleVisibilitySync);
 
     return () => {
-      window.removeEventListener('resize', applyViewportHeight);
-      window.visualViewport?.removeEventListener('resize', applyViewportHeight);
+      clearPendingTimers();
+      window.removeEventListener('resize', scheduleViewportSync);
+      window.visualViewport?.removeEventListener('resize', scheduleViewportSync);
       window.removeEventListener('orientationchange', scheduleViewportSync);
       window.removeEventListener('pageshow', scheduleViewportSync);
       window.removeEventListener('load', scheduleViewportSync);
+      window.removeEventListener('focus', scheduleViewportSync);
       document.removeEventListener('visibilitychange', handleVisibilitySync);
     };
   }, []);
@@ -353,7 +372,7 @@ function AppContent() {
       pt: isUltrawide ? 0.5 : 'max(8px, env(safe-area-inset-top, 8px))',
     }}>
       {/* 可滾動內容區 */}
-      <Box ref={scrollContainerRef} sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch' }}>
+      <Box ref={scrollContainerRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', WebkitOverflowScrolling: 'touch' }}>
       <Container maxWidth="lg" sx={{ py: isUltrawide ? 1 : 4, pb: 2 }}>
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: isUltrawide ? 1 : 4 }}>
