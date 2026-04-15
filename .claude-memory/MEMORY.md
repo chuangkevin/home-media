@@ -116,3 +116,7 @@
 - `RecommendationController.getMixedRecommendations()` 的首頁第一頁應提早混入 style/similar/discovery section，而不是幾乎只回歷史頻道；否則推薦會看起來「不智慧」且種類太少。
 - `getMixedRecommendations()` 內部呼叫 `/api/recommendations/similar/:videoId` 時，必須把 `title + artist(channelName)` 一起帶入 query params，避免 seed metadata 缺失讓 similar route 退化成空 artist / 垃圾結果。
 - style/discovery 不能只打一個隨機 query 就決定成敗；至少要合併多個 query 的結果，再去掉已聽過頻道，首頁第一頁才比較穩定會出現真正的探索區塊。
+
+## Auto-queue replay seed (2026-04-15)
+- `useAutoQueue()` 的防重複 key 不能只看 `videoId + playlist.length`。`playNow()` 會清掉插入點後方的舊推薦；若使用者之後又從首頁點回同一首歌，純粹靠舊 key 會誤判成「已載過」，導致自動推薦播放清單整段消失。
+- `playerSlice` 需維護一個 per-`playNow` 的 session version（目前為 `autoQueueSeedVersion`），讓 auto-queue key 變成 `session + videoId + playlist.length`，只避免同一次 session 的重複載入，不阻止之後重新以同一首歌建立新推薦佇列。

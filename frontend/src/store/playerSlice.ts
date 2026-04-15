@@ -18,6 +18,7 @@ interface PlayerState {
   seekTarget: number | null; // 用於手動 seek 操作
   playlist: Track[]; // 當前播放列表（搜尋結果）
   currentIndex: number; // 當前播放的索引
+  autoQueueSeedVersion: number; // 每次 playNow 遞增，讓 auto-queue 視為新的推薦 session
 }
 
 const initialState: PlayerState = {
@@ -35,6 +36,7 @@ const initialState: PlayerState = {
   seekTarget: null,
   playlist: [],
   currentIndex: -1,
+  autoQueueSeedVersion: 0,
 };
 
 const playerSlice = createSlice({
@@ -162,6 +164,7 @@ const playerSlice = createSlice({
       state.pendingTrack = track;
       state.isLoadingTrack = true;
       state.isPlaying = true;
+      state.autoQueueSeedVersion += 1;
     },
     // 加到播放清單尾端（不打斷當前播放）
     appendToPlaylist(state, action: PayloadAction<Track[]>) {
@@ -267,6 +270,7 @@ const playerSlice = createSlice({
       state.seekTarget = null;
       state.playlist = [];
       state.currentIndex = -1;
+      state.autoQueueSeedVersion = 0;
     },
   },
 });

@@ -13,7 +13,7 @@ import { buildTrackIdentity } from '../utils/trackIdentity';
  */
 export function useAutoQueue(enabled = true) {
   const dispatch = useDispatch();
-  const { currentTrack, pendingTrack, playlist, currentIndex } = useSelector((state: RootState) => state.player);
+  const { currentTrack, pendingTrack, playlist, currentIndex, autoQueueSeedVersion } = useSelector((state: RootState) => state.player);
   const blockedItems = useSelector((state: RootState) => state.block.items);
   const isLoadingRef = useRef(false);
   const lastLoadedVideoIdRef = useRef<string | null>(null);
@@ -34,8 +34,8 @@ export function useAutoQueue(enabled = true) {
     const shouldLoadMore = remainingSongs <= 2;
     if (!shouldLoadMore || isLoadingRef.current) return;
 
-    // 防止同一首歌在同一個 playlist 長度下重複載入
-    const key = `${activeVideoId}:${playlist.length}`;
+    // 防止同一次 playNow session 在相同 queue 狀態下重複載入
+    const key = `${autoQueueSeedVersion}:${activeVideoId}:${playlist.length}`;
     if (lastLoadedVideoIdRef.current === key) return;
 
     console.log(`🎵 自動佇列：剩餘 ${remainingSongs} 首，載入推薦（${activeTrack?.channel}）...`);
@@ -122,5 +122,5 @@ export function useAutoQueue(enabled = true) {
 
     loadRecommendations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, activeVideoId, currentIndex, playlist.length]);
+  }, [enabled, autoQueueSeedVersion, activeVideoId, currentIndex, playlist.length]);
 }

@@ -141,14 +141,14 @@ Title cleaning (regex fallback when Gemini unavailable):
 - Tier 1: YouTube search `"{artist} songs"`, filter by channel name match
 - Tier 2: Gemini AI suggests similar style/genre songs by different artists
 - Frontend passes `artist` + `title` as query params (fallback when track not in cached_tracks)
-- Auto-queue: triggers when remainingSongs <= 2, uses `videoId:playlistLength` key to prevent duplicates
+- Auto-queue: triggers when remainingSongs <= 2, uses a session-aware key (`autoQueueSeedVersion:videoId:playlistLength`) to prevent duplicate loads within one `playNow` session without blocking replaying the same seed track later
 - Auto-queue dedup: videoId + channel+title (忽略大小寫) 雙重去重，防止同歌不同 MV
 - Auto-queue filters: 封鎖的歌曲/頻道、duration >600s、已存在的 videoId/title
 - Auto-queue waits for metadata (channel non-empty) before triggering — avoids empty artist recommendations
 - Uses `pendingTrack || currentTrack` as seed (playNow sets pendingTrack before currentTrack updates)
 - `playNow` clears tracks after insert position — forces auto-queue to re-recommend for new artist
 - Filter out tracks >600s (10 min) — prevents compilation albums from polluting queue/cache
-- Dependencies: `[activeVideoId, currentIndex, playlist.length]`
+- Dependencies: `[autoQueueSeedVersion, activeVideoId, currentIndex, playlist.length]`
 
 ## Critical Patterns
 
@@ -261,6 +261,7 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Restore playback**: use `audioCacheService.getMetadata()` for instant track info — `getVideoInfo` (yt-dlp) takes 10s+
 - **Auto-queue timing**: must wait for metadata (channel non-empty) — placeholder track causes empty-artist recommendations
 - **playNow cleanup**: must clear tracks after insert position — otherwise old recommendations from previous artist remain
+- **Auto-queue replay guard**: duplicate suppression must include a per-`playNow` session token, not just `videoId + playlist.length`; otherwise replaying the same homepage seed track after cleanup suppresses the new recommended queue entirely
 - **Preload filter**: skip tracks >600s duration — compilation albums waste IndexedDB space (60-114MB each)
 - **Radio track sync**: Host must emit `pendingTrack || currentTrack` (not just currentTrack) — otherwise Listener sees delayed update
 - **Lyrics sync loop**: remote offset/source apply MUST set `isRemoteUpdateRef = true` before dispatch — prevents infinite emit→receive→emit loop
