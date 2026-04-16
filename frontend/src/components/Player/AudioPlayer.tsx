@@ -53,6 +53,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // iOS 背景快速換歌：預先準備好下一首的 blob URL，ended 時直接播放不等 Redux
   const nextTrackBlobUrlRef = useRef<string | null>(null);
   const nextTrackInfoRef = useRef<{ videoId: string; title: string; channel: string; thumbnail: string; duration: number } | null>(null);
+  // iOS 背景 session 保活：ended 時立刻切到下一首 stream，避免 iOS 撤銷 audio session
+  const iosSessionKeeperRef = useRef<string | null>(null);
 
   const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
@@ -425,6 +427,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     const videoId = pendingTrack.videoId;
 
+    // iOS session keeper：若 keeper 目標與 pending 不同，清除舊的 keeper（使用者切到其他歌）
+    if (iosSessionKeeperRef.current && iosSessionKeeperRef.current !== videoId) {
+      iosSessionKeeperRef.current = null;
+    }
+
     // 如果 pending 和 current 相同，直接確認
     if (currentTrack && currentVideoIdRef.current === videoId) {
       console.log(`⏭️ Same track, confirming: ${pendingTrack.title}`);
@@ -565,10 +572,18 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         // 沒有前端 cache：直接從 server 串流（邊播邊快取）
         // 先取消可能正在進行的預載下載，避免 backend inFlightStreams 讓 audio element 等待整首下載完才能串流
         audioCacheService.abortDownload(videoId);
-        console.log(`🎵 串流播放: ${pendingTrack.title}`);
         const streamUrl = apiService.getStreamUrl(videoId);
-        audioRef.current!.src = streamUrl;
-        audioRef.current!.load();
+
+        // 🔒 iOS session 保活：handleEnded 已搶先設定 audio.src，這裡直接沿用，不重設
+        const sessionKeeperActive = iosSessionKeeperRef.current === videoId;
+        if (sessionKeeperActive) {
+          console.log(`🎵 [iOS session keeper] 繼承已開始的串流: ${pendingTrack.title}`);
+          iosSessionKeeperRef.current = null; // 消費掉，避免重複觸發
+        } else {
+          console.log(`🎵 串流播放: ${pendingTrack.title}`);
+          audioRef.current!.src = streamUrl;
+          audioRef.current!.load();
+        }
         setIsCached(false);
 
         // 非阻塞載入 SponsorBlock segments（串流路徑也需要跳過非音樂段落）
@@ -663,30 +678,36 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         // 音訊準備好了，現在確認切換
         console.log(`✅ Pending track ready: ${pendingTrack.title}`);
 
-        // 保存舊的 blob URL，稍後釋放
-        const oldBlobUrl = currentBlobUrlRef.current;
         const audio = audioRef.current!;
 
-        // 停止舊音訊（避免舊音訊繼續播放）
-        pauseInternally(audio);
-        audio.currentTime = 0;
-
-        // audio.src 已在上面的流程中設定（串流 URL）
-        // 影片模式下 audio element 仍是唯一音源，YouTube iframe 會被靜音
-        currentVideoIdRef.current = videoId;
-        if (audio.src && audio.src.startsWith('blob:')) {
-          currentBlobUrlRef.current = audio.src;
-        } else {
+        if (sessionKeeperActive) {
+          // iOS session keeper：audio.src 已在 handleEnded 切換，currentVideoIdRef 也已更新。
+          // 不需要再 pause/load，直接設定 refs 並掛 confirmAndPlay listeners。
           currentBlobUrlRef.current = null;
-        }
-        pendingBlobUrlRef.current = null;
+          pendingBlobUrlRef.current = null;
+        } else {
+          // 一般路徑：保存舊的 blob URL，停止舊音訊
+          const oldBlobUrl = currentBlobUrlRef.current;
+          // 停止舊音訊（避免舊音訊繼續播放）
+          pauseInternally(audio);
+          audio.currentTime = 0;
 
-        // 釋放舊的 blob URL（如果有的話）
-        if (oldBlobUrl && oldBlobUrl.startsWith('blob:')) {
-          setTimeout(() => {
-            console.log(`🗑️ Revoking old blob URL`);
-            URL.revokeObjectURL(oldBlobUrl);
-          }, 1000);
+          // audio.src 已在上面的流程中設定（串流 URL）
+          currentVideoIdRef.current = videoId;
+          if (audio.src && audio.src.startsWith('blob:')) {
+            currentBlobUrlRef.current = audio.src;
+          } else {
+            currentBlobUrlRef.current = null;
+          }
+          pendingBlobUrlRef.current = null;
+
+          // 釋放舊的 blob URL（如果有的話）
+          if (oldBlobUrl && oldBlobUrl.startsWith('blob:')) {
+            setTimeout(() => {
+              console.log(`🗑️ Revoking old blob URL`);
+              URL.revokeObjectURL(oldBlobUrl);
+            }, 1000);
+          }
         }
 
         // 等待音訊準備好再確認切換
@@ -814,6 +835,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audio.addEventListener('canplaythrough', handleCanPlayThrough, { once: true });
         audio.addEventListener('loadeddata', handleLoadedData, { once: true });
         audio.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+
+        // iOS session keeper：audio.src 在 handleEnded 已設定，canplay 可能在此 effect 觸發前就已 fire
+        // 立刻檢查 readyState，若已就緒直接確認
+        if (sessionKeeperActive && audio.readyState >= 2) {
+          confirmAndPlay('session-keeper-already-ready');
+        } else if (sessionKeeperActive && audio.readyState >= 1) {
+          // metadata 已載入，短暫等待即可
+          setTimeout(() => { if (!hasConfirmed) confirmAndPlay('session-keeper-meta-ready'); }, 200);
+        }
 
         // Timeout fallback：10秒後如果還沒觸發任何事件，根據 readyState 決定
         fallbackTimeoutId = setTimeout(() => {
@@ -1328,10 +1358,41 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
       // 🚀 iOS 背景快速換歌：優先用預建 blob URL，失敗才走 Redux
       if (!quickStartNextTrack(audio)) {
-        // If at end of playlist with no pre-loaded next track, clear metadata too
-        const isLastTrack = currentIndexRef.current + 1 >= playlistRef.current.length && !nextTrackBlobUrlRef.current;
-        if (isLastTrack && 'mediaSession' in navigator) {
-          navigator.mediaSession.metadata = null;
+        const pl = playlistRef.current;
+        const ci = currentIndexRef.current;
+        const nextIdx = ci + 1 < pl.length ? ci + 1 : 0;
+        const nextTrack = pl[nextIdx];
+
+        if (nextTrack) {
+          // 🔒 iOS audio session 保活：立刻切換 src，避免 iOS 在 Redux 非同步流程中撤銷 audio session
+          // quickStartNextTrack 用 blob，這裡用 stream URL 作 fallback；
+          // pendingTrack effect 偵測到 iosSessionKeeperRef 後會跳過重複的 audio.load()
+          const streamUrl = apiService.getStreamUrl(nextTrack.videoId);
+          const oldBlobUrl = currentBlobUrlRef.current;
+          audio.src = streamUrl;
+          currentVideoIdRef.current = nextTrack.videoId;
+          currentBlobUrlRef.current = null;
+          if (oldBlobUrl?.startsWith('blob:')) URL.revokeObjectURL(oldBlobUrl);
+          iosSessionKeeperRef.current = nextTrack.videoId;
+          audio.play().catch((err) => {
+            console.warn('⚠️ [iOS session keeper] play() 失敗，等 canplay 後重試:', err.name);
+          });
+          // 立刻更新 MediaSession，讓鎖屏顯示新歌資訊
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+              title: nextTrack.title,
+              artist: nextTrack.channel,
+              artwork: nextTrack.thumbnail ? [
+                { src: nextTrack.thumbnail, sizes: '96x96', type: 'image/jpeg' },
+                { src: nextTrack.thumbnail, sizes: '512x512', type: 'image/jpeg' },
+              ] : [],
+            });
+          }
+        } else {
+          // 播放清單已到底，清除 metadata
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.metadata = null;
+          }
         }
         wasCompletedRef.current = true;
         dispatch(playNext());
