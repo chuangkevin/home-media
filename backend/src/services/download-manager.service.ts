@@ -98,6 +98,23 @@ class DownloadManager {
   }
 
   /**
+   * 取消正在進行或排隊的低優先級下載（供串流端點使用，避免同一首歌有兩個 yt-dlp 同時運行）
+   */
+  abortForVideoId(videoId: string): void {
+    // 從等待佇列移除
+    this.lowQueue = this.lowQueue.filter(id => id !== videoId);
+    // 殺掉正在進行的低優先級 job
+    const idx = this.lowPriority.findIndex(j => j.videoId === videoId);
+    if (idx !== -1) {
+      console.log(`⚡ [DM] Aborting low-priority download (stream requested): ${videoId}`);
+      this.killJob(this.lowPriority[idx]);
+      this.lowPriority.splice(idx, 1);
+      // 讓其他佇列中的任務繼續
+      this.processLowQueue();
+    }
+  }
+
+  /**
    * 取得下載狀態
    */
   getStatus(videoId: string): { status: 'cached' | 'downloading-high' | 'downloading-low' | 'queued' | 'none' } {

@@ -111,7 +111,7 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
-  const navHeight = isUltrawide ? 48 : 'calc(60px + env(safe-area-inset-bottom, 0px))';
+  const navHeight = isUltrawide ? 48 : 60;
 
   const getNavValue = () => {
     if (location.pathname === '/playlists') return '/playlists';
@@ -149,10 +149,7 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
         value={getNavValue()}
         showLabels
         sx={{
-          minHeight: navHeight,
           height: navHeight,
-          pb: isUltrawide ? 0 : 'env(safe-area-inset-bottom, 0px)',
-          boxSizing: 'border-box',
           background: 'transparent',
         }}
       >
@@ -178,6 +175,7 @@ function BottomNav({ scrollToTop }: { scrollToTop: () => void }) {
           sx={{ py: isUltrawide ? 0.5 : 1, minHeight: 'inherit' }}
         />
       </BottomNavigation>
+      {!isUltrawide && <Box sx={{ height: 'env(safe-area-inset-bottom, 0px)', flexShrink: 0 }} />}
     </Paper>
   );
 }

@@ -176,6 +176,10 @@ export class YouTubeController {
       console.log(`🎵 [Stream] yt-dlp direct stream: ${videoId}`);
       logger.info(`Streaming audio for video: ${videoId} via yt-dlp direct`);
 
+      // 取消背景下載管理器中同一首歌的低優先級下載，避免兩個 yt-dlp 同時跑
+      // （搜尋後後端會 precache 前 3 首，若用戶立即點播會產生競爭導致 YouTube 限速）
+      downloadManager.abortForVideoId(videoId);
+
       // Track this stream as in-flight
       let resolveInFlight: () => void;
       const inFlightPromise = new Promise<void>((resolve) => {
