@@ -1686,12 +1686,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // 設定播放控制按鈕回調
     navigator.mediaSession.setActionHandler('play', () => {
       dispatch(setIsPlaying(true));
-      audioRef.current?.play();
+      audioRef.current?.play().catch((err) => {
+        if (err?.name === 'NotAllowedError') {
+          dispatch(setIsPlaying(false));
+        } else {
+          setTimeout(() => {
+            audioRef.current?.play().catch(() => {});
+          }, 500);
+        }
+      });
     });
 
     navigator.mediaSession.setActionHandler('pause', () => {
       dispatch(setIsPlaying(false));
-      audioRef.current?.pause();
+      try { audioRef.current?.pause(); } catch {}
     });
 
     navigator.mediaSession.setActionHandler('previoustrack', () => {
