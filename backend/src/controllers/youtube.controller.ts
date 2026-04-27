@@ -156,6 +156,14 @@ export class YouTubeController {
         return;
       }
 
+      // 若 download manager 已在下載這首（例如搜尋後 precache），直接 attach 共用 yt-dlp
+      // 立即 replay 已下載的 chunks + 接收後續 chunks，避免重複 spawn 浪費 RPi 資源
+      if (downloadManager.attachStreamConsumer(videoId, req, res)) {
+        console.log(`🎵 [Stream] Attached to in-progress DM download: ${videoId}`);
+        logger.info(`Streaming audio for video: ${videoId} via DM attach`);
+        return;
+      }
+
       // Check for in-flight yt-dlp process for this videoId
       if (this.inFlightStreams.has(videoId)) {
         console.log(`⏳ [Stream] In-flight yt-dlp already running for ${videoId}, waiting for completion`);
@@ -172,36 +180,9 @@ export class YouTubeController {
         console.log(`⚠️ [Stream] In-flight completed but no cache for ${videoId}, starting new stream`);
       }
 
-      // Wait for in-progress DM download instead of spawning a competing yt-dlp
-      const dmPromise = downloadManager.awaitDownload(videoId);
-      if (dmPromise) {
-        console.log(`⏳ [Stream] DM downloading ${videoId}, waiting up to 30s`);
-        let timeoutHandle: NodeJS.Timeout | null = null;
-        try {
-          const result = await Promise.race([
-            dmPromise,
-            new Promise<null>(resolve => {
-              timeoutHandle = setTimeout(() => resolve(null), 30000);
-            }),
-          ]);
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          if (result && audioCacheService.has(videoId)) {
-            console.log(`✅ [Stream] DM completed → serving from cache: ${videoId}`);
-            this.streamFromCache(req, res, videoId);
-            return;
-          }
-        } catch {
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-        }
-        console.log(`⚠️ [Stream] DM wait ended without cache for ${videoId}, falling to yt-dlp stream`);
-      }
-
       // 使用 yt-dlp 直接串流（避免 403）
       console.log(`🎵 [Stream] yt-dlp direct stream: ${videoId}`);
       logger.info(`Streaming audio for video: ${videoId} via yt-dlp direct`);
-
-      // 取消背景下載管理器中同一首歌的低優先級下載，避免兩個 yt-dlp 同時跑
-      downloadManager.abortForVideoId(videoId);
 
       // Track this stream as in-flight
       let resolveInFlight: () => void;
