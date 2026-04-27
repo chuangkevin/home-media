@@ -4,6 +4,7 @@ import { YouTubeSearchResult } from '../types/youtube.types';
 import historyService from './history.service';
 import youtubeService from './youtube.service';
 import logger from '../utils/logger';
+import { pLimit } from '../utils/pLimit';
 
 interface ChannelRecommendationPage {
   recommendations: ChannelRecommendation[];
@@ -16,6 +17,8 @@ interface ChannelRecommendationPage {
  */
 class RecommendationService {
   private readonly VIDEOS_PER_CHANNEL = 20; // 每個頻道推薦 20 首影片（橫向滾動 lazy load）
+  // RPi CPU/記憶體有限：每次最多 5 個 yt-dlp 子程序並行抓頻道影片，避免 spawn 30+ 進程打爆主機
+  private readonly channelFetchLimit = pLimit(5);
 
   private normalizeChannelVideos(videos: YouTubeSearchResult[]): YouTubeSearchResult[] {
     return videos
@@ -136,39 +139,39 @@ class RecommendationService {
         logger.info(`[Recommend] Overfetch history channels: cursor=${cursor}, batch=${batch.length}, collected=${collected.length}`);
 
         const recommendations = await Promise.all(
-          batch.map(async (channel) => {
+          batch.map((channel) => this.channelFetchLimit(async () => {
             logger.info(`[Recommend] Processing channel: ${channel.channelName}`);
             // 檢查 6 小時快取
             const cached = this.getCachedRecommendations(channel.channelName);
             if (cached) {
-            logger.info(`[Recommend] Cache hit for channel: ${channel.channelName}`);
-            const normalizedCached = this.normalizeChannelVideos(cached);
-            return {
-              channelName: channel.channelName,
-              channelThumbnail: channel.channelThumbnail,
-              videos: normalizedCached.slice(0, this.VIDEOS_PER_CHANNEL),
-              watchCount: channel.watchCount,
-              hasMoreVideos: normalizedCached.length > this.VIDEOS_PER_CHANNEL,
-            };
-          }
+              logger.info(`[Recommend] Cache hit for channel: ${channel.channelName}`);
+              const normalizedCached = this.normalizeChannelVideos(cached);
+              return {
+                channelName: channel.channelName,
+                channelThumbnail: channel.channelThumbnail,
+                videos: normalizedCached.slice(0, this.VIDEOS_PER_CHANNEL),
+                watchCount: channel.watchCount,
+                hasMoreVideos: normalizedCached.length > this.VIDEOS_PER_CHANNEL,
+              };
+            }
 
-          // 獲取新影片（3s timeout 防止 YouTube rate-limit 時 hang 住）
-          logger.info(`[Recommend] No cache. Fetching videos for channel: ${channel.channelName}`);
-          const videos = await Promise.race([
-            youtubeService.getChannelVideos(channel.channelName, this.VIDEOS_PER_CHANNEL + 1),
-            new Promise<YouTubeSearchResult[]>(resolve => setTimeout(() => {
-              logger.warn(`[Recommend] Timeout fetching videos for channel: ${channel.channelName}`);
-              resolve([]);
-            }, 3000)),
-          ]);
-          logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
+            // 獲取新影片（3s timeout 防止 YouTube rate-limit 時 hang 住）
+            logger.info(`[Recommend] No cache. Fetching videos for channel: ${channel.channelName}`);
+            const videos = await Promise.race([
+              youtubeService.getChannelVideos(channel.channelName, this.VIDEOS_PER_CHANNEL + 1),
+              new Promise<YouTubeSearchResult[]>(resolve => setTimeout(() => {
+                logger.warn(`[Recommend] Timeout fetching videos for channel: ${channel.channelName}`);
+                resolve([]);
+              }, 3000)),
+            ]);
+            logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
 
-          const sorted = this.normalizeChannelVideos(videos);
+            const sorted = this.normalizeChannelVideos(videos);
 
-          // 快取結果（6 小時）
-          if (sorted.length > 0) {
-            this.cacheRecommendations(channel.channelName, sorted);
-          }
+            // 快取結果（6 小時）
+            if (sorted.length > 0) {
+              this.cacheRecommendations(channel.channelName, sorted);
+            }
 
             return {
               channelName: channel.channelName,
@@ -177,7 +180,7 @@ class RecommendationService {
               watchCount: channel.watchCount,
               hasMoreVideos: sorted.length > this.VIDEOS_PER_CHANNEL,
             };
-          })
+          }))
         );
 
         const validRecommendations = recommendations.filter(r => r.videos.length > 0);
