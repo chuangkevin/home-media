@@ -23,6 +23,8 @@ class DownloadManager {
   private highPriority: Job | null = null;
   private lowPriority: Job[] = [];
   private lowQueue: string[] = [];
+  // Callbacks registered by waiters (e.g. stream route) for in-progress downloads
+  private completionCallbacks: Map<string, Array<(path: string | null) => void>> = new Map();
 
   /**
    * 高優先級：立即下載，abort 所有其他任務
@@ -115,6 +117,34 @@ class DownloadManager {
   }
 
   /**
+   * Wait for an in-progress download (high or low priority) to complete.
+   * Returns a Promise that resolves with the cached path (or null on failure).
+   * Returns null immediately if the videoId is not currently downloading.
+   * Callers should impose their own timeout (e.g. Promise.race with a setTimeout).
+   */
+  awaitDownload(videoId: string): Promise<string | null> | null {
+    const isActive =
+      this.highPriority?.videoId === videoId ||
+      this.lowPriority.some(j => j.videoId === videoId);
+    if (!isActive) return null;
+
+    return new Promise<string | null>(resolve => {
+      if (!this.completionCallbacks.has(videoId)) {
+        this.completionCallbacks.set(videoId, []);
+      }
+      this.completionCallbacks.get(videoId)!.push(resolve);
+    });
+  }
+
+  private triggerCompletionCallbacks(videoId: string, path: string | null): void {
+    const callbacks = this.completionCallbacks.get(videoId);
+    if (callbacks && callbacks.length > 0) {
+      this.completionCallbacks.delete(videoId);
+      for (const cb of callbacks) cb(path);
+    }
+  }
+
+  /**
    * 取得下載狀態
    */
   getStatus(videoId: string): { status: 'cached' | 'downloading-high' | 'downloading-low' | 'queued' | 'none' } {
@@ -164,6 +194,16 @@ class DownloadManager {
     let downloadedBytes = 0;
     let aborted = false;
 
+    // Wrap resolve so completion callbacks are always fired exactly once,
+    // regardless of whether resolution comes from success, error, or killJob.
+    let settled = false;
+    const callResolve = (path: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(path);
+      this.triggerCompletionCallbacks(videoId, path);
+    };
+
     proc.stdout.on('data', (chunk: Buffer) => {
       if (aborted) return;
       downloadedBytes += chunk.length;
@@ -187,7 +227,7 @@ class DownloadManager {
               fs.renameSync(tempPath, cachePath);
               audioCacheService.remuxIfNeeded(cachePath);
               console.log(`✅ [DM] Downloaded: ${videoId} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-              resolve(cachePath);
+              callResolve(cachePath);
               return;
             }
           } catch (err) {
@@ -195,7 +235,7 @@ class DownloadManager {
           }
         }
         try { fs.unlinkSync(tempPath); } catch {}
-        resolve(null);
+        callResolve(null);
       });
     });
 
@@ -203,7 +243,7 @@ class DownloadManager {
       if (aborted) return;
       console.error(`❌ [DM] Process error: ${videoId}`, err);
       try { fs.unlinkSync(tempPath); } catch {}
-      resolve(null);
+      callResolve(null);
     });
 
     proc.stderr.on('data', (data: Buffer) => {
@@ -216,7 +256,7 @@ class DownloadManager {
     const job: Job = {
       videoId,
       proc,
-      resolve,
+      resolve: callResolve, // stored so killJob can fire it (and thus callbacks)
       reject,
     };
 

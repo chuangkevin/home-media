@@ -172,12 +172,35 @@ export class YouTubeController {
         console.log(`⚠️ [Stream] In-flight completed but no cache for ${videoId}, starting new stream`);
       }
 
+      // Wait for in-progress DM download instead of spawning a competing yt-dlp
+      const dmPromise = downloadManager.awaitDownload(videoId);
+      if (dmPromise) {
+        console.log(`⏳ [Stream] DM downloading ${videoId}, waiting up to 30s`);
+        let timeoutHandle: NodeJS.Timeout | null = null;
+        try {
+          const result = await Promise.race([
+            dmPromise,
+            new Promise<null>(resolve => {
+              timeoutHandle = setTimeout(() => resolve(null), 30000);
+            }),
+          ]);
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+          if (result && audioCacheService.has(videoId)) {
+            console.log(`✅ [Stream] DM completed → serving from cache: ${videoId}`);
+            this.streamFromCache(req, res, videoId);
+            return;
+          }
+        } catch {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+        }
+        console.log(`⚠️ [Stream] DM wait ended without cache for ${videoId}, falling to yt-dlp stream`);
+      }
+
       // 使用 yt-dlp 直接串流（避免 403）
       console.log(`🎵 [Stream] yt-dlp direct stream: ${videoId}`);
       logger.info(`Streaming audio for video: ${videoId} via yt-dlp direct`);
 
       // 取消背景下載管理器中同一首歌的低優先級下載，避免兩個 yt-dlp 同時跑
-      // （搜尋後後端會 precache 前 3 首，若用戶立即點播會產生競爭導致 YouTube 限速）
       downloadManager.abortForVideoId(videoId);
 
       // Track this stream as in-flight
