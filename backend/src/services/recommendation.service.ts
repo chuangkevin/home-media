@@ -5,6 +5,25 @@ import historyService from './history.service';
 import youtubeService from './youtube.service';
 import logger from '../utils/logger';
 
+// Global concurrency limiter — prevents spawning too many yt-dlp/youtube-sr
+// processes simultaneously when many channels are fetched at once.
+function createPLimit(concurrency: number) {
+  let active = 0;
+  const queue: Array<() => void> = [];
+  const next = () => {
+    if (queue.length > 0 && active < concurrency) {
+      active++;
+      queue.shift()!();
+    }
+  };
+  return <T>(fn: () => Promise<T>): Promise<T> =>
+    new Promise((resolve, reject) => {
+      queue.push(() => fn().then(resolve, reject).finally(() => { active--; next(); }));
+      next();
+    });
+}
+const channelFetchLimit = createPLimit(5);
+
 interface ChannelRecommendationPage {
   recommendations: ChannelRecommendation[];
   hasMore: boolean;
@@ -152,15 +171,16 @@ class RecommendationService {
             };
           }
 
-          // 獲取新影片（3s timeout 防止 YouTube rate-limit 時 hang 住）
+          // 獲取新影片（透過全域 semaphore 限制同時最多 5 個並行 fetch，
+          // 每個 fetch 有獨立 10s timeout 防止 youtube-sr/yt-dlp hang 住）
           logger.info(`[Recommend] No cache. Fetching videos for channel: ${channel.channelName}`);
-          const videos = await Promise.race([
+          const videos = await channelFetchLimit(() => Promise.race([
             youtubeService.getChannelVideos(channel.channelName, this.VIDEOS_PER_CHANNEL + 1),
             new Promise<YouTubeSearchResult[]>(resolve => setTimeout(() => {
               logger.warn(`[Recommend] Timeout fetching videos for channel: ${channel.channelName}`);
               resolve([]);
-            }, 3000)),
-          ]);
+            }, 10000)),
+          ]));
           logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
 
           const sorted = this.normalizeChannelVideos(videos);
