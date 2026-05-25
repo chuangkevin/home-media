@@ -1,5 +1,16 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../config/database';
+import {
+  getOpenCodeStatus,
+  setOpenCodeServers,
+  setOpenCodeTextModel,
+  setOpenCodeVisionModel,
+  setOpenCodeTextVariant,
+  setOpenCodeVisionVariant,
+  clearOpenCodeSettings,
+  listOpenCodeModels,
+  OPENCODE_VARIANTS,
+} from '../ai/opencode-settings';
 
 const router = Router();
 
@@ -9,6 +20,54 @@ interface Setting {
   type: 'string' | 'number' | 'boolean';
   updated_at: number;
 }
+
+// ── OpenCode settings (no auth gate — deployment-side config) ──────────────────
+
+router.get('/opencode', (_req: Request, res: Response): void => {
+  try {
+    res.json({ openCode: getOpenCodeStatus() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Query failed' });
+  }
+});
+
+router.put('/opencode', (req: Request, res: Response): void => {
+  try {
+    const { servers, textModel, visionModel, textVariant, visionVariant } = req.body as Record<string, unknown>;
+    if (typeof servers === 'string') setOpenCodeServers(servers);
+    if (typeof textModel === 'string') setOpenCodeTextModel(textModel);
+    if (typeof visionModel === 'string') setOpenCodeVisionModel(visionModel);
+    if (typeof textVariant === 'string' && (textVariant === '' || OPENCODE_VARIANTS.includes(textVariant as typeof OPENCODE_VARIANTS[number]))) {
+      setOpenCodeTextVariant(textVariant);
+    }
+    if (typeof visionVariant === 'string' && (visionVariant === '' || OPENCODE_VARIANTS.includes(visionVariant as typeof OPENCODE_VARIANTS[number]))) {
+      setOpenCodeVisionVariant(visionVariant);
+    }
+    res.json({ openCode: getOpenCodeStatus() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Save failed' });
+  }
+});
+
+router.delete('/opencode', (_req: Request, res: Response): void => {
+  try {
+    clearOpenCodeSettings();
+    res.json({ openCode: getOpenCodeStatus() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Clear failed' });
+  }
+});
+
+router.get('/opencode/models', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await listOpenCodeModels();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ models: [], sourceServerId: null, warning: err.message || 'Query failed' });
+  }
+});
+
+// ── General settings ───────────────────────────────────────────────────────────
 
 // 獲取所有設定
 router.get('/', (_req: Request, res: Response): void => {

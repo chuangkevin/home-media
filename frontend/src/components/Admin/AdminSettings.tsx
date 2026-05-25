@@ -81,6 +81,28 @@ export default function AdminSettings() {
   const [geminiKeyInput, setGeminiKeyInput] = useState('');
   const [geminiSaving, setGeminiSaving] = useState(false);
 
+  // OpenCode 設定
+  type OcVariant = 'default' | 'medium' | 'high' | '';
+  interface OcModel { id: string; name: string; provider: string; }
+  interface OcStatus {
+    servers: Array<{ id: string; label: string; baseUrl: string }>;
+    serversSource: string;
+    textModel: string; textModelSource: string;
+    visionModel: string; visionModelSource: string;
+    textVariant: string; textVariantSource: string;
+    visionVariant: string; visionVariantSource: string;
+  }
+  const [ocStatus, setOcStatus] = useState<OcStatus | null>(null);
+  const [ocModels, setOcModels] = useState<OcModel[]>([]);
+  const [ocModelSearch, setOcModelSearch] = useState('');
+  const [ocServersInput, setOcServersInput] = useState('');
+  const [ocTextModel, setOcTextModel] = useState('');
+  const [ocVisionModel, setOcVisionModel] = useState('');
+  const [ocTextVariant, setOcTextVariant] = useState<OcVariant>('');
+  const [ocVisionVariant, setOcVisionVariant] = useState<OcVariant>('');
+  const [ocSaving, setOcSaving] = useState(false);
+  const [ocModelsLoading, setOcModelsLoading] = useState(false);
+
   // 載入設定
   const loadSettings = async () => {
     try {
@@ -102,6 +124,60 @@ export default function AdminSettings() {
       setGeminiKeys(data.keys);
     } catch {
       // Gemini not configured
+    }
+  };
+
+  const loadOpenCode = async () => {
+    try {
+      const data = await apiService.getOpenCodeStatus();
+      const st: OcStatus = data.openCode;
+      setOcStatus(st);
+      setOcServersInput(st.servers.map((s: { baseUrl: string }) => s.baseUrl).join('\n'));
+      setOcTextModel(st.textModelSource === 'setting' ? st.textModel : '');
+      setOcVisionModel(st.visionModelSource === 'setting' ? st.visionModel : '');
+      setOcTextVariant(st.textVariantSource === 'setting' ? st.textVariant as OcVariant : '');
+      setOcVisionVariant(st.visionVariantSource === 'setting' ? st.visionVariant as OcVariant : '');
+    } catch { /* OpenCode not configured */ }
+  };
+
+  const loadOpenCodeModels = async () => {
+    setOcModelsLoading(true);
+    try {
+      const data = await apiService.getOpenCodeModels();
+      setOcModels(data.models);
+    } catch { /* ignore */ } finally {
+      setOcModelsLoading(false);
+    }
+  };
+
+  const handleSaveOpenCode = async () => {
+    setOcSaving(true);
+    try {
+      await apiService.saveOpenCodeSettings({
+        servers: ocServersInput,
+        textModel: ocTextModel,
+        visionModel: ocVisionModel,
+        textVariant: ocTextVariant,
+        visionVariant: ocVisionVariant,
+      });
+      setMessage({ type: 'success', text: 'OpenCode 設定已儲存' });
+      await loadOpenCode();
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      setMessage({ type: 'error', text: 'OpenCode 設定儲存失敗' });
+    } finally {
+      setOcSaving(false);
+    }
+  };
+
+  const handleClearOpenCode = async () => {
+    try {
+      await apiService.clearOpenCodeSettings();
+      setMessage({ type: 'success', text: 'OpenCode DB 設定已清除' });
+      await loadOpenCode();
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      setMessage({ type: 'error', text: 'OpenCode 清除失敗' });
     }
   };
 
@@ -133,6 +209,8 @@ export default function AdminSettings() {
   useEffect(() => {
     loadSettings();
     loadGeminiStatus();
+    loadOpenCode();
+    loadOpenCodeModels();
   }, []);
 
   // 儲存設定
@@ -516,6 +594,132 @@ export default function AdminSettings() {
           >
             {geminiSaving ? '驗證中...' : '新增 API Key'}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* OpenCode AI 設定 */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <SmartToyIcon /> OpenCode AI 設定
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            設定 OpenCode 伺服器與文字模型。文字 AI（分析/翻譯/推薦）優先使用 OpenCode，語音轉錄維持 Gemini。
+          </Typography>
+
+          {ocStatus && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              文字：{ocStatus.textModel} ({ocStatus.textVariant}) [{ocStatus.textModelSource}] ·
+              視覺：{ocStatus.visionModel} ({ocStatus.visionVariant}) [{ocStatus.visionModelSource}]
+            </Alert>
+          )}
+
+          <TextField
+            multiline minRows={2} maxRows={5} fullWidth
+            label="OpenCode 伺服器（每行一個 URL）"
+            placeholder="https://provider-amd.sisihome.org"
+            value={ocServersInput}
+            onChange={e => setOcServersInput(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+
+          <TextField
+            fullWidth size="small"
+            label="模型搜尋"
+            placeholder="輸入關鍵字過濾..."
+            value={ocModelSearch}
+            onChange={e => setOcModelSearch(e.target.value)}
+            sx={{ mb: 1.5 }}
+            InputProps={{
+              endAdornment: ocModelsLoading ? <CircularProgress size={16} /> : (
+                <IconButton size="small" onClick={loadOpenCodeModels}><RefreshIcon fontSize="small" /></IconButton>
+              ),
+            }}
+          />
+
+          {(() => {
+            const search = ocModelSearch.toLowerCase();
+            const filtered = ocModels.filter(m =>
+              !search || m.id.toLowerCase().includes(search) || m.name.toLowerCase().includes(search)
+            );
+            const providers = [...new Set(filtered.map(m => m.provider))].sort();
+            return (
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    select fullWidth label="文字模型"
+                    value={ocTextModel}
+                    onChange={e => setOcTextModel(e.target.value)}
+                    SelectProps={{ native: true }}
+                  >
+                    <option value="">— 使用預設（{ocStatus?.textModel ?? 'openai/gpt-5.5'}）—</option>
+                    {providers.map(p => (
+                      <optgroup key={p} label={p}>
+                        {filtered.filter(m => m.provider === p).map(m => (
+                          <option key={m.id} value={m.id}>{m.name} ({m.id})</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    select fullWidth label="視覺模型"
+                    value={ocVisionModel}
+                    onChange={e => setOcVisionModel(e.target.value)}
+                    SelectProps={{ native: true }}
+                  >
+                    <option value="">— 使用預設（{ocStatus?.visionModel ?? 'openai/gpt-5.5'}）—</option>
+                    {providers.map(p => (
+                      <optgroup key={p} label={p}>
+                        {filtered.filter(m => m.provider === p).map(m => (
+                          <option key={m.id} value={m.id}>{m.name} ({m.id})</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    select fullWidth label="文字 Variant"
+                    value={ocTextVariant}
+                    onChange={e => setOcTextVariant(e.target.value as OcVariant)}
+                    SelectProps={{ native: true }}
+                  >
+                    <option value="">— 使用預設（{ocStatus?.textVariant ?? 'medium'}）—</option>
+                    <option value="default">default</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    select fullWidth label="視覺 Variant"
+                    value={ocVisionVariant}
+                    onChange={e => setOcVisionVariant(e.target.value as OcVariant)}
+                    SelectProps={{ native: true }}
+                  >
+                    <option value="">— 使用預設（{ocStatus?.visionVariant ?? 'medium'}）—</option>
+                    <option value="default">default</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </TextField>
+                </Grid>
+              </Grid>
+            );
+          })()}
+
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="contained" startIcon={ocSaving ? <CircularProgress size={20} /> : <SaveIcon />}
+              onClick={handleSaveOpenCode} disabled={ocSaving}
+            >
+              {ocSaving ? '儲存中...' : '儲存 OpenCode 設定'}
+            </Button>
+            <Button variant="outlined" color="warning" onClick={handleClearOpenCode}>
+              清除 DB 設定
+            </Button>
+          </Box>
         </CardContent>
       </Card>
 

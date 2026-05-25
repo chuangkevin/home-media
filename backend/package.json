@@ -22,6 +22,7 @@
     "@distube/ytdl-core": "^4.16.12",
     "@google/genai": "^1.47.0",
     "@google/generative-ai": "^0.24.1",
+    "@kevinsisi/ai-core": "github:kevinsisi/ai-core#v3.4.3",
     "better-sqlite3": "^9.2.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

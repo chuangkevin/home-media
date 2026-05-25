@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getDatabase } from '../config/database';
 import logger from '../utils/logger';
+import { buildOpenCodeAdapters } from '../ai/provider';
+import { getOpenCodeTextModel } from '../ai/opencode-settings';
 
 interface ExtractedTrackInfo {
   title: string;
@@ -318,6 +320,29 @@ ${category ? `Category: "${category}"` : ''}
 Return exactly this JSON format:
 {"mood":"one of: energetic/chill/melancholic/upbeat/dark/dreamy/aggressive/romantic","genre":"primary genre in English","subgenre":"specific subgenre","energy":"one of: very-low/low/medium/high/very-high","language":"ISO 639-1 code like en/ja/zh/ko","themes":["max 3 keywords"]}`;
 
+  // OpenCode primary
+  const ocAdapters = buildOpenCodeAdapters();
+  const ocModel = getOpenCodeTextModel();
+  for (const { adapter } of ocAdapters) {
+    try {
+      const adapterFn = adapter as unknown as { generateContent: (p: unknown) => Promise<{ text: string }> };
+      const response = await adapterFn.generateContent({ model: ocModel, prompt, maxOutputTokens: 150 });
+      const ocMatch = response.text.trim().match(/\{[\s\S]*?\}/);
+      if (ocMatch) {
+        const parsed = JSON.parse(ocMatch[0]) as TrackStyle;
+        const validMoods = ['energetic', 'chill', 'melancholic', 'upbeat', 'dark', 'dreamy', 'aggressive', 'romantic'];
+        const validEnergy = ['very-low', 'low', 'medium', 'high', 'very-high'];
+        if (!validMoods.includes(parsed.mood)) parsed.mood = 'chill';
+        if (!validEnergy.includes(parsed.energy)) parsed.energy = 'medium';
+        if (!Array.isArray(parsed.themes)) parsed.themes = [];
+        parsed.themes = parsed.themes.slice(0, 3);
+        return parsed;
+      }
+    } catch (err) {
+      console.warn(`⚠️ [home-media] OpenCode analyzeTrackStyle failed: ${err instanceof Error ? err.message.slice(0, 100) : err}`);
+    }
+  }
+
   let currentKey = apiKey;
   const maxRetries = getMaxRetries();
 
@@ -410,6 +435,23 @@ Focus on discovering new artists, not the ones already listened to.
 
 Reply with ONLY a JSON array of strings, no other text:
 ["query1", "query2", "query3", "query4", "query5"]`;
+
+  // OpenCode primary
+  const ocAdapters = buildOpenCodeAdapters();
+  const ocModel = getOpenCodeTextModel();
+  for (const { adapter } of ocAdapters) {
+    try {
+      const adapterFn = adapter as unknown as { generateContent: (p: unknown) => Promise<{ text: string }> };
+      const response = await adapterFn.generateContent({ model: ocModel, prompt, maxOutputTokens: 200 });
+      const ocMatch = response.text.trim().match(/\[[\s\S]*?\]/);
+      if (ocMatch) {
+        const queries = JSON.parse(ocMatch[0]) as string[];
+        return queries.filter(q => typeof q === 'string' && q.length > 0).slice(0, 5);
+      }
+    } catch (err) {
+      console.warn(`⚠️ [home-media] OpenCode generateDiscoveryQueries failed: ${err instanceof Error ? err.message.slice(0, 100) : err}`);
+    }
+  }
 
   let currentKey = apiKey;
   const maxRetries = getMaxRetries();
@@ -504,6 +546,35 @@ ${cleanLines.map((l, i) => `${i}: ${l}`).join('\n')}
 
 Reply with ONLY a JSON object where each key is a line index (as a string):
 {"detected_language": "en", "translations": {"0": "第一行翻譯", "1": "第二行翻譯", "2": "", ...}}`;
+
+  // OpenCode primary
+  const ocAdapters = buildOpenCodeAdapters();
+  const ocModel = getOpenCodeTextModel();
+  for (const { adapter } of ocAdapters) {
+    try {
+      const adapterFn = adapter as unknown as { generateContent: (p: unknown) => Promise<{ text: string }> };
+      const response = await adapterFn.generateContent({ model: ocModel, prompt, maxOutputTokens: 4096 });
+      const ocMatch = response.text.trim().match(/\{[\s\S]*\}/);
+      if (ocMatch) {
+        const parsed = JSON.parse(ocMatch[0]);
+        let translationsArray: string[];
+        if (Array.isArray(parsed.translations)) {
+          translationsArray = parsed.translations as string[];
+          while (translationsArray.length < lines.length) translationsArray.push('');
+          translationsArray = translationsArray.slice(0, lines.length);
+        } else if (parsed.translations && typeof parsed.translations === 'object') {
+          const map = parsed.translations as Record<string, string>;
+          translationsArray = Array.from({ length: lines.length }, (_, i) => map[String(i)] ?? '');
+        } else {
+          continue;
+        }
+        parsed.translations = translationsArray;
+        return parsed;
+      }
+    } catch (err) {
+      console.warn(`⚠️ [home-media] OpenCode translateLyrics failed: ${err instanceof Error ? err.message.slice(0, 100) : err}`);
+    }
+  }
 
   let currentKey = apiKey;
   const maxRetries = getMaxRetries();

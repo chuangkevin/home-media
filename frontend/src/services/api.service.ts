@@ -588,6 +588,38 @@ class ApiService {
     await this.api.delete(`/gemini/keys/${suffix}`);
   }
 
+  // ==================== OpenCode 設定 ====================
+
+  async getOpenCodeStatus(): Promise<any> {
+    const res = await this.api.get('/settings/opencode');
+    return res.data;
+  }
+
+  async saveOpenCodeSettings(payload: {
+    servers?: string;
+    textModel?: string;
+    visionModel?: string;
+    textVariant?: string;
+    visionVariant?: string;
+  }): Promise<any> {
+    const res = await this.api.put('/settings/opencode', payload);
+    return res.data;
+  }
+
+  async clearOpenCodeSettings(): Promise<any> {
+    const res = await this.api.delete('/settings/opencode');
+    return res.data;
+  }
+
+  async getOpenCodeModels(): Promise<{
+    models: Array<{ id: string; name: string; provider: string }>;
+    sourceServerId: string | null;
+    warning: string | null;
+  }> {
+    const res = await this.api.get('/settings/opencode/models');
+    return res.data;
+  }
+
   // ==================== 播放信號追蹤 ====================
 
   async recordSkip(videoId: string): Promise<void> {

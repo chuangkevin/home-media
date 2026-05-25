@@ -122,24 +122,45 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     if (remaining > 0) {
       let queries: string[] = [];
       try {
-        const { getApiKey } = await import('../services/gemini.service');
-        const apiKey = getApiKey();
-        if (apiKey) {
-          const { GoogleGenerativeAI } = await import('@google/generative-ai');
-          const genai = new GoogleGenerativeAI(apiKey);
-          const model = genai.getGenerativeModel({
-            model: 'gemini-2.5-flash',
-            generationConfig: { maxOutputTokens: 400, temperature: 0.9 },
-          });
+        const recPrompt = `I'm listening to "${title}" by "${artist}". Suggest 8 songs by DIFFERENT artists with similar style/genre/mood. Format: one per line, "Artist - Song". No numbering, no quotes.`;
 
-          const result = await model.generateContent(
-            `I'm listening to "${title}" by "${artist}". Suggest 8 songs by DIFFERENT artists with similar style/genre/mood. Format: one per line, "Artist - Song". No numbering, no quotes.`
-          );
-          queries = result.response.text().trim().split('\n')
-            .map(q => q.replace(/^\d+[\.\)]\s*/, '').trim())
-            .filter(q => q.length > 3 && q.length < 80);
-          console.log(`🤖 [Similar] AI queries:`, queries);
+        // OpenCode primary
+        const { buildOpenCodeAdapters } = await import('../ai/provider');
+        const { getOpenCodeTextModel } = await import('../ai/opencode-settings');
+        const ocAdapters = buildOpenCodeAdapters();
+        const ocModel = getOpenCodeTextModel();
+        let ocHandled = false;
+        for (const { adapter } of ocAdapters) {
+          try {
+            const adapterFn = adapter as unknown as { generateContent: (p: unknown) => Promise<{ text: string }> };
+            const response = await adapterFn.generateContent({ model: ocModel, prompt: recPrompt, maxOutputTokens: 400 });
+            queries = response.text.trim().split('\n')
+              .map((q: string) => q.replace(/^\d+[\.\)]\s*/, '').trim())
+              .filter((q: string) => q.length > 3 && q.length < 80);
+            ocHandled = true;
+            break;
+          } catch (ocErr) {
+            console.warn(`⚠️ [Similar] OpenCode failed: ${ocErr instanceof Error ? ocErr.message.slice(0, 80) : ocErr}`);
+          }
         }
+
+        if (!ocHandled) {
+          const { getApiKey } = await import('../services/gemini.service');
+          const apiKey = getApiKey();
+          if (apiKey) {
+            const { GoogleGenerativeAI } = await import('@google/generative-ai');
+            const genai = new GoogleGenerativeAI(apiKey);
+            const model = genai.getGenerativeModel({
+              model: 'gemini-2.5-flash',
+              generationConfig: { maxOutputTokens: 400, temperature: 0.9 },
+            });
+            const result = await model.generateContent(recPrompt);
+            queries = result.response.text().trim().split('\n')
+              .map(q => q.replace(/^\d+[\.\)]\s*/, '').trim())
+              .filter(q => q.length > 3 && q.length < 80);
+          }
+        }
+        console.log(`🤖 [Similar] AI queries:`, queries);
       } catch (aiErr) {
         console.warn('⚠️ [Similar] AI failed, fallback to search');
       }
