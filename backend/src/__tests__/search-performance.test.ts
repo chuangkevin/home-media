@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 
 /**
  * Integration tests for search performance improvements.
@@ -14,6 +14,10 @@ vi.mock('youtube-sr', () => ({
 
 import YouTube from 'youtube-sr';
 import youtubeService from '../services/youtube.service';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('Search with youtube-sr', () => {
   it('should map youtube-sr results to YouTubeSearchResult type', async () => {

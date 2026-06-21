@@ -108,15 +108,9 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
           // 並行預載（不序列等待）
           await Promise.all(preloadAudios.map(async (video) => {
             if (!isActive) return;
-            const streamUrl = apiService.getStreamUrl(video.videoId);
             try {
-              await audioCacheService.preload(video.videoId, streamUrl, {
-                title: video.title,
-                channel: video.channel,
-                thumbnail: video.thumbnail,
-                duration: video.duration,
-              });
-              console.log(`✅ 音訊預載完成: ${video.title}`);
+              await apiService.preloadAudio(video.videoId);
+              console.log(`✅ 音訊預載已排入後端低優先級佇列: ${video.title}`);
             } catch (err) {
               console.warn(`⚠️ 音訊預載失敗: ${video.title}`, err);
             }

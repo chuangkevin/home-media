@@ -405,6 +405,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       crossfade.cancelCrossfade();
     }
     crossfade.resetPreload();
+    // The actual audio element must own the first stream request. If a homepage
+    // preload is already fetching this same URL, abort it so playback does not
+    // wait behind a full-file background download.
+    audioCacheService.abortDownload(pendingTrack.videoId);
     audioCacheService.abortAllExcept([pendingTrack.videoId]);
 
     // Record skip signal if previous track was not completed and played less than 50%

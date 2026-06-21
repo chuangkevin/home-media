@@ -188,6 +188,8 @@ Title cleaning (regex fallback when Gemini unavailable):
 ### Preloading
 - **3 tracks ahead**: preloads up to 3 upcoming tracks (not just 1), each independently
 - Downloads directly to IndexedDB from stream URL (not waiting for backend cache)
+- Homepage/recommendation audio preload must use backend low-priority `/api/preload/:videoId`, not frontend full-file `fetch(/api/stream/:videoId)`, so tapping a recommendation never waits behind a background stream download
+- `/api/stream/:videoId` is the highest-priority playback path and must not wait for DownloadManager/background cache completion
 - Background Blob switch: `setIsCached(true)` must be called after switch (updates tag)
 - **URL pre-warming**: when auto-queue loads recommendations, `POST /api/prewarm-urls` pre-fetches yt-dlp URLs (6h cache) so streaming starts instantly
 - **Download manager**: 1 high-priority + up to 3 concurrent low-priority downloads (`MAX_LOW_PRIORITY = 3`)
@@ -277,6 +279,8 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Landscape auto-fullscreen**: `effectiveFullscreen = isFullscreenLayout || isLandscape` — landscape always uses fullscreen three-panel layout
 - **Recommendation API speed**: similar tracks + AI discovery MUST use `Promise.all` — serial requests add 10s+ latency
 - **Preload timing**: audio/lyrics preload must delay 3s after recommendations load — prevents bandwidth contention with API calls
+- **Homepage preload path**: do not call `audioCacheService.preload()` from homepage recommendations. It uses `/api/stream` and can become the in-flight stream that blocks real playback; use `apiService.preloadAudio()` instead.
+- **Recommendation cache hit**: channel video cache should be usable when it has any valid cached videos. Do not require `cached.length >= requestedLimit`, because recommendation fetch asks for `VIDEOS_PER_CHANNEL + 1` but stores only visible videos, causing every homepage load to refetch YouTube.
 - **wasCompletedRef vs completeSentRef**: `completeSentRef` tracks the 90% API call, `wasCompletedRef` gates the time-based `playNext()` trigger. NEVER set `wasCompletedRef = true` at 90% — it blocks end detection at `trackDuration - 0.5s` and breaks auto-advance
 - **iOS background auto-next**: `timeupdate` stops firing when iOS Safari is in background/locked. Three fallback layers: (1) `setTimeout` at 90% signal for `trackDuration + 3s`, (2) `visibilitychange` checks `currentTime >= trackDuration - 0.5` on foreground return, (3) native `ended` event as last resort. All three guard with `wasCompletedRef` + clear `endFallbackTimeout` to prevent double-trigger
 - **Playback state persistence**: `playback-state.service.ts` saves to localStorage every 5s + on visibilitychange hidden. Recovery seek uses `consumeRecoverySeekTarget()` (one-shot, consumed once by AudioPlayer). Don't call `restore()` after `clear()` in the same flow. App.tsx tries persisted restore first, then falls back to URL `?playing=` param

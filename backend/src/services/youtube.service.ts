@@ -552,7 +552,7 @@ class YouTubeService {
     try {
       // 1. 檢查 24 小時快取
       const cached = this.getCachedChannelVideos(channelName, limit);
-      if (cached && cached.length >= limit) {
+      if (cached && cached.length > 0) {
         const cacheAge = Math.floor((Date.now() - cached[0].cachedAt) / 1000 / 60);
         console.log(`✅ 使用頻道影片快取: ${channelName} (快取時間: ${cacheAge}分鐘, ${cached.length} 個影片)`);
         return cached.map(c => ({
