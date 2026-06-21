@@ -1,6 +1,6 @@
 {
   "name": "home-media-backend",
-  "version": "1.3.12",
+  "version": "1.3.13",
   "description": "家用多媒體中心後端服務",
   "main": "dist/server.js",
   "scripts": {
@@ -22,8 +22,8 @@
     "@distube/ytdl-core": "^4.16.12",
     "@google/genai": "^1.47.0",
     "@google/generative-ai": "^0.24.1",
-    "@kevinsisi/ai-core": "github:kevinsisi/ai-core#v3.4.3",
-    "better-sqlite3": "^9.2.2",
+    "@kevinsisi/ai-core": "git+https://github.com/kevinsisi/ai-core.git#v3.4.3",
+    "better-sqlite3": "^11.10.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",

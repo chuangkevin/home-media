@@ -149,6 +149,7 @@ Title cleaning (regex fallback when Gemini unavailable):
 - `playNow` clears tracks after insert position — forces auto-queue to re-recommend for new artist
 - Filter out tracks >600s (10 min) — prevents compilation albums from polluting queue/cache
 - Dependencies: `[autoQueueSeedVersion, activeVideoId, currentIndex, playlist.length]`
+- Homepage recommendations seed order: `watched_channels` → `cached_tracks.last_played` → `favorites.channel`. Favorites must work as a fallback so new users with收藏但尚未完成播放紀錄 still get recommendations.
 
 ## Critical Patterns
 
@@ -281,6 +282,7 @@ SQLite at `./data/db/home-media.sqlite` (WAL mode). Key tables:
 - **Preload timing**: audio/lyrics preload must delay 3s after recommendations load — prevents bandwidth contention with API calls
 - **Homepage preload path**: do not call `audioCacheService.preload()` from homepage recommendations. It uses `/api/stream` and can become the in-flight stream that blocks real playback; use `apiService.preloadAudio()` instead.
 - **Recommendation cache hit**: channel video cache should be usable when it has any valid cached videos. Do not require `cached.length >= requestedLimit`, because recommendation fetch asks for `VIDEOS_PER_CHANNEL + 1` but stores only visible videos, causing every homepage load to refetch YouTube.
+- **Recommendation seed fallback**: don't require completed playback history before showing homepage recommendations. Use favorites as a final channel seed fallback after watched/cached history.
 - **wasCompletedRef vs completeSentRef**: `completeSentRef` tracks the 90% API call, `wasCompletedRef` gates the time-based `playNext()` trigger. NEVER set `wasCompletedRef = true` at 90% — it blocks end detection at `trackDuration - 0.5s` and breaks auto-advance
 - **iOS background auto-next**: `timeupdate` stops firing when iOS Safari is in background/locked. Three fallback layers: (1) `setTimeout` at 90% signal for `trackDuration + 3s`, (2) `visibilitychange` checks `currentTime >= trackDuration - 0.5` on foreground return, (3) native `ended` event as last resort. All three guard with `wasCompletedRef` + clear `endFallbackTimeout` to prevent double-trigger
 - **Playback state persistence**: `playback-state.service.ts` saves to localStorage every 5s + on visibilitychange hidden. Recovery seek uses `consumeRecoverySeekTarget()` (one-shot, consumed once by AudioPlayer). Don't call `restore()` after `clear()` in the same flow. App.tsx tries persisted restore first, then falls back to URL `?playing=` param

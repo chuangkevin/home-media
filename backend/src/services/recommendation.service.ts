@@ -108,6 +108,27 @@ class RecommendationService {
         })).filter((ch: any) => !hiddenChannels.has(ch.channelName));
       }
 
+      // 使用者可能已經有收藏，但還沒有完整播放完成紀錄；收藏也應能作為首頁推薦 seed。
+      if (channels.length === 0) {
+        logger.warn('[Recommend] cached_tracks history empty, falling back to favorites');
+        channels = db.prepare(`
+          SELECT
+            channel as channelName,
+            MAX(thumbnail) as channelThumbnail,
+            COUNT(*) as watchCount,
+            MAX(favorited_at) as lastWatchedAt,
+            MIN(favorited_at) as firstWatchedAt
+          FROM favorites
+          WHERE channel IS NOT NULL AND TRIM(channel) != ''
+          GROUP BY channel
+          ORDER BY MAX(favorited_at) DESC, COUNT(*) DESC
+          LIMIT 100
+        `).all().map((row: any) => ({
+          ...row,
+          channelId: '',
+        })).filter((ch: any) => !hiddenChannels.has(ch.channelName));
+      }
+
       logger.info(`[Recommend] Found ${channels.length} watched channels (after filtering hidden).`);
 
       if (channels.length === 0) {
