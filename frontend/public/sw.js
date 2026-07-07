@@ -2,21 +2,19 @@
  * Service Worker for 家用多媒體中心 PWA
  *
  * 緩存策略：
- * - App Shell (HTML, CSS, JS) - Cache First
+ * - App Shell (HTML) - Network First, cache fallback only
  * - API 請求 - Network First
  * - 音頻串流 - 不緩存（由後端 audio-cache 處理）
  * - 靜態資源 - Cache First
  */
 
-const CACHE_NAME = 'home-media-v1';
-const STATIC_CACHE_NAME = 'home-media-static-v1';
+const SW_VERSION = '2026-05-29-1';
+const CACHE_NAME = `home-media-${SW_VERSION}`;
+const STATIC_CACHE_NAME = `home-media-static-${SW_VERSION}`;
+const CACHE_PREFIXES = ['home-media-', 'home-media-static-'];
 
 // 需要預緩存的資源
-const PRECACHE_URLS = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-];
+const PRECACHE_URLS = ['/manifest.webmanifest'];
 
 // 安裝事件 - 預緩存核心資源
 self.addEventListener('install', (event) => {
@@ -39,6 +37,7 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) => {
         return Promise.all(
           cacheNames
+            .filter((name) => CACHE_PREFIXES.some((prefix) => name.startsWith(prefix)))
             .filter((name) => name !== CACHE_NAME && name !== STATIC_CACHE_NAME)
             .map((name) => {
               console.log('[SW] Deleting old cache:', name);
@@ -68,6 +67,12 @@ self.addEventListener('fetch', (event) => {
   // API 請求 - Network First
   if (url.pathname.startsWith('/api')) {
     event.respondWith(networkFirst(request));
+    return;
+  }
+
+  // HTML navigation must prefer the network to avoid stale app shells after deploys.
+  if (request.mode === 'navigate') {
+    event.respondWith(networkFirstWithFallback(request));
     return;
   }
 
