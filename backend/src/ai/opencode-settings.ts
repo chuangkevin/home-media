@@ -76,7 +76,10 @@ export function setOpenCodeServers(value: string): void {
 
 // ── Text model ────────────────────────────────────────────────────────────────
 
-const DEFAULT_MODEL = 'openai/gpt-5.5';
+// Free, vision-capable OpenCode Zen model (used as both text + vision default).
+// The old openai/gpt-5.5 default is dead: No-OpenAI rule + paid Zen models 401
+// on a 0 workspace balance.
+const DEFAULT_MODEL = 'opencode/mimo-v2.5-free';
 
 export function getOpenCodeTextModel(): string {
   return getSetting('opencode.textModel') || process.env.OPENCODE_MODEL || DEFAULT_MODEL;
@@ -197,11 +200,24 @@ export async function listOpenCodeModels(): Promise<{
     try {
       const res = await fetch(`${server.baseUrl}/provider`, { headers, signal: controller.signal });
       if (!res.ok) continue;
-      const data = await res.json() as Record<string, { models?: Record<string, { name?: string }> }>;
+      const data = await res.json() as {
+        all?: Array<{ id?: string; models?: Record<string, { id?: string; name?: string; cost?: { input?: number; output?: number } }> }>;
+        providers?: Array<{ id?: string; models?: Record<string, { id?: string; name?: string; cost?: { input?: number; output?: number } }> }>;
+      };
 
+      // Only free models: the Zen workspace balance is 0, so any paid model
+      // (opencode-go/*, and paid models inside `opencode` such as gpt-5.5) returns
+      // 401. `openai` is banned by the No-OpenAI rule. Filter by cost so the list
+      // stays correct on its own as OpenCode adds/removes models.
+      const providerList = data.all ?? data.providers ?? [];
       const models: OpenCodeModel[] = [];
-      for (const [providerID, providerData] of Object.entries(data)) {
-        for (const [modelID, modelData] of Object.entries(providerData.models || {})) {
+      for (const provider of providerList) {
+        const providerID = String(provider?.id ?? '');
+        if (!providerID || providerID === 'opencode-go' || providerID === 'openai') continue;
+        for (const modelData of Object.values(provider?.models ?? {})) {
+          if (!(modelData?.cost?.input === 0 && modelData?.cost?.output === 0)) continue;
+          const modelID = String(modelData?.id ?? '');
+          if (!modelID) continue;
           models.push({
             id: `${providerID}/${modelID}`,
             name: modelData.name ?? modelID,
