@@ -652,7 +652,7 @@ export default function AdminSettings() {
                     onChange={e => setOcTextModel(e.target.value)}
                     SelectProps={{ native: true }}
                   >
-                    <option value="">— 使用預設（{ocStatus?.textModel ?? 'openai/gpt-5.5'}）—</option>
+                    <option value="">— 使用預設（{ocStatus?.textModel ?? 'opencode/mimo-v2.5-free'}）—</option>
                     {providers.map(p => (
                       <optgroup key={p} label={p}>
                         {filtered.filter(m => m.provider === p).map(m => (
@@ -669,7 +669,7 @@ export default function AdminSettings() {
                     onChange={e => setOcVisionModel(e.target.value)}
                     SelectProps={{ native: true }}
                   >
-                    <option value="">— 使用預設（{ocStatus?.visionModel ?? 'openai/gpt-5.5'}）—</option>
+                    <option value="">— 使用預設（{ocStatus?.visionModel ?? 'opencode/mimo-v2.5-free'}）—</option>
                     {providers.map(p => (
                       <optgroup key={p} label={p}>
                         {filtered.filter(m => m.provider === p).map(m => (
