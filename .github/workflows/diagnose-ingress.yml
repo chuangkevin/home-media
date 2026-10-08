@@ -8,6 +8,8 @@ on:
     paths:
       - '.github/workflows/diagnose-ingress.yml'
       - 'scripts/diagnose-runtime-state.sh'
+      - 'scripts/diagnose-ingress.cjs'
+      - 'scripts/probe-websocket-upgrade.cjs'
   workflow_dispatch:
 
 permissions:
@@ -40,6 +42,22 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:github-actions
+
+      - name: Current Tailnet HTTPS health only
+        if: ${{ github.event_name == 'push' }}
+        timeout-minutes: 1
+        run: |
+          if ! timeout --signal=TERM 20s node scripts/diagnose-ingress.cjs tailnet-health-only; then
+            echo '{"vantage":"github_runner_tailnet_hostname","stage":"health","category":"probe_failed_no_retry"}'
+          fi
+
+      - name: Current Tailnet WebSocket upgrade only
+        if: ${{ github.event_name == 'push' }}
+        timeout-minutes: 1
+        run: |
+          if ! timeout --signal=TERM 20s node scripts/probe-websocket-upgrade.cjs; then
+            echo '{"vantage":"github_runner_tailnet_hostname","stage":"websocket_upgrade","category":"probe_failed_no_retry"}'
+          fi
 
       - name: Prepare existing SSH authentication
         timeout-minutes: 1
@@ -84,7 +102,7 @@ jobs:
           # only the named containers, their data mount, and bounded log tails.
           if ! timeout --signal=TERM 50s ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=10 -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_SERVER_IP" \
-            'sh -s' < scripts/diagnose-runtime-state.sh 2>/dev/null; then
+            'bash -s' < scripts/diagnose-runtime-state.sh 2>/dev/null; then
             echo '{"stage":"runtime_diagnostic","category":"transport_or_probe_failed_no_retry"}'
           fi
 

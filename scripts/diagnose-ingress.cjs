@@ -8,6 +8,7 @@ const choices = {
   public: {base: 'https://radio.sisihome.org', vantage: 'github_runner_public_before_tailnet'},
   nginx: {base: 'http://frontend:80', vantage: 'backend_container_to_nginx'},
   tailnet: {base: 'https://radio.sisihome.org', vantage: 'github_runner_tailnet_hostname'},
+  'tailnet-health-only': {base: 'https://radio.sisihome.org', vantage: 'github_runner_tailnet_hostname'},
 };
 if (!Object.hasOwn(choices, mode)) {
   console.log(JSON.stringify({stage: 'diagnostic', category: 'unsupported_probe_mode'}));
@@ -62,6 +63,7 @@ async function main() {
   const health = await get('/health', {timeout: 8000, limit: 8192});
   report('health', health, health.category === 'complete' && health.status === 200 ?
     'http_ok' : health.category !== 'complete' ? health.category : 'http_error');
+  if (mode === 'tailnet-health-only') return;
   const recommendations = await get('/api/recommendations/personalized', {timeout: 15000});
   const body = json(recommendations);
   const valid = recommendations.category === 'complete' && recommendations.status === 200 &&
