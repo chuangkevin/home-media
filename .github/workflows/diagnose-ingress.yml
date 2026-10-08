@@ -2,6 +2,12 @@ name: Diagnose Home Media Ingress
 run-name: Read-only ingress diagnostics at ${{ github.sha }}
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/diagnose-ingress.yml'
+      - 'scripts/diagnose-runtime-state.sh'
   workflow_dispatch:
 
 permissions:
@@ -24,6 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Public HTTPS entrance from GitHub runner (before Tailnet)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         timeout-minutes: 1
         run: node scripts/diagnose-ingress.cjs public
 
@@ -50,6 +57,7 @@ jobs:
           ssh-keyscan -T 10 -H "$DEPLOY_SERVER_IP" 2>/dev/null > ~/.ssh/known_hosts
 
       - name: Actual nginx proxy from the existing backend container
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         timeout-minutes: 1
         env:
           DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
@@ -62,6 +70,22 @@ jobs:
             'docker exec -i home-media-backend node - nginx' \
             < scripts/diagnose-ingress.cjs 2>/dev/null; then
             echo '{"vantage":"backend_container_to_nginx","stage":"diagnostic","category":"transport_or_probe_failed_no_retry"}'
+          fi
+
+      - name: Bounded runtime state and sanitized log summary (read-only)
+        timeout-minutes: 2
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Reuse the existing Tailscale and SSH scope. The remote script reads
+          # only the named containers, their data mount, and bounded log tails.
+          if ! timeout --signal=TERM 50s ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_SERVER_IP" \
+            'sh -s' < scripts/diagnose-runtime-state.sh 2>/dev/null; then
+            echo '{"stage":"runtime_diagnostic","category":"transport_or_probe_failed_no_retry"}'
           fi
 
       - name: Remove temporary runner SSH key
