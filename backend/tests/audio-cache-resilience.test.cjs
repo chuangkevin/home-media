@@ -128,7 +128,8 @@ test('remux rejection preserves previously published file and cleans temp', asyn
   assert.deepEqual(fs.readdirSync(f.dir), ['video.m4a']);
 });
 
-function remuxFixture(t, impl) {
+function remuxFixture(t, impl, holdClose = false) {
+  const children = [];
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audio-remux-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'video.tmp');
@@ -136,11 +137,14 @@ function remuxFixture(t, impl) {
   const service = load('services/audio-cache.service.ts', {
     '../utils/logger': logger, './youtube.service': {}, './audio-cache-writer': {},
     child_process: { execFile(command, args, options, cb) {
-      if (args[0] === '-version') queueMicrotask(() => cb(null, '', ''));
-      else impl(command, args, options, cb);
+      const child = new EventEmitter(); children.push(child);
+      const complete = (error, stdout, stderr) => { cb(error, stdout, stderr); if (!holdClose || args[0] === '-version') queueMicrotask(() => child.emit('close', error ? 1 : 0)); };
+      if (args[0] === '-version') queueMicrotask(() => complete(null, '', ''));
+      else impl(command, args, options, complete, child);
+      return child;
     } },
   }, { process: { env: { AUDIO_CACHE_DIR: dir }, cwd: () => dir } }).default;
-  return { file, dir, service };
+  return { file, dir, service, children };
 }
 
 test('actual remux method is asynchronous, bounded, and atomically replaces only completed output', async t => {
@@ -240,24 +244,28 @@ test('optional cache failure retains live stream owner until producer closes', a
   children[1].emit('close', 1);
 });
 
-test('DownloadManager holds queue slot and same-video waiters through remux completion', async () => {
-  const jobs = [];
+test('DownloadManager holds queue slot and same-video waiters through child close and remux completion', async () => {
+  const jobs = [], children = [];
   const service = load('services/download-manager.service.ts', {
     fs: { readdirSync() { return []; } },
     './youtube.service': { getYtDlpPath() { return 'mock'; }, getYtDlpBaseArgs() { return []; } },
     './audio-cache.service': { has() { return false; }, getCachePath(id) { return id; }, getCacheDir() { return '/unused'; } },
     './audio-cache-writer': { createAudioCacheWriter() { const d = deferred(); const job = { completion: d.promise, cancel() { d.resolve(null); }, resolve: d.resolve }; jobs.push(job); return job; } },
-    child_process: { spawn() { return { stderr: { resume() {} } }; } },
+    child_process: { spawn() { const p = new EventEmitter(); p.stderr = { resume() {} }; children.push(p); return p; } },
   }).default;
   const a = service.playNow('same'), b = service.playNow('same');
   service.precache(['next']);
   assert.equal(jobs.length, 1);
   assert.equal(service.getStatus('same').status, 'downloading-high');
-  assert.equal(service.awaitDownload('same'), jobs[0].completion);
+  assert.equal(service.awaitDownload('same'), service.highPriority.completion);
   jobs[0].resolve('/cached/same');
+  await tick(); assert.equal(jobs.length, 1, 'writer completion cannot release a still-live child');
+  children[0].emit('close', 0);
   assert.deepEqual(await Promise.all([a, b]), ['/cached/same', '/cached/same']);
   await tick(); assert.equal(jobs.length, 2);
   jobs[1].resolve(null);
+  children[1].emit('close', 1);
+  await tick();
 });
 
 test('cancelled old writer ignores late chunks and cannot consume newer temporary file', async t => {
@@ -268,4 +276,31 @@ test('cancelled old writer ignores late chunks and cannot consume newer temporar
   f.proc.stdout.emit('data', Buffer.from('late old data'));
   assert.deepEqual(fs.readdirSync(f.dir), []);
   assert.doesNotThrow(() => f.proc.stdout.emit('error', new Error('late stdout error')));
+});
+
+test('cancellation after an optional disk failure still stops and reaps the live child exactly once', async t => {
+  const f = fixture(t, { fs: { ...fs, createWriteStream() {
+    return new Writable({ write(_chunk, _encoding, callback) { callback(new Error('disk full')); } });
+  } } });
+  const job = f.create(f.proc, f.dest, async () => {}, { keepStreamingOnError: true });
+  f.proc.stdout.write(Buffer.alloc(32)); await job.completion;
+  assert.deepEqual(f.proc.kills, []);
+  job.cancel(); job.cancel(); await tick();
+  assert.deepEqual(f.proc.kills, ['SIGTERM']);
+});
+
+test('remux abort callback cannot settle or remove its output before the child close event', async t => {
+  const controller = new AbortController(), entered = deferred(); let child, output;
+  const f = remuxFixture(t, (_cmd, args, options, callback, proc) => {
+    child = proc; output = args.at(-1); fs.writeFileSync(output, 'still owned by child');
+    options.signal.addEventListener('abort', () => callback(Object.assign(new Error('abort'), { name: 'AbortError' }), '', ''));
+    entered.resolve();
+  }, true);
+  let settled = false;
+  const work = f.service.remuxIfNeeded(f.file, controller.signal).finally(() => { settled = true; });
+  const rejected = assert.rejects(work, { name: 'AbortError' });
+  await entered.promise; controller.abort(); await tick();
+  assert.equal(settled, false); assert.equal(fs.existsSync(output), true);
+  child.emit('close', null); await rejected;
+  assert.equal(fs.existsSync(output), false); assert.match(fs.readFileSync(f.file, 'utf8'), /original/);
 });

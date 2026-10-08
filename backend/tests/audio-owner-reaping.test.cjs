@@ -1,0 +1,24 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const os=require('node:os');const vm=require('node:vm');const cp=require('node:child_process');const {EventEmitter}=require('node:events');const {Writable}=require('node:stream');const ts=require('typescript');
+const tick=()=>new Promise(setImmediate);
+class Response extends Writable {constructor(){super();this.headersSent=false;this.headers={};this.statusCode=200;this.on('error',()=>{})}_write(_chunk,_encoding,callback){callback()}status(code){this.statusCode=code;return this}setHeader(name,value){this.headers[name]=value}write(chunk){this.headersSent=true;return super.write(chunk)}json(body){this.end(JSON.stringify(body));return this}}
+const req=id=>Object.assign(new EventEmitter(),{params:{videoId:id},headers:{}});
+async function until(check,timeout=6000){const deadline=Date.now()+timeout;while(!check()){if(Date.now()>deadline)throw new Error('fixture deadline');await new Promise(resolve=>setTimeout(resolve,5))}}
+function alive(pid){try{process.kill(pid,0);return true}catch{return false}}
+function fixture(t){
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'radio-reap-'));const script=path.join(dir,'child.cjs');fs.writeFileSync(script,"process.on('SIGTERM',()=>{});process.stderr.write('ready\\n');setInterval(()=>{},1000)");
+ const children=[],live=new Set(),events=[];let peak=0;const src=path.resolve(__dirname,'../src');const modules=new Map();const cachePath=id=>path.join(dir,id+'.m4a');
+ const mocks={'../utils/logger':{info(){},warn(){},error(){}},'../services/youtube.service':{validateVideoId:async()=>true,getYtDlpPath:()=>process.execPath,getYtDlpBaseArgs:()=>[]},'../services/audio-cache.service':{has:id=>fs.existsSync(cachePath(id)),getCachePath:cachePath,remuxIfNeeded:async()=>{}},'../services/download-manager.service':{abortForVideoId(){},getProgressiveJob(){return null}},child_process:{...cp,spawn(){const child=cp.spawn(process.execPath,[script]);child.fixtureReady=false;child.fixtureSignals=[];const kill=child.kill.bind(child);child.kill=signal=>{child.fixtureSignals.push(signal);return kill(signal)};live.add(child.pid);peak=Math.max(peak,live.size);events.push({type:'spawn',pid:child.pid,live:live.size});child.fixtureClosed=new Promise(resolve=>child.once('close',()=>{live.delete(child.pid);events.push({type:'close',pid:child.pid,live:live.size});resolve()}));child.stderr.on('data',()=>{child.fixtureReady=true});children.push(child);return child}}};
+ function load(relative){const filename=path.resolve(src,relative);if(modules.has(filename))return modules.get(filename);const module={exports:{}};const code=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;vm.runInNewContext(code,{module,exports:module.exports,Buffer,process,AbortController,setTimeout,clearTimeout,console:{log(){},warn(){},error(){}},require(name){if(Object.hasOwn(mocks,name))return mocks[name];if(name.startsWith('.'))return load(path.relative(src,path.resolve(path.dirname(filename),name)+'.ts'));return require(name)}},{filename});modules.set(filename,module.exports);return module.exports}
+ const subject=load('controllers/youtube.controller.ts').default;const responses=[];
+ t.after(async()=>{responses.forEach(res=>res.destroy());children.forEach(child=>{if(live.has(child.pid))child.kill('SIGKILL')});await Promise.all(children.map(child=>child.fixtureClosed));await until(()=>subject.activeStreamOwners===0);fs.rmSync(dir,{recursive:true,force:true})});
+ return{subject,children,responses,events,get peak(){return peak}};
+}
+test('real children that ignore TERM are killed and closed before a replacement claims one of four slots',{timeout:15000},async t=>{
+ const f=fixture(t);
+ for(let i=0;i<4;i++){const res=new Response();f.responses.push(res);await f.subject.streamAudio(req('realcancel'+i),res);await until(()=>f.children[i].fixtureReady);res.destroy();await tick()}
+ const next=new Response();f.responses.push(next);const started=Date.now();await f.subject.streamAudio(req('realnext001'),next);
+ assert.equal(f.children.length,5);assert.ok(Date.now()-started<3000);assert.ok(f.peak<=4,'old OS children remain counted until close');
+ const replacementSpawn=f.events.findIndex(event=>event.type==='spawn'&&event.pid===f.children[4].pid);assert.ok(f.events.slice(0,replacementSpawn).some(event=>event.type==='close'));
+ await Promise.all(f.children.slice(0,4).map(child=>child.fixtureClosed));assert.ok(f.children.slice(0,4).every(child=>!alive(child.pid)));assert.ok(f.children.slice(0,4).every(child=>child.fixtureSignals.includes('SIGTERM')&&child.fixtureSignals.includes('SIGKILL')));
+ assert.equal(f.subject.activeStreamOwners,1);assert.equal(f.subject.waitingStreamAdmissions,0);
+});

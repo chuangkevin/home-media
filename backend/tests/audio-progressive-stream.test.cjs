@@ -40,19 +40,23 @@ async function until(check) {const end=Date.now()+2000;while(!check()){if(Date.n
 function fixture(t,options={}) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'audio-spool-'));const children=[];const jobs=[];const entered=deferred(),release=deferred();
   const cachePath=id=>path.join(dir,id+'.m4a');
-  const load=modules({
+  const mocks={
     '../utils/logger':{info(){},warn(){},error(){}},
     '../services/youtube.service':{async validateVideoId(){return true},getYtDlpPath(){return 'mock'},getYtDlpBaseArgs(){return []}},
-    '../services/audio-cache.service':{has:id=>fs.existsSync(cachePath(id)),getCachePath:cachePath,async remuxIfNeeded(file){entered.resolve();if(options.remuxBlocked)await release.promise;if(options.replaceOnRemux){fs.writeFileSync(file+'.new',Buffer.from('0000ftypM4A final-cache'));fs.renameSync(file+'.new',file)}}},
-    '../services/download-manager.service':{abortForVideoId(){}},
-    child_process:{spawn(){const p=new EventEmitter();p.stdout=new PassThrough();p.stderr=new PassThrough();p.kills=[];p.kill=signal=>{p.kills.push(signal);queueMicrotask(()=>p.emit('close',null));return true};children.push(p);return p}},
-  });
+    '../services/audio-cache.service':{has:id=>fs.existsSync(cachePath(id)),getCachePath:cachePath,getCacheDir:()=>dir,getFileSize:id=>fs.statSync(cachePath(id)).size,createReadStream:(id,options)=>fs.createReadStream(cachePath(id),options),async remuxIfNeeded(file){entered.resolve();if(options.remuxBlocked)await release.promise;if(options.replaceOnRemux){fs.writeFileSync(file+'.new',Buffer.from('0000ftypM4A final-cache'));fs.renameSync(file+'.new',file)}}},
+    '../services/download-manager.service':{abortForVideoId(){},precache(){}},
+    child_process:{spawn(){const p=new EventEmitter();p.stdout=new PassThrough();p.stderr=new PassThrough();p.kills=[];p.kill=signal=>{p.kills.push(signal);if(!options.holdClose)queueMicrotask(()=>p.emit('close',null));return true};p.existingTempsAtSpawn=fs.readdirSync(dir).filter(name=>name.endsWith('.tmp'));children.push(p);return p}},
+  };
+  mocks['./audio-cache.service']=mocks['../services/audio-cache.service'];
+  mocks['./youtube.service']=mocks['../services/youtube.service'];
+  if(options.realManager)delete mocks['../services/download-manager.service'];
+  const load=modules(mocks);
   const create=load('services/audio-cache-writer.ts').createAudioCacheWriter;
   const response=load('services/audio-progressive-response.ts');
   const subject=load('controllers/youtube.controller.ts').default;
   function writer(id='direct') {const p=new EventEmitter();p.stdout=new PassThrough();p.kills=[];p.kill=s=>{p.kills.push(s);queueMicrotask(()=>p.emit('close',null));return true};const job=create(p,cachePath(id),async()=>{});jobs.push(job);return{p,job};}
   t.after(async()=>{release.resolve();for(const j of jobs){j.cancel();await j.completion;}for(const p of children){p.stdout.end();p.emit('close',1);}await tick();fs.rmSync(dir,{recursive:true,force:true});});
-  return{dir,children,subject,writer,response,cachePath,entered,release};
+  return{dir,children,subject,writer,response,cachePath,entered,release,manager:options.realManager?load('services/download-manager.service.ts').default:null};
 }
 test('same-song reader and Safari byte probe share one producer and stream before remux publication',async t=>{
  const f=fixture(t,{remuxBlocked:true,replaceOnRemux:true});const first=new Response();
@@ -120,4 +124,124 @@ test('producer body budget cancels oversize work and cannot publish a partial ca
  const p=new EventEmitter();p.stdout=new PassThrough();p.kills=[];p.kill=s=>{p.kills.push(s);queueMicrotask(()=>p.emit('close',null));return true};
  const load=modules();const job=load('services/audio-cache-writer.ts').createAudioCacheWriter(p,path.join(dir,'audio.m4a'),async()=>{throw new Error('must not remux')},{maxBytes:64});
  p.stdout.write(Buffer.alloc(65));assert.equal(await job.completion,null);assert.deepEqual(p.kills,['SIGTERM']);assert.equal(job.spool.snapshot().failed,true);assert.deepEqual(fs.readdirSync(dir),[]);
+});
+
+test('four cancelled cold requests relinquish only reaped owners and a new foreground starts within the bounded admission wait',async t=>{
+ const f=fixture(t);const old=[];
+ for(let i=0;i<4;i++){const res=new Response();old.push(res);await f.subject.streamAudio(request('cancel0000'+i),res);res.destroy();await tick();}
+ const started=Date.now();const next=new Response();await f.subject.streamAudio(request('latest00000'),next);
+ assert.equal(f.children.length,5);assert.ok(Date.now()-started<1500);await until(()=>f.subject.activeStreamOwners===1);
+ assert.deepEqual(f.children.slice(0,4).map(p=>p.kills),[['SIGTERM'],['SIGTERM'],['SIGTERM'],['SIGTERM']]);
+ assert.equal(f.subject.waitingStreamAdmissions,0);assert.equal(next.headersSent,false,'new producer starts without masquerading as empty completed200');
+ f.children[4].stdout.end(prefix);f.children[4].emit('close',0);await until(()=>next.writableEnded);
+});
+test('a waiting shared reader is a live consumer before any bytes or descriptor readiness',async t=>{
+ const f=fixture(t);const first=new Response();await f.subject.streamAudio(request(),first);
+ const second=new Response();const stream=f.subject.streamAudio(request(),second);await tick();first.destroy();await tick();
+ await new Promise(resolve=>setTimeout(resolve,300));assert.deepEqual(f.children[0].kills,[]);assert.equal(f.subject.inFlightOwners.get('fixture1234').isIdle(),false);
+ f.children[0].stdout.end(prefix);f.children[0].emit('close',0);await stream;assert.equal(second.writableEnded,true);assert.equal(f.children.length,1);
+});
+test('Safari byte probe can rejoin during the covered grace without restarting its producer',async t=>{
+ const f=fixture(t);const probe=new Response();await f.subject.streamAudio(request('fixture1234','bytes=0-1'),probe);
+ f.children[0].stdout.write(prefix);await until(()=>probe.chunks.length>0);probe.destroy();await tick();
+ await new Promise(resolve=>setTimeout(resolve,220));const res=new Response();const stream=f.subject.streamAudio(request(),res);await until(()=>res.chunks.length>0);
+ assert.equal(f.children.length,1);assert.deepEqual(f.children[0].kills,[]);f.children[0].stdout.end();f.children[0].emit('close',0);await stream;
+});
+test('same-song rejoin after retirement waits for close and cleanup before a replacement writer starts',async t=>{
+ const f=fixture(t,{holdClose:true});const first=new Response();await f.subject.streamAudio(request(),first);first.destroy();await tick();
+ await until(()=>f.children[0].kills.length>0);const next=new Response();const waiting=f.subject.streamAudio(request(),next);await tick();
+ assert.equal(f.children.length,1);assert.equal(f.subject.activeStreamOwners,1);
+ f.children[0].stdout.emit('data',Buffer.from('late discarded bytes'));f.children[0].emit('close',1);await waiting;
+ assert.equal(f.children.length,2);assert.equal(f.subject.activeStreamOwners,1);assert.deepEqual(f.children[1].existingTempsAtSpawn,[],'old temporary path is cleaned before replacement spawn');
+ f.children[1].stdout.end(prefix);f.children[1].emit('close',0);await until(()=>next.writableEnded);
+});
+test('explicit preload owns finalization after all HTTP consumers leave and never creates a duplicate writer',async t=>{
+ const f=fixture(t,{remuxBlocked:true});const res=new Response();await f.subject.streamAudio(request(),res);
+ const accepted=new Response();await f.subject.preloadAudio(request(),accepted);assert.equal(accepted.statusCode,202);res.destroy();await tick();
+ await new Promise(resolve=>setTimeout(resolve,300));assert.deepEqual(f.children[0].kills,[]);assert.equal(f.children.length,1);
+ f.children[0].stdout.end(prefix);f.children[0].emit('close',0);await f.entered.promise;
+ await new Promise(resolve=>setTimeout(resolve,300));assert.equal(f.subject.activeStreamOwners,1);assert.equal(f.subject.inFlightOwners.get('fixture1234').isIdle(),false);
+ f.release.resolve();await until(()=>f.subject.activeStreamOwners===0);assert.equal(fs.existsSync(f.cachePath('fixture1234')),true);
+});
+test('request cancellation while waiting for capacity cannot start a later foreground producer',async t=>{
+ const f=fixture(t,{holdClose:true});
+ for(let i=0;i<4;i++){const res=new Response();await f.subject.streamAudio(request('abort00000'+i),res);res.destroy();await tick();}
+ const req=request('never000000'),res=new Response();const waiting=f.subject.streamAudio(req,res);await until(()=>f.subject.waitingStreamAdmissions===1);req.aborted=true;req.emit('aborted');await waiting;
+ assert.equal(f.children.length,4);assert.equal(f.subject.waitingStreamAdmissions,0);assert.equal(res.headersSent,false);
+});
+test('queued foreground admissions are capped and concurrent wakeups never overbook four live slots',async t=>{
+ const f=fixture(t,{holdClose:true});
+ for(let i=0;i<4;i++){const res=new Response();await f.subject.streamAudio(request('queue00000'+i),res);res.destroy();await tick();}
+ const waits=[],responses=[];for(let i=0;i<8;i++){const res=new Response();responses.push(res);waits.push(f.subject.streamAudio(request('newqueue00'+i),res));}
+ await until(()=>f.subject.waitingStreamAdmissions===8);const overflow=new Response();await f.subject.streamAudio(request('overflow001'),overflow);assert.equal(overflow.statusCode,503);assert.equal(f.subject.waitingStreamAdmissions,8);
+ f.children.slice(0,4).forEach(p=>p.emit('close',1));await Promise.all(waits);assert.equal(f.children.length,8);assert.equal(f.subject.activeStreamOwners,4);assert.equal(f.subject.waitingStreamAdmissions,0);assert.equal(responses.filter(r=>r.statusCode===503).length,4);
+});
+test('concurrent requests for the same new song still share one owner after reclaim',async t=>{
+ const f=fixture(t,{holdClose:true});
+ for(let i=0;i<4;i++){const res=new Response();await f.subject.streamAudio(request('samequeue0'+i),res);res.destroy();await tick();}
+ const a=new Response(),b=new Response();const first=f.subject.streamAudio(request('sharednew01'),a),second=f.subject.streamAudio(request('sharednew01'),b);await until(()=>f.subject.waitingStreamAdmissions===2);
+ f.children.slice(0,4).forEach(p=>p.emit('close',1));await first;await until(()=>f.children.length===5);await tick();assert.equal(f.children.length,5);
+ f.children[4].stdout.end(prefix);f.children[4].emit('close',0);await second;assert.equal(b.writableEnded,true);
+});
+test('an explicit manager background job shares its live spool with foreground instead of spawning a second path writer',async t=>{
+ const f=fixture(t,{realManager:true});f.manager.precache(['fixture1234']);assert.equal(f.children.length,1);
+ const res=new Response();const streaming=f.subject.streamAudio(request(),res);await tick();assert.equal(f.children.length,1);assert.deepEqual(f.children[0].kills,[]);
+ f.children[0].stdout.end(prefix);f.children[0].emit('close',0);await streaming;assert.equal(res.writableEnded,true);assert.equal(f.subject.activeStreamOwners,0);
+});
+test('manager preload while a foreground owner exists retains that owner and cannot start another writer',async t=>{
+ const f=fixture(t,{realManager:true});const res=new Response();await f.subject.streamAudio(request(),res);f.manager.precache(['fixture1234']);res.destroy();await tick();
+ await new Promise(resolve=>setTimeout(resolve,300));assert.equal(f.children.length,1);assert.deepEqual(f.children[0].kills,[]);
+ f.children[0].stdout.end(prefix);f.children[0].emit('close',0);await until(()=>f.subject.activeStreamOwners===0);
+});
+test('a new explicit cache request cannot interrupt a foreground reader borrowing an existing manager job',async t=>{
+ const f=fixture(t,{realManager:true});const old=f.manager.playNow('fixture1234');assert.equal(f.children.length,1);
+ const res=new Response();const stream=f.subject.streamAudio(request(),res);await tick();const next=f.manager.playNow('background1');assert.equal(f.children.length,2);assert.deepEqual(f.children[0].kills,[]);
+ f.children[0].stdout.end(prefix);f.children[0].emit('close',0);await stream;await old;assert.equal(res.writableEnded,true);
+ f.children[1].stdout.end(prefix);f.children[1].emit('close',0);await next;
+});
+test('cache producers including preserved and reaping jobs stay capped at four',async t=>{
+ const f=fixture(t,{realManager:true});f.manager.precache(['cache000001','cache000002','cache000003']);const fourth=f.manager.playNow('cache000004');assert.equal(f.children.length,4);
+ const fifth=f.manager.playNow('cache000005');await tick();assert.equal(f.children.length,4);assert.ok(f.children.every(p=>p.kills.length===0));
+ f.children[0].stdout.end(prefix);f.children[0].emit('close',0);await until(()=>f.children.length===5);assert.equal(f.manager.cacheProducerCount(),4);
+ for(const p of f.children.slice(1)){p.stdout.end(prefix);p.emit('close',0)}await Promise.all([fourth,fifth]);
+});
+test('foreground cancellation while a manager path is reaping removes admission and cannot later spawn',async t=>{
+ const f=fixture(t,{realManager:true,holdClose:true});f.manager.precache(['fixture1234']);const retiring=f.manager.abortForVideoId('fixture1234');assert.ok(retiring);
+ const req=request(),res=new Response();const waiting=f.subject.streamAudio(req,res);await until(()=>f.subject.waitingStreamAdmissions===1);
+ req.aborted=true;req.emit('aborted');await waiting;assert.equal(f.subject.waitingStreamAdmissions,0);assert.equal(f.children.length,1);assert.equal(res.headersSent,false);
+ assert.equal(f.manager.cacheProducerCount(),1);f.children[0].emit('close',1);await retiring;await until(()=>f.manager.cacheProducerCount()===0);
+});
+test('a manager retirement timeout returns retryable503 without releasing an unreaped path or starting another writer',async t=>{
+ const f=fixture(t,{realManager:true,holdClose:true});f.manager.precache(['fixture1234']);const retiring=f.manager.abortForVideoId('fixture1234');
+ const res=new Response();await f.subject.streamAudio(request(),res);assert.equal(res.statusCode,503);assert.equal(res.body?.retryable,true);assert.equal(f.subject.waitingStreamAdmissions,0);assert.equal(f.children.length,1);assert.equal(f.manager.cacheProducerCount(),1);
+ f.children[0].emit('close',1);await retiring;await until(()=>f.manager.cacheProducerCount()===0);
+});
+
+
+test('an early grace callback rechecks its deadline and a stale lease timer cannot retire a rejoined reader',()=>{
+ const filename=path.resolve(__dirname,'../src/services/audio-stream-owner.ts');
+ const code=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText;
+ let now=0,next=0;const timers=new Map();const module={exports:{}};
+ vm.runInNewContext(code,{module,exports:module.exports,Date:{now:()=>now},setTimeout(fn,delay){const id=++next;timers.set(id,{fn,delay});return id},clearTimeout(id){timers.delete(id)}});
+ const owner=new module.exports.AudioStreamOwner(250);let cancellations=0;owner.setCancellation(()=>cancellations++);
+ const first=owner.acquireHTTP(request(),new Response());first();
+ const early=[...timers.entries()][0];timers.delete(early[0]);now=249;early[1].fn();
+ assert.equal(cancellations,0);assert.equal(timers.size,1);assert.equal([...timers.values()][0].delay,1);
+ const remaining=[...timers.entries()][0];timers.delete(remaining[0]);now=250;remaining[1].fn();
+ assert.equal(cancellations,1);assert.equal(owner.cancelling,true);assert.equal(timers.size,0);
+ const joined=new module.exports.AudioStreamOwner(250);joined.setCancellation(()=>cancellations++);
+ const release=joined.acquireHTTP(request(),new Response());release();const stale=[...timers.values()][0].fn;
+ now=300;const releaseSecond=joined.acquireHTTP(request(),new Response());releaseSecond();
+ const current=[...timers.entries()][0];now=500;stale();assert.equal(cancellations,1);assert.equal(timers.size,1,'old callback cannot clear the new lease timer');
+ timers.delete(current[0]);now=550;current[1].fn();assert.equal(cancellations,2);
+});
+test('explicit play cache intent arriving during foreground retirement waits for cleanup then retries once',async t=>{
+ const f=fixture(t,{realManager:true,holdClose:true});const res=new Response();await f.subject.streamAudio(request(),res);res.destroy();await tick();
+ await until(()=>f.children[0].kills.length>0);const caching=f.manager.playNow('fixture1234');await tick();assert.equal(f.children.length,1);
+ f.children[0].emit('close',1);await until(()=>f.children.length===2);assert.deepEqual(f.children[1].existingTempsAtSpawn,[]);
+ f.children[1].stdout.end(prefix);f.children[1].emit('close',0);assert.equal(await caching,f.cachePath('fixture1234'));assert.equal(fs.existsSync(f.cachePath('fixture1234')),true);
+});
+test('a retained foreground extraction failure returns failed cache intent without automatic retries',async t=>{
+ const f=fixture(t,{realManager:true});const res=new Response();await f.subject.streamAudio(request(),res);const caching=f.manager.playNow('fixture1234');
+ f.children[0].stdout.end();f.children[0].emit('close',1);assert.equal(await caching,null);await tick();assert.equal(f.children.length,1);
 });

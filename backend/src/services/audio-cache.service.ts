@@ -2,14 +2,30 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
-import { spawn, execFile } from 'child_process';
+import { spawn, execFile, ExecFileOptions } from 'child_process';
 import { createAudioCacheWriter } from './audio-cache-writer';
-import { promisify } from 'util';
 import { URL } from 'url';
 import logger from '../utils/logger';
 import youtubeService from './youtube.service';
 
-const execFileAsync = promisify(execFile);
+// Abort can deliver execFile's callback before the OS child closes. Keep the
+// cache path and finalizer capacity owned until both events have completed.
+function execFileAsync(command: string, args: string[], options: ExecFileOptions): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let callbackDone = false, closed = false;
+    let failure: Error | null = null;
+    const finish = () => {
+      if (!callbackDone || !closed) return;
+      if (failure) reject(failure); else resolve();
+    };
+    const child = execFile(command, args, options, error => {
+      failure = error;
+      callbackDone = true;
+      finish();
+    });
+    child.once('close', () => { closed = true; finish(); });
+  });
+}
 // Resolve lazily and asynchronously; even the first remux leaves HTTP/Socket.IO responsive.
 let ffmpegPath: Promise<string | null> | undefined;
 function getFfmpegPath(): Promise<string | null> {
@@ -75,7 +91,9 @@ class AudioCacheService {
       await handle.close();
     }
     if (buf.toString('ascii', 8, 12) !== 'dash') return;
+    if (signal?.aborted) throw new Error('Remux cancelled');
     const executable = await getFfmpegPath();
+    if (signal?.aborted) throw new Error('Remux cancelled');
     if (!executable) throw new Error('ffmpeg unavailable for DASH audio');
     const tmpOut = `${filePath}.remux.tmp`;
     const startedAt = Date.now();

@@ -5,6 +5,7 @@ import { createAudioCacheWriter } from '../services/audio-cache-writer';
 import { streamProgressiveAudio } from '../services/audio-progressive-response';
 import { streamLiveAudio } from '../services/audio-live-response';
 import type { AudioProgressiveSpool } from '../services/audio-progressive-spool';
+import { AudioStreamOwner, audioStreamOwners, waitForAudioOwners, waitForAudioRetirement } from '../services/audio-stream-owner';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
 import downloadManager from '../services/download-manager.service';
@@ -20,6 +21,8 @@ export class YouTubeController {
   private inFlightStreams: Map<string, Promise<void>> = new Map();
   private inFlightSpools: Map<string, AudioProgressiveSpool> = new Map();
   private activeStreamOwners = 0;
+  private waitingStreamAdmissions = 0;
+  private inFlightOwners = audioStreamOwners;
 
   /**
    * GET /api/search?q=query&limit=20
@@ -140,106 +143,125 @@ export class YouTubeController {
    */
   async streamAudio(req: Request, res: Response): Promise<void> {
     const { videoId } = req.params;
-
     try {
-      if (!videoId) {
-        res.status(400).json({ error: 'Video ID is required' });
-        return;
-      }
-
-      const isValid = await youtubeService.validateVideoId(videoId);
-      if (!isValid) {
+      if (!videoId || !(await youtubeService.validateVideoId(videoId))) {
         res.status(400).json({ error: 'Invalid video ID' });
         return;
       }
-
-      // 檢查伺服器端快取
-      if (audioCacheService.has(videoId)) {
-        console.log(`🎵 [Stream] Serving from server cache: ${videoId}`);
-        logger.info(`Streaming audio for video: ${videoId} from server cache`);
-        this.streamFromCache(req, res, videoId);
-        return;
-      }
-
-      // Check for in-flight yt-dlp process for this videoId
-      while (this.inFlightStreams.has(videoId)) {
-        const spool = this.inFlightSpools.get(videoId);
-        if (spool) {
-          await streamProgressiveAudio(req, res, spool);
+      while (!req.aborted && !res.destroyed && !res.writableEnded) {
+        if (audioCacheService.has(videoId)) {
+          this.streamFromCache(req, res, videoId);
           return;
         }
-        console.log(`⏳ [Stream] In-flight yt-dlp already running for ${videoId}, waiting for completion`);
-        try {
-          await this.inFlightStreams.get(videoId);
-          if (res.destroyed) return;
-          // After waiting, check if cache now exists
-          if (audioCacheService.has(videoId)) {
-            console.log(`🎵 [Stream] In-flight completed, serving from cache: ${videoId}`);
-            this.streamFromCache(req, res, videoId);
+        const existing = this.inFlightOwners.get(videoId);
+        if (existing) {
+          const release = existing.acquireHTTP(req, res);
+          if (!release) {
+            if (!await this.waitForRetiredOwner(req, res, existing)) {
+              if (!req.aborted && !res.destroyed) this.streamBusy(res);
+              return;
+            }
+            continue;
+          }
+          const spool = this.inFlightSpools.get(videoId);
+          try {
+            if (spool) { await streamProgressiveAudio(req, res, spool); return; }
+            // Legacy/no-spool owner still holds its path through cleanup.
+            await waitForAudioOwners(req, res, [existing], 3000);
+          } finally { release(); }
+          continue;
+        }
+        // An explicit manager preload already owns this path. Its live spool
+        // serves first bytes directly; never abort a still-owned cache producer.
+        const background = downloadManager.getProgressiveJob?.(videoId);
+        if (background) { await streamProgressiveAudio(req, res, background.spool); return; }
+        if (this.activeStreamOwners >= 4) {
+          if (!await this.waitForStreamCapacity(req, res)) {
+            if (!req.aborted && !res.destroyed) this.streamBusy(res);
             return;
           }
-        } catch {}
-        // If still no cache, fall through to new stream
-        console.log(`⚠️ [Stream] In-flight completed but no cache for ${videoId}, starting new stream`);
-      }
-
-      if (this.activeStreamOwners >= 4) {
-        res.setHeader('Retry-After', '2');
-        res.status(503).json({ error: 'Audio stream capacity is busy', retryable: true });
+          continue; // Recheck path/cache atomically before claiming a slot.
+        }
+        const retiringDownload = downloadManager.abortForVideoId(videoId);
+        if (retiringDownload) {
+          if (!await this.waitForDownloadRetirement(req, res, retiringDownload)) {
+            if (!req.aborted && !res.destroyed) this.streamBusy(res);
+            return;
+          }
+          if (req.aborted || res.destroyed) return;
+          if (this.inFlightOwners.has(videoId) || audioCacheService.has(videoId) || this.activeStreamOwners >= 4) continue;
+        }
+        let resolveInFlight!: () => void;
+        const completion = new Promise<void>(resolve => { resolveInFlight = resolve; });
+        const owner = new AudioStreamOwner();
+        const release = owner.acquireHTTP(req, res);
+        if (!release) return;
+        this.inFlightStreams.set(videoId, completion);
+        this.inFlightOwners.set(videoId, owner);
+        this.activeStreamOwners++;
+        let released = false;
+        const cleanup = () => {
+          if (released) return;
+          released = true;
+          this.activeStreamOwners--;
+          if (this.inFlightStreams.get(videoId) === completion) this.inFlightStreams.delete(videoId);
+          if (this.inFlightOwners.get(videoId) === owner) this.inFlightOwners.delete(videoId);
+          resolveInFlight();
+          owner.finish();
+        };
+        try { this.streamWithYtDlp(req, res, videoId, cleanup, owner); }
+        catch (error) { cleanup(); throw error; }
         return;
       }
-
-      // Playback is the highest priority path. Do not wait for low-priority
-      // background downloads here; waiting can keep the player at 0:00 for up
-      // to the full download duration on mobile networks.
-      downloadManager.abortForVideoId(videoId);
-
-      // 使用 yt-dlp 直接串流（避免 403）
-      console.log(`🎵 [Stream] yt-dlp direct stream: ${videoId}`);
-      logger.info(`Streaming audio for video: ${videoId} via yt-dlp direct`);
-
-      // Track this stream as in-flight
-      let resolveInFlight: () => void;
-      const inFlightPromise = new Promise<void>((resolve) => {
-        resolveInFlight = resolve;
-      });
-      this.inFlightStreams.set(videoId, inFlightPromise);
-      this.activeStreamOwners++;
-      let ownerReleased = false;
-
-      // Only this owner can clear its slot. Hold it through remux/publication;
-      // releasing on HTTP close lets later requests race the unfinished writer.
-      const cleanupInFlight = () => {
-        if (!ownerReleased) {
-          ownerReleased = true;
-          this.activeStreamOwners--;
-        }
-        if (this.inFlightStreams.get(videoId) === inFlightPromise) {
-          this.inFlightStreams.delete(videoId);
-        }
-        resolveInFlight();
-      };
-      try {
-        this.streamWithYtDlp(req, res, videoId, cleanupInFlight);
-      } catch (error) {
-        cleanupInFlight();
-        throw error;
-      }
-
     } catch (error) {
       logger.error('Stream controller error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({
-          error: error instanceof Error ? error.message : 'Failed to stream audio',
-        });
-      }
+      if (!res.headersSent && !res.destroyed) res.status(500).json({ error: 'Failed to stream audio' });
     }
+  }
+
+  private streamBusy(res: Response): void {
+    res.setHeader('Retry-After', '2');
+    res.status(503).json({ error: 'Audio stream capacity is busy', retryable: true });
+  }
+
+  private async waitForDownloadRetirement(req: Request, res: Response, completion: Promise<void>): Promise<boolean> {
+    if (this.waitingStreamAdmissions >= 8) return false;
+    this.waitingStreamAdmissions++;
+    try { return await waitForAudioRetirement(req, res, completion, 3000); }
+    finally { this.waitingStreamAdmissions--; }
+  }
+
+  private async waitForRetiredOwner(req: Request, res: Response, owner: AudioStreamOwner): Promise<boolean> {
+    if (this.waitingStreamAdmissions >= 8) return false;
+    this.waitingStreamAdmissions++;
+    try {
+      if (owner.finished) return true;
+      const alive = await waitForAudioOwners(req, res, [owner], 3000);
+      return alive && owner.finished;
+    } finally { this.waitingStreamAdmissions--; }
+  }
+
+  private async waitForStreamCapacity(req: Request, res: Response): Promise<boolean> {
+    if (this.waitingStreamAdmissions >= 8) return false;
+    this.waitingStreamAdmissions++;
+    const deadline = Date.now() + 3000;
+    try {
+      while (this.activeStreamOwners >= 4 && !req.aborted && !res.destroyed) {
+        const idle = [...this.inFlightOwners.values()].filter(owner => owner.isIdle());
+        if (!idle.length || Date.now() >= deadline) return false;
+        idle.forEach(owner => owner.reclaim());
+        const grace = idle.filter(owner => !owner.cancelling).map(owner => owner.idleDelayMs());
+        const delay = Math.min(deadline - Date.now(), ...grace.filter(ms => ms > 0));
+        if (!await waitForAudioOwners(req, res, idle, delay)) return false;
+      }
+      return !req.aborted && !res.destroyed;
+    } finally { this.waitingStreamAdmissions--; }
   }
 
   /**
    * 使用 yt-dlp 直接串流音訊到客戶端，同時寫入快取
    */
-  private streamWithYtDlp(req: Request, res: Response, videoId: string, onCacheWriteComplete?: () => void): void {
+  private streamWithYtDlp(req: Request, res: Response, videoId: string, onCacheWriteComplete?: () => void, owner?: AudioStreamOwner): void {
     const ytdlpPath = youtubeService.getYtDlpPath();
     const baseArgs = youtubeService.getYtDlpBaseArgs();
 
@@ -273,9 +295,11 @@ export class YouTubeController {
       }
     };
     if (cacheWriter) {
-      void cacheWriter.completion.then(() => { cacheDone = true; finishOwnership(); });
+      void cacheWriter.completion.then(() => { cacheDone = true; owner?.cacheCompleted(); finishOwnership(); });
     }
-    ytdlp.once('close', () => { producerDone = true; finishOwnership(); });
+    owner?.setCancellation(() => { if (cacheWriter) cacheWriter.cancel(); else ytdlp.kill('SIGKILL'); });
+    if (!cacheWriter) owner?.cacheCompleted();
+    ytdlp.once('close', () => { producerDone = true; owner?.childClosed(); finishOwnership(); });
     ytdlp.stderr.on('data', (chunk: Buffer) => {
       stderrOutput = (stderrOutput + chunk.toString()).slice(-500);
     });
@@ -286,11 +310,7 @@ export class YouTubeController {
         logger.error(`yt-dlp stream failed for ${videoId} (code ${code}): ${stderrOutput}`);
       }
     });
-    res.on('close', () => {
-      // A completed HTTP response may still be remuxing. Do not cancel it.
-      if (res.writableEnded) return;
-      if (!cacheWriter) ytdlp.kill('SIGKILL');
-    });
+
   }
 
   /**
@@ -311,8 +331,14 @@ export class YouTubeController {
       console.log(`🔄 開始預加載: ${videoId}`);
       logger.info(`Starting preload for: ${videoId}`);
 
-      // 低優先級背景下載
-      downloadManager.precache([videoId]);
+      // Explicit cache intent leases the existing producer through finalization.
+      const owner = this.inFlightOwners.get(videoId);
+      if (owner?.retainCacheUntilCompletion()) {
+        // The current path already has its sole writer.
+      } else if (owner) {
+        void owner.completion.then(() => downloadManager.precache([videoId]))
+          .catch(error => logger.warn('Deferred audio preload failed:', error));
+      } else downloadManager.precache([videoId]);
 
       // 立即返回，不等待完成
       res.status(202).json({

@@ -20,6 +20,7 @@ export function createAudioCacheWriter(
   let flushedBytes = 0;
   let spoolFailed = false;
   let processClosed = false;
+  let processStopping = false;
   let writerFinished = false;
   const notifySpool = () => spool.update({
     bytes: flushedBytes, done: processClosed && writerFinished, failed: spoolFailed,
@@ -34,7 +35,8 @@ export function createAudioCacheWriter(
     if (processClosed && writerFinished && !failed) ready();
   };
   const stopProcess = () => {
-    if (processClosed) return;
+    if (processClosed || processStopping) return;
+    processStopping = true;
     proc.kill('SIGTERM');
     killTimer = setTimeout(() => {
       if (!processClosed) proc.kill('SIGKILL');
@@ -107,5 +109,10 @@ export function createAudioCacheWriter(
       try { fs.unlinkSync(tempPath); } catch {}
     }
   })();
-  return { completion, cancel: () => fail(new Error('Audio cache cancelled'), true), spool };
+  return { completion, cancel: () => {
+    // Optional disk failure may already have settled the cache while stdout is
+    // still serving live audio. A later cancellation must still reap its child.
+    if (failed) { abort.abort(); stopProcess(); }
+    else fail(new Error('Audio cache cancelled'), true);
+  }, spool };
 }
