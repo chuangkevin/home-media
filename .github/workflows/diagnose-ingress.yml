@@ -1,0 +1,70 @@
+name: Diagnose Home Media Ingress
+run-name: Read-only ingress diagnostics at ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: home-media-readonly-ingress
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the exact requested revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Public HTTPS entrance from GitHub runner (before Tailnet)
+        timeout-minutes: 1
+        run: node scripts/diagnose-ingress.cjs public
+
+      - name: Join existing authorized Tailnet scope
+        uses: tailscale/github-action@4e4c49acaa9818630ce0bd7a564372c17e33fb4d # existing v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Prepare existing SSH authentication
+        timeout-minutes: 1
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Same host-key discovery as existing deploy; never disable SSH verification.
+          ssh-keyscan -T 10 -H "$DEPLOY_SERVER_IP" 2>/dev/null > ~/.ssh/known_hosts
+
+      - name: Actual nginx proxy from the existing backend container
+        timeout-minutes: 1
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout --signal=TERM 45s ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_SERVER_IP" \
+            'docker exec -i home-media-backend node - nginx' \
+            < scripts/diagnose-ingress.cjs 2>/dev/null; then
+            echo '{"vantage":"backend_container_to_nginx","stage":"diagnostic","category":"transport_or_probe_failed_no_retry"}'
+          fi
+
+      - name: Remove temporary runner SSH key
+        if: always()
+        shell: bash
+        run: rm -f ~/.ssh/deploy_key
