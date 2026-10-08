@@ -7,10 +7,17 @@ import { generateDiscoveryQueries } from '../services/gemini.service';
 import { getUserProfile } from '../services/style-cache.service';
 import youtubeService from '../services/youtube.service';
 import { buildTrackIdentity } from '../utils/trackIdentity';
+import { createRecommendationBudget, recommendationRequestBudget, RecommendationUnavailableError, waitWithinBudget } from '../services/recommendation-budget';
 
 // Mixed recommendations cache (避免每次首頁載入都跑 12s 的 AI + 搜尋)
-let mixedCache: { data: any; timestamp: number } | null = null;
+const mixedCache = new Map<string, { data: any; timestamp: number }>();
 const MIXED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function isValidRecommendationTrack(track: any): boolean {
+  return track && /^[a-zA-Z0-9_-]{11}$/.test(track.videoId || '')
+    && typeof track.title === 'string' && track.title.trim().length > 0
+    && Number.isFinite(track.duration) && track.duration > 0 && track.duration <= 600;
+}
 
 function buildDiscoveryQueriesFallback(listenedArtists: string[], recentTitles: string[]): string[] {
   const artists = listenedArtists.filter(Boolean).slice(0, 3);
@@ -33,13 +40,14 @@ export class RecommendationController {
    * 獲取頻道推薦（分頁）
    */
   async getChannelRecommendations(req: Request, res: Response): Promise<void> {
+    const budget = recommendationRequestBudget(req, res);
     try {
       const { page, pageSize } = req.query;
 
       const pageNum = page ? parseInt(page as string, 10) : 0;
       const pageSizeNum = pageSize ? parseInt(pageSize as string, 10) : 5;
 
-      if (pageNum < 0 || pageSizeNum < 1 || pageSizeNum > 20) {
+      if (!Number.isInteger(pageNum) || !Number.isInteger(pageSizeNum) || pageNum < 0 || pageSizeNum < 1 || pageSizeNum > 20) {
         res.status(400).json({
           error: 'Invalid page or pageSize parameter',
         });
@@ -48,21 +56,26 @@ export class RecommendationController {
 
       const result = await recommendationService.getChannelRecommendations(
         pageNum,
-        pageSizeNum
+        pageSizeNum,
+        { signal: budget.signal, timeoutMs: budget.remainingMs() }
       );
 
+      if (res.destroyed || res.writableEnded) return;
       res.json({
         page: pageNum,
         pageSize: pageSizeNum,
         count: result.recommendations.length,
         hasMore: result.hasMore,
         recommendations: result.recommendations,
+        partial: result.partial || false,
       });
     } catch (error) {
       logger.error('Get channel recommendations error:', error);
-      res.status(500).json({
+      if (!res.destroyed && !res.writableEnded) res.status(error instanceof RecommendationUnavailableError ? 503 : 500).json({
         error: error instanceof Error ? error.message : 'Failed to get recommendations',
       });
+    } finally {
+      budget.dispose();
     }
   }
 
@@ -120,6 +133,7 @@ export class RecommendationController {
    * 獲取混合推薦（頻道推薦 + 每個頻道插入相似歌曲）
    */
   async getMixedRecommendations(req: Request, res: Response): Promise<void> {
+    const budget = recommendationRequestBudget(req, res);
     try {
       const { page, pageSize, includeCount } = req.query;
 
@@ -127,20 +141,17 @@ export class RecommendationController {
       const pageSizeNum = pageSize ? parseInt(pageSize as string, 10) : 5;
       const includeNum = includeCount ? parseInt(includeCount as string, 10) : 3;
 
-      if (pageNum < 0 || pageSizeNum < 1 || pageSizeNum > 20) {
+      if (!Number.isInteger(pageNum) || !Number.isInteger(pageSizeNum) || !Number.isInteger(includeNum)
+        || pageNum < 0 || pageSizeNum < 1 || pageSizeNum > 20 || includeNum < 1 || includeNum > 20) {
         res.status(400).json({ error: 'Invalid page or pageSize parameter' });
         return;
       }
 
-      // 首頁第一頁用 cache（5 分鐘 TTL），避免每次載入都跑 12s
-      // 但不要把「空推薦」黏住，否則舊資料回補或新播放歷史進來後首頁仍會長時間維持空白。
-      if (
-        pageNum === 0
-        && mixedCache
-        && mixedCache.data?.recommendations?.length > 0
-        && (Date.now() - mixedCache.timestamp) < MIXED_CACHE_TTL
-      ) {
-        res.json(mixedCache.data);
+      const cacheKey = `${pageSizeNum}:${includeNum}`;
+      const cached = mixedCache.get(cacheKey);
+      if (pageNum === 0 && cached && cached.data.recommendations.length > 0
+        && Date.now() - cached.timestamp < (cached.data.partial ? 15_000 : MIXED_CACHE_TTL)) {
+        res.json(cached.data);
         return;
       }
 
@@ -153,9 +164,17 @@ export class RecommendationController {
         LIMIT 5
       `).all() as Array<{ videoId: string; title: string; channelName: string }>;
 
+      let channelError: unknown;
+      let discoveryError: unknown;
+      let similarPartial = false;
       const [channelPage, similarResults, discoveryResult] = await Promise.all([
         // 1. 頻道推薦
-        recommendationService.getChannelRecommendations(pageNum, pageSizeNum),
+        recommendationService.getChannelRecommendations(pageNum, pageSizeNum, {
+          signal: budget.signal, timeoutMs: budget.remainingMs(),
+        }).catch(error => {
+          channelError = error;
+          return { recommendations: [], hasMore: true, partial: true };
+        }),
 
         // 2. 相似歌曲（全部並行，個別失敗不影響）
         Promise.allSettled(
@@ -168,22 +187,31 @@ export class RecommendationController {
                   title: track.title,
                   artist: track.channelName,
                 },
-                timeout: 5000,
+                timeout: Math.min(5000, budget.remainingMs()),
+                signal: budget.signal,
               }
-            ).then((r: any) => r.data?.recommendations || [])
+            ).then((r: any) => {
+              if (r.data?.partial) similarPartial = true;
+              return r.data?.recommendations || [];
+            })
           )
         ),
 
         // 3. AI 發現推薦（失敗不阻塞，5s 硬超時防止 Gemini hang）
-        Promise.race([
-          (async () => {
+        (async () => {
+            const discoveryBudget = createRecommendationBudget(Math.min(5000, budget.remainingMs()), budget.signal);
             try {
+              discoveryBudget.check();
               const listenedArtists = db.prepare(
                 `SELECT DISTINCT channel_name FROM watched_channels ORDER BY watch_count DESC LIMIT 20`
               ).all().map((r: any) => r.channel_name);
 
-              const profile = await getUserProfile();
-              const aiQueries = profile ? await generateDiscoveryQueries(profile, listenedArtists) : [];
+              const profile = await waitWithinBudget(getUserProfile(), discoveryBudget.signal);
+              discoveryBudget.check();
+              const aiQueries = profile ? await waitWithinBudget(generateDiscoveryQueries(profile, listenedArtists, {
+                signal: discoveryBudget.signal, timeoutMs: discoveryBudget.remainingMs(),
+              }), discoveryBudget.signal) : [];
+              discoveryBudget.check();
               const queries = aiQueries.length > 0
                 ? aiQueries
                 : buildDiscoveryQueriesFallback(listenedArtists, recentTracks.map(track => track.title));
@@ -194,7 +222,11 @@ export class RecommendationController {
               const shuffledQueries = [...queries].sort(() => Math.random() - 0.5).slice(0, 2);
 
               for (const query of shuffledQueries) {
-                const results = await youtubeService.search(query, 8);
+                discoveryBudget.check();
+                const results = await youtubeService.search(query, 8, {
+                  signal: discoveryBudget.signal, timeoutMs: discoveryBudget.remainingMs(),
+                });
+                discoveryBudget.check();
                 for (const result of results) {
                   const channel = (result.channel || '').toLowerCase();
                   if (listenedSet.has(channel)) continue;
@@ -210,12 +242,13 @@ export class RecommendationController {
               const newResults = Array.from(collected.values()).slice(0, 5);
               return newResults.length > 0 ? newResults : null;
             } catch (err) {
+              discoveryError = err;
               logger.warn('AI discovery recommendations failed:', err);
               return null;
+            } finally {
+              discoveryBudget.dispose();
             }
           })(),
-          new Promise<null>(resolve => setTimeout(() => resolve(null), 5000)),
-        ]),
       ]);
 
       // 組合相似歌曲
@@ -226,7 +259,7 @@ export class RecommendationController {
         }
       }
       const uniqueSimilarMap = new Map<string, any>();
-      for (const track of allSimilar) {
+      for (const track of allSimilar.filter(isValidRecommendationTrack)) {
         const identity = buildTrackIdentity(track.title || '', track.channelName || track.channel || '');
         if (!uniqueSimilarMap.has(identity)) {
           uniqueSimilarMap.set(identity, track);
@@ -256,12 +289,13 @@ export class RecommendationController {
         });
       }
 
-      if (discoveryResult) {
+      const validDiscovery = discoveryResult?.filter(isValidRecommendationTrack) || [];
+      if (validDiscovery.length > 0) {
         styleSections.push({
           type: 'discovery',
           channelName: `🔮 AI 為你發現`,
           channelThumbnail: '',
-          videos: discoveryResult.map((r: any) => ({
+          videos: validDiscovery.map((r: any) => ({
             videoId: r.videoId,
             title: r.title,
             thumbnail: r.thumbnail,
@@ -273,8 +307,8 @@ export class RecommendationController {
         });
       }
 
-      if (pageNum === 0 && channelRecommendations.length > 0) {
-        mixedRecommendations.push({ type: 'channel', ...channelRecommendations[0] });
+      if (pageNum === 0) {
+        if (channelRecommendations.length > 0) mixedRecommendations.push({ type: 'channel', ...channelRecommendations[0] });
         mixedRecommendations.push(...styleSections.slice(0, 2));
         for (const channel of channelRecommendations.slice(1)) {
           mixedRecommendations.push({ type: 'channel', ...channel });
@@ -285,25 +319,36 @@ export class RecommendationController {
         }
       }
 
+      if (mixedRecommendations.length === 0) {
+        if (channelError) throw channelError;
+        if (discoveryError || similarResults.some(result => result.status === 'rejected')) {
+          throw new RecommendationUnavailableError('Recommendation sources are unavailable; please retry');
+        }
+      }
+      if (res.destroyed || res.writableEnded) return;
       const responseData = {
         page: pageNum,
         pageSize: pageSizeNum,
         count: mixedRecommendations.length,
         hasMore: channelPage.hasMore,
         recommendations: mixedRecommendations,
+        partial: Boolean(channelPage.partial || channelError || discoveryError || similarPartial
+          || similarResults.some(result => result.status === 'rejected')),
       };
 
       // Cache first page
-      if (pageNum === 0) {
-        mixedCache = { data: responseData, timestamp: Date.now() };
+      if (pageNum === 0 && mixedRecommendations.length > 0) {
+        mixedCache.set(cacheKey, { data: responseData, timestamp: Date.now() });
       }
 
       res.json(responseData);
     } catch (error) {
       logger.error('Get mixed recommendations error:', error);
-      res.status(500).json({
+      if (!res.destroyed && !res.writableEnded) res.status(error instanceof RecommendationUnavailableError ? 503 : 500).json({
         error: error instanceof Error ? error.message : 'Failed to get mixed recommendations',
       });
+    } finally {
+      budget.dispose();
     }
   }
 
@@ -367,7 +412,7 @@ export class RecommendationController {
   async refreshRecommendations(_req: Request, res: Response): Promise<void> {
     try {
       recommendationService.refreshRecommendations();
-      mixedCache = null;
+      mixedCache.clear();
 
       res.json({
         success: true,

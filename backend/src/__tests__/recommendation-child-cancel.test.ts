@@ -105,11 +105,10 @@ describe('recommendation yt-dlp child ownership', () => {
     const monitor = setInterval(() => {
       maxActive = Math.max(maxActive, pidsFromLog().filter(pidIsAlive).length)
     }, 5)
-    const result = await recommendations.getChannelRecommendations(0, 5)
+    await expect(recommendations.getChannelRecommendations(0, 5)).rejects.toMatchObject({ statusCode: 503 })
     clearInterval(monitor)
     const pids = pidsFromLog()
 
-    expect(result.recommendations).toHaveLength(0)
     expect(pids).toHaveLength(12)
     expect(maxActive).toBeGreaterThan(0)
     expect(maxActive).toBeLessThanOrEqual(5)
@@ -168,4 +167,51 @@ describe('recommendation yt-dlp child ownership', () => {
     await expect(request).resolves.toEqual([])
     expect(pidsFromLog().every((pid) => !pidIsAlive(pid))).toBe(true)
   })
+  it('bounds concurrent requests, cancels queued channels, and reaps every active child', async () => {
+    fs.writeFileSync(eventLog, '')
+    process.env.HOME_MEDIA_FIXTURE_MODE = 'hang'
+    process.env.HOME_MEDIA_FIXTURE_LOG = eventLog
+    const { RecommendationService } = await import('../services/recommendation.service')
+    const bounded = new RecommendationService(5_000, 700)
+    const started = Date.now()
+    let maxActive = 0
+    const monitor = setInterval(() => {
+      maxActive = Math.max(maxActive, pidsFromLog().filter(pidIsAlive).length)
+    }, 5)
+    try {
+      const outcomes = await Promise.allSettled([
+        bounded.getChannelRecommendations(0, 5), bounded.getChannelRecommendations(0, 5),
+      ])
+      expect(outcomes.every(result => result.status === 'rejected')).toBe(true)
+      expect(Date.now() - started).toBeLessThan(1_700)
+      expect(maxActive).toBeGreaterThan(0)
+      expect(maxActive).toBeLessThanOrEqual(5)
+      expect(pidsFromLog()).toHaveLength(5)
+      expect(pidsFromLog().every(pid => !pidIsAlive(pid))).toBe(true)
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(pidsFromLog()).toHaveLength(5)
+    } finally {
+      clearInterval(monitor)
+    }
+  }, 5_000)
+
+  it('cancels managed discovery search and waits for child close', async () => {
+    fs.writeFileSync(eventLog, '')
+    process.env.HOME_MEDIA_FIXTURE_MODE = 'hang'
+    process.env.HOME_MEDIA_FIXTURE_LOG = eventLog
+    const youtubeService = (await import('../services/youtube.service')).default
+    const controller = new AbortController()
+    const pending = youtubeService.search('cancelled request-owned discovery', 8, {
+      signal: controller.signal, timeoutMs: 2_000,
+    }).catch(error => error)
+    const startDeadline = Date.now() + 1_000
+    while (pidsFromLog().length === 0 && Date.now() < startDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(pidsFromLog()).toHaveLength(1)
+    controller.abort()
+    expect(await pending).toBeInstanceOf(Error)
+    expect(pidsFromLog().every(pid => !pidIsAlive(pid))).toBe(true)
+  })
+
 })

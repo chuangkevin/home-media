@@ -1,3 +1,4 @@
+import { waitWithinBudget } from './recommendation-budget';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getDatabase } from '../config/database';
 import logger from '../utils/logger';
@@ -100,7 +101,11 @@ export function getApiKeyExcluding(failedKey: string): string | null {
 /**
  * 用 Gemini 2.5 Flash 從 YouTube 標題提取歌名和藝人
  */
-export async function extractTrackInfo(youtubeTitle: string, channelName?: string): Promise<ExtractedTrackInfo | null> {
+export async function extractTrackInfo(
+  youtubeTitle: string, channelName?: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<ExtractedTrackInfo | null> {
+  if (options.signal?.aborted) return null;
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
@@ -138,6 +143,7 @@ Return ONLY valid JSON, no other text:
   const maxRetries = getMaxRetries();
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (options.signal?.aborted) return null;
     try {
       const genai = new GoogleGenerativeAI(currentKey);
       const model = genai.getGenerativeModel({
@@ -150,10 +156,10 @@ Return ONLY valid JSON, no other text:
       });
 
       // 15s timeout — 避免 Gemini hang 住導致整條歌詞管線卡死
-      const result = await Promise.race([
-        model.generateContent(prompt),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('extractTrackInfo timeout (15s)')), 15000)),
-      ]);
+      const result = await model.generateContent(prompt, {
+        signal: options.signal, timeout: options.timeoutMs ?? 15000,
+      });
+      if (options.signal?.aborted) return null;
       const text = result.response.text().trim();
 
       // 提取 JSON（可能被 ```json ``` 包裹）
@@ -170,6 +176,7 @@ Return ONLY valid JSON, no other text:
       }
       return null;
     } catch (err: any) {
+      if (options.signal?.aborted) return null;
       const msg = err?.message || '';
       const is429 = err?.status === 429 || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
       const is403 = err?.status === 403 || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID');
@@ -411,8 +418,10 @@ export async function generateDiscoveryQueries(
     preferredLanguages?: Record<string, number>;
     topThemes?: string[];
   },
-  listenedArtists: string[]
+  listenedArtists: string[],
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<string[]> {
+  if (options.signal?.aborted) return [];
   const apiKey = getApiKey();
   if (!apiKey) return [];
 
@@ -440,15 +449,21 @@ Reply with ONLY a JSON array of strings, no other text:
   const ocAdapters = buildOpenCodeAdapters();
   const ocModel = getOpenCodeTextModel();
   for (const { adapter } of ocAdapters) {
+    if (options.signal?.aborted) return [];
     try {
       const adapterFn = adapter as unknown as { generateContent: (p: unknown) => Promise<{ text: string }> };
-      const response = await adapterFn.generateContent({ model: ocModel, prompt, maxOutputTokens: 200 });
+      const pending = adapterFn.generateContent({ model: ocModel, prompt, maxOutputTokens: 200 });
+      // The OpenCode adapter currently has no transport AbortSignal support.
+      // Fence its continuation so a timed-out request never retries or searches.
+      const response = options.signal ? await waitWithinBudget(pending, options.signal) : await pending;
+      if (options.signal?.aborted) return [];
       const ocMatch = response.text.trim().match(/\[[\s\S]*?\]/);
       if (ocMatch) {
         const queries = JSON.parse(ocMatch[0]) as string[];
         return queries.filter(q => typeof q === 'string' && q.length > 0).slice(0, 5);
       }
     } catch (err) {
+      if (options.signal?.aborted) return [];
       console.warn(`⚠️ [home-media] OpenCode generateDiscoveryQueries failed: ${err instanceof Error ? err.message.slice(0, 100) : err}`);
     }
   }
@@ -456,6 +471,7 @@ Reply with ONLY a JSON array of strings, no other text:
   let currentKey = apiKey;
   const maxRetries = getMaxRetries();
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (options.signal?.aborted) return [];
     try {
       const genai = new GoogleGenerativeAI(currentKey);
       const model = genai.getGenerativeModel({
@@ -463,7 +479,8 @@ Reply with ONLY a JSON array of strings, no other text:
         generationConfig: { maxOutputTokens: 200, temperature: 0.9 },
       });
 
-      const result = await model.generateContent(prompt);
+      const result = await model.generateContent(prompt, { signal: options.signal, timeout: options.timeoutMs });
+      if (options.signal?.aborted) return [];
       const text = result.response.text().trim();
 
       const jsonMatch = text.match(/\[[\s\S]*?\]/);
@@ -476,6 +493,7 @@ Reply with ONLY a JSON array of strings, no other text:
       console.log(`🔮 [Gemini] Discovery queries: ${queries.join(' | ')}`);
       return queries.filter(q => typeof q === 'string' && q.length > 0).slice(0, 5);
     } catch (err: any) {
+      if (options.signal?.aborted) return [];
       const msg = err?.message || '';
       const is429 = msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED');
       const is403 = msg.includes('403') || msg.includes('PERMISSION_DENIED');

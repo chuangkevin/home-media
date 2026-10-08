@@ -6,6 +6,7 @@ import path from 'path';
 import { YouTubeSearchResult, YouTubeStreamInfo, StreamOptions } from '../types/youtube.types';
 import logger from '../utils/logger';
 import config from '../config/environment';
+import { recommendationFetchLimit, RecommendationOptions } from './recommendation-budget';
 
 // ffmpeg 路徑：yt-dlp 的 --ffmpeg-location 參數
 // 系統有 ffmpeg 時 yt-dlp 可自動偵測；否則用 ffmpeg-static
@@ -79,17 +80,47 @@ class YouTubeService {
    * 搜尋 YouTube 影片（使用 yt-dlp，支援中文標題）
    * 包含搜尋結果快取以提升效能
    */
-  async search(query: string, limit: number = 20): Promise<YouTubeSearchResult[]> {
+  async search(query: string, limit: number = 20, options: RecommendationOptions = {}): Promise<YouTubeSearchResult[]> {
     const normalizedQuery = query.trim().toLowerCase();
     const searchKey = `${normalizedQuery}:${limit}`;
 
     try {
+      if (options.signal?.aborted) throw options.signal.reason;
       // 檢查搜尋結果快取
       const cached = this.getCachedSearchResults(normalizedQuery);
       if (cached && cached.length > 0) {
         console.log(`✅ 使用搜尋快取: "${query}" (${cached.length} 個結果)`);
         logger.info(`Using cached search results for: ${query}`);
         return cached;
+      }
+
+      if (options.signal) {
+        // Request-owned searches must be abortable. youtube-sr exposes no
+        // cancellation, so use the managed metadata child on this path only.
+        // Do not share its lifetime with unrelated requests for the same query.
+        return await recommendationFetchLimit(async () => {
+          if (options.signal!.aborted) throw options.signal!.reason;
+          const child = (youtubedl as any).exec(`ytsearch${limit}:${query}`, {
+            ...this.getYtDlpBaseOptions(), dumpSingleJson: true, flatPlaylist: true,
+            geoBypassCountry: 'TW', extractorArgs: 'youtube:lang=zh-TW',
+          }, { signal: options.signal, timeout: options.timeoutMs ?? 10_000, killSignal: 'SIGKILL' });
+          const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
+          let output: any;
+          try { output = await child; } catch (error) { await closed; throw error; }
+          await closed;
+          if (options.signal!.aborted) throw options.signal!.reason;
+          const result = JSON.parse(output.stdout);
+          const tracks = (result.entries || [])
+            .filter((v: any) => /^[a-zA-Z0-9_-]{11}$/.test(v.id || ''))
+            .map((v: any): YouTubeSearchResult => ({
+              id: v.id, videoId: v.id, title: v.title || 'Unknown Title',
+              channel: v.channel || v.uploader || 'Unknown Channel', duration: v.duration || 0,
+              thumbnail: v.thumbnail || v.thumbnails?.[0]?.url || '', views: v.view_count || 0,
+              uploadedAt: v.upload_date || v.uploadedAt || '',
+            }));
+          if (tracks.length > 0) this.cacheSearchResults(normalizedQuery, tracks);
+          return tracks;
+        }, options.signal);
       }
 
       const pendingSearch = this.pendingSearchRequests.get(searchKey);
@@ -551,9 +582,10 @@ class YouTubeService {
   async getChannelVideos(
     channelName: string,
     limit: number = 20,
-    processOptions: { signal?: AbortSignal; timeoutMs?: number } = {}
+    processOptions: { signal?: AbortSignal; timeoutMs?: number; throwOnError?: boolean } = {}
   ): Promise<YouTubeSearchResult[]> {
     try {
+      if (processOptions.signal?.aborted) throw processOptions.signal.reason;
       // 1. 檢查 24 小時快取
       const cached = this.getCachedChannelVideos(channelName, limit);
       if (cached && cached.length > 0) {
@@ -646,6 +678,7 @@ class YouTubeService {
       return channelVideos;
     } catch (error) {
       logger.error(`Failed to get channel videos for ${channelName}:`, error);
+      if (processOptions.throwOnError) throw error;
       return [];
     }
   }

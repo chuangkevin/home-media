@@ -5,8 +5,15 @@ import youtubeService from '../services/youtube.service';
 import { getUserProfile } from '../services/style-cache.service';
 import { buildTrackIdentity, normalizeTrackTitle } from '../utils/trackIdentity';
 import { extractTrackInfo } from '../services/gemini.service';
+import { recommendationRequestBudget, RecommendationUnavailableError, waitWithinBudget } from '../services/recommendation-budget';
 
 const router = Router();
+
+function isValidMusicRecommendation(track: any): boolean {
+  return track && /^[a-zA-Z0-9_-]{11}$/.test(track.videoId || '')
+    && typeof track.title === 'string' && track.title.trim().length > 0
+    && Number.isFinite(track.duration) && track.duration > 0 && track.duration <= 600;
+}
 
 // TrackMetadata 已不需要 — similar route 改用 two-tier YouTube search
 
@@ -31,7 +38,11 @@ router.get('/profile', async (_req: Request, res: Response) => {
  * GET /api/recommendations/similar/:videoId?limit=20
  */
 router.get('/similar/:videoId', async (req: Request, res: Response) => {
+  const budget = recommendationRequestBudget(req, res);
+  const allRecommendations: any[] = [];
+  let upstreamFailed = false;
   try {
+    budget.check();
     const { videoId } = req.params;
     const limit = parseInt(req.query.limit as string) || 20;
 
@@ -51,9 +62,13 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     const rawArtist = seedTrack?.channel_name || (req.query.artist as string) || '';
     let title = rawTitle;
     let artist = rawArtist;
+    const hasSeed = Boolean(rawTitle.trim() || rawArtist.trim());
 
-    try {
-      const extracted = await extractTrackInfo(rawTitle, rawArtist);
+    if (hasSeed) try {
+      const extracted = await waitWithinBudget(extractTrackInfo(rawTitle, rawArtist, {
+        signal: budget.signal, timeoutMs: budget.remainingMs(),
+      }), budget.signal);
+      budget.check();
       if (extracted?.title) {
         title = extracted.title;
       }
@@ -65,20 +80,18 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
       console.warn('⚠️ [Similar] Failed to normalize seed metadata, fallback to raw title/channel:', err);
     }
 
+    budget.check();
     const seenIds = new Set([videoId]);
     const seenTitles = new Set<string>();
     const seedLower = normalizeTrackTitle(title);
     const sameArtistMax = Math.min(10, Math.floor(limit / 2));
-    const allRecommendations: any[] = [];
 
     // 輔助函數：去重 + 過濾
     // 去重邏輯：channel+title 去重（忽略大小寫）
     // 防止同一藝人的同一首歌不同版本（如 Official MV / Lyric Video）重複出現
     // 標題清理：移除所有版本標記，提取核心歌名
     const addTrack = (t: any, reason: string): boolean => {
-      if (seenIds.has(t.videoId)) return false;
-      const dur = t.duration || 0;
-      if (dur <= 0 || dur > 7200) return false;
+      if (!isValidMusicRecommendation(t) || seenIds.has(t.videoId)) return false;
       const core = normalizeTrackTitle(t.title || '');
       if (seedLower && core === seedLower) return false;
       const identityKey = buildTrackIdentity(t.title || '', t.channel || '');
@@ -96,7 +109,10 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     // ===== Tier 1: 同歌手的其他歌曲（最多 sameArtistMax 首）=====
     if (artist) {
       try {
-        const artistResults = await youtubeService.search(`${artist} songs`, 20);
+        const artistResults = await youtubeService.search(`${artist} songs`, 20, {
+          signal: budget.signal, timeoutMs: budget.remainingMs(),
+        });
+        budget.check();
         let sameArtistCount = 0;
         for (const t of artistResults) {
           if (sameArtistCount >= sameArtistMax) break;
@@ -113,13 +129,15 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
         }
         console.log(`🎤 [Similar] ${sameArtistCount} tracks from same artist "${artist}"`);
       } catch (err) {
+        upstreamFailed = true;
         console.warn('⚠️ [Similar] Same artist search failed:', err);
       }
     }
 
     // ===== Tier 2: AI 推薦不同歌手的相似風格（填滿剩餘）=====
+    budget.check();
     const remaining = limit - allRecommendations.length;
-    if (remaining > 0) {
+    if (remaining > 0 && hasSeed) {
       let queries: string[] = [];
       try {
         const recPrompt = `I'm listening to "${title}" by "${artist}". Suggest 8 songs by DIFFERENT artists with similar style/genre/mood. Format: one per line, "Artist - Song". No numbering, no quotes.`;
@@ -131,15 +149,21 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
         const ocModel = getOpenCodeTextModel();
         let ocHandled = false;
         for (const { adapter } of ocAdapters) {
+          budget.check();
           try {
             const adapterFn = adapter as unknown as { generateContent: (p: unknown) => Promise<{ text: string }> };
-            const response = await adapterFn.generateContent({ model: ocModel, prompt: recPrompt, maxOutputTokens: 400 });
+            const response = await waitWithinBudget(
+              adapterFn.generateContent({ model: ocModel, prompt: recPrompt, maxOutputTokens: 400 }), budget.signal
+            );
+            budget.check();
             queries = response.text.trim().split('\n')
               .map((q: string) => q.replace(/^\d+[\.\)]\s*/, '').trim())
               .filter((q: string) => q.length > 3 && q.length < 80);
             ocHandled = true;
             break;
           } catch (ocErr) {
+            upstreamFailed = true;
+            budget.check();
             console.warn(`⚠️ [Similar] OpenCode failed: ${ocErr instanceof Error ? ocErr.message.slice(0, 80) : ocErr}`);
           }
         }
@@ -154,7 +178,10 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
               model: 'gemini-2.5-flash',
               generationConfig: { maxOutputTokens: 400, temperature: 0.9 },
             });
-            const result = await model.generateContent(recPrompt);
+            const result = await model.generateContent(recPrompt, {
+              signal: budget.signal, timeout: budget.remainingMs(),
+            });
+            budget.check();
             queries = result.response.text().trim().split('\n')
               .map(q => q.replace(/^\d+[\.\)]\s*/, '').trim())
               .filter(q => q.length > 3 && q.length < 80);
@@ -162,26 +189,33 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
         }
         console.log(`🤖 [Similar] AI queries:`, queries);
       } catch (aiErr) {
+        upstreamFailed = true;
         console.warn('⚠️ [Similar] AI failed, fallback to search');
       }
 
+      budget.check();
       // Fallback queries
       if (queries.length === 0) {
         queries = [`${artist} similar artists`, `songs like ${title}`];
       }
 
       for (const q of queries.slice(0, 6)) {
+        budget.check();
         if (allRecommendations.length >= limit) break;
         try {
-          const results = await youtubeService.search(q, 10);
+          const results = await youtubeService.search(q, 10, {
+            signal: budget.signal, timeoutMs: budget.remainingMs(),
+          });
+          budget.check();
           for (const t of results) {
             if (allRecommendations.length >= limit) break;
             addTrack(t, `AI: similar style to ${artist}`);
           }
-        } catch { /* continue */ }
+        } catch { upstreamFailed = true; }
       }
     }
 
+    budget.check();
     // 同歌手在前，其餘隨機排序
     const sameArtist = allRecommendations.filter(r => r.reasons[0]?.startsWith('Same artist'));
     const others = allRecommendations.filter(r => !r.reasons[0]?.startsWith('Same artist'));
@@ -193,29 +227,38 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
     const recommendations = [...sameArtist, ...others].slice(0, limit);
 
     console.log(`🎵 [Similar] ${sameArtist.length} same artist + ${others.length} AI-curated = ${recommendations.length} total`);
-    if (recommendations.length > 0) return res.json({ recommendations });
+    if (recommendations.length > 0) return res.json({ recommendations, partial: upstreamFailed });
 
     // Fallback: 資料庫隨機推薦
     const randomTracks = db
       .prepare(
-        `SELECT video_id, title, channel_name, thumbnail
+        `SELECT video_id, title, channel_name, thumbnail, duration
          FROM cached_tracks
-         WHERE video_id != ?
+         WHERE video_id != ? AND duration > 0 AND duration <= 600
          ORDER BY RANDOM()
          LIMIT ?`
       )
       .all(videoId, limit) as any[];
 
-    return res.json({
-      recommendations: randomTracks.map(track => ({
+    const fallback = randomTracks
+      .filter(track => isValidMusicRecommendation({ videoId: track.video_id, title: track.title, duration: track.duration }))
+      .map(track => ({
         videoId: track.video_id, title: track.title,
-        channelName: track.channel_name, thumbnail: track.thumbnail,
+        channelName: track.channel_name, thumbnail: track.thumbnail, duration: track.duration,
         score: 0.3, reasons: ['Random recommendation'],
-      })),
-    });
+      }));
+    if (fallback.length === 0 && upstreamFailed) {
+      throw new RecommendationUnavailableError('Recommendation sources are unavailable; please retry');
+    }
+    return res.json({ recommendations: fallback, partial: upstreamFailed });
   } catch (error) {
     logger.error('Error generating recommendations:', error);
-    return res.status(500).json({ error: 'Failed to generate recommendations' });
+    if (res.destroyed || res.writableEnded) return;
+    if (allRecommendations.length > 0) return res.json({ recommendations: allRecommendations, partial: true });
+    return res.status(error instanceof RecommendationUnavailableError ? 503 : 500)
+      .json({ error: 'Failed to generate recommendations', retryable: error instanceof RecommendationUnavailableError });
+  } finally {
+    budget.dispose();
   }
 });
 

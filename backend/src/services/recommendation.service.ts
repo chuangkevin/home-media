@@ -5,28 +5,17 @@ import historyService from './history.service';
 import youtubeService from './youtube.service';
 import logger from '../utils/logger';
 
-// Global concurrency limiter — prevents spawning too many yt-dlp/youtube-sr
-// processes simultaneously when many channels are fetched at once.
-function createPLimit(concurrency: number) {
-  let active = 0;
-  const queue: Array<() => void> = [];
-  const next = () => {
-    if (queue.length > 0 && active < concurrency) {
-      active++;
-      queue.shift()!();
-    }
-  };
-  return <T>(fn: () => Promise<T>): Promise<T> =>
-    new Promise((resolve, reject) => {
-      queue.push(() => fn().then(resolve, reject).finally(() => { active--; next(); }));
-      next();
-    });
-}
-const channelFetchLimit = createPLimit(5);
+import {
+  createRecommendationBudget, recommendationFetchLimit, RecommendationOptions,
+  RecommendationUnavailableError, RECOMMENDATION_BUDGET_MS, waitWithinBudget,
+} from './recommendation-budget';
+
+const channelFetchLimit = recommendationFetchLimit;
 
 interface ChannelRecommendationPage {
   recommendations: ChannelRecommendation[];
   hasMore: boolean;
+  partial?: boolean;
 }
 
 /**
@@ -36,11 +25,16 @@ interface ChannelRecommendationPage {
 class RecommendationService {
   private readonly VIDEOS_PER_CHANNEL = 20; // 每個頻道推薦 20 首影片（橫向滾動 lazy load）
 
-  constructor(private readonly channelFetchTimeoutMs = 10_000) {}
+  constructor(
+    private readonly channelFetchTimeoutMs = 10_000,
+    private readonly requestTimeoutMs = RECOMMENDATION_BUDGET_MS
+  ) {}
 
   private normalizeChannelVideos(videos: YouTubeSearchResult[]): YouTubeSearchResult[] {
+    if (!Array.isArray(videos)) return [];
     return videos
-      .filter(v => v.duration > 0 && v.duration <= 600)
+      .filter(v => v && /^[a-zA-Z0-9_-]{11}$/.test(v.videoId) && typeof v.title === 'string'
+        && v.title.trim().length > 0 && Number.isFinite(v.duration) && v.duration > 0 && v.duration <= 600)
       .sort((a, b) => {
         const dateA = new Date(a.uploadedAt || 0).getTime();
         const dateB = new Date(b.uploadedAt || 0).getTime();
@@ -72,9 +66,12 @@ class RecommendationService {
    */
   async getChannelRecommendations(
     page: number = 0,
-    pageSize: number = 5
+    pageSize: number = 5,
+    options: RecommendationOptions = {}
   ): Promise<ChannelRecommendationPage> {
+    const budget = createRecommendationBudget(options.timeoutMs ?? this.requestTimeoutMs, options.signal);
     try {
+      budget.check();
       logger.info(`[Recommend] Starting recommendation generation (page: ${page}, size: ${pageSize})`);
       
       // 1. 獲取被隱藏的頻道列表
@@ -159,86 +156,68 @@ class RecommendationService {
       
       if (page >= historyPageCount) {
         logger.info(`[Recommend] History exhausted (page ${page} >= ${historyPageCount}). Entering AI Discovery Mode.`);
-        const discovery = await this.getDiscoveryRecommendations(page, pageSize, channels.map(c => c.channelName));
+        const discovery = await this.getDiscoveryRecommendations(page, pageSize, channels.map(c => c.channelName), budget);
         return {
           recommendations: discovery,
           hasMore: discovery.length === pageSize,
         };
       }
 
-      // 5. 分頁 (觀看歷史路徑)
-      // 不能只切固定 pageSize 後就停，否則這一頁只要有幾個頻道抓不到影片，首頁就會縮成 2~3 個 section。
+      // Inspect every eligible cache first. A slow uncached channel must not
+      // prevent already available, valid recommendations from reaching the user.
       const startIndex = page * pageSize;
-      let cursor = startIndex;
+      const candidates = scoredChannels.slice(startIndex);
       const collected: ChannelRecommendation[] = [];
-
-      while (cursor < scoredChannels.length && collected.length < pageSize) {
-        const batch = scoredChannels.slice(cursor, cursor + Math.max(pageSize * 2, 8));
+      const uncached: typeof candidates = [];
+      const section = (channel: typeof candidates[number], videos: YouTubeSearchResult[]): ChannelRecommendation => ({
+        channelName: channel.channelName,
+        channelThumbnail: channel.channelThumbnail,
+        videos: videos.slice(0, this.VIDEOS_PER_CHANNEL),
+        watchCount: channel.watchCount,
+        hasMoreVideos: videos.length > this.VIDEOS_PER_CHANNEL,
+      });
+      for (const channel of candidates) {
+        const cached = this.getCachedRecommendations(channel.channelName);
+        const normalized = cached ? this.normalizeChannelVideos(cached) : [];
+        if (normalized.length > 0) collected.push(section(channel, normalized));
+        else uncached.push(channel);
+        if (collected.length >= pageSize) break;
+      }
+      let cursor = 0;
+      let failed = 0;
+      while (cursor < uncached.length && collected.length < pageSize && !budget.signal.aborted) {
+        // Only schedule the missing sections, in groups of at most five. Queue
+        // waits and subsequent attempts spend the same overall request budget.
+        const batch = uncached.slice(cursor, cursor + Math.min(5, pageSize - collected.length));
         cursor += batch.length;
-        logger.info(`[Recommend] Overfetch history channels: cursor=${cursor}, batch=${batch.length}, collected=${collected.length}`);
-
-        const recommendations = await Promise.all(
-          batch.map(async (channel) => {
-            logger.info(`[Recommend] Processing channel: ${channel.channelName}`);
-            // 檢查 6 小時快取
-            const cached = this.getCachedRecommendations(channel.channelName);
-            if (cached) {
-            logger.info(`[Recommend] Cache hit for channel: ${channel.channelName}`);
-            const normalizedCached = this.normalizeChannelVideos(cached);
-            return {
-              channelName: channel.channelName,
-              channelThumbnail: channel.channelThumbnail,
-              videos: normalizedCached.slice(0, this.VIDEOS_PER_CHANNEL),
-              watchCount: channel.watchCount,
-              hasMoreVideos: normalizedCached.length > this.VIDEOS_PER_CHANNEL,
-            };
-          }
-
-          // 獲取新影片（透過全域 semaphore 限制同時最多 5 個並行 fetch，
-          // 每個 fetch 有獨立 10s timeout 防止 youtube-sr/yt-dlp hang 住）
-          logger.info(`[Recommend] No cache. Fetching videos for channel: ${channel.channelName}`);
-          const videos = await channelFetchLimit(() =>
-            youtubeService.getChannelVideos(
-              channel.channelName,
-              this.VIDEOS_PER_CHANNEL + 1,
-              { timeoutMs: this.channelFetchTimeoutMs }
-            )
+        const results = await Promise.allSettled(batch.map(channel => channelFetchLimit(async () => {
+          budget.check();
+          const videos = await youtubeService.getChannelVideos(
+            channel.channelName, this.VIDEOS_PER_CHANNEL + 1,
+            { signal: budget.signal, timeoutMs: Math.min(this.channelFetchTimeoutMs, budget.remainingMs()), throwOnError: true }
           );
-          logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
-
           const sorted = this.normalizeChannelVideos(videos);
-
-          // 快取結果（6 小時）
-          if (sorted.length > 0) {
-            this.cacheRecommendations(channel.channelName, sorted);
-          }
-
-            return {
-              channelName: channel.channelName,
-              channelThumbnail: channel.channelThumbnail,
-              videos: sorted.slice(0, this.VIDEOS_PER_CHANNEL),
-              watchCount: channel.watchCount,
-              hasMoreVideos: sorted.length > this.VIDEOS_PER_CHANNEL,
-            };
-          })
-        );
-
-        const validRecommendations = recommendations.filter(r => r.videos.length > 0);
-        for (const recommendation of validRecommendations) {
-          if (collected.length >= pageSize) break;
-          collected.push(recommendation);
+          if (sorted.length > 0) this.cacheRecommendations(channel.channelName, sorted);
+          return section(channel, sorted);
+        }, budget.signal)));
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value.videos.length > 0) collected.push(result.value);
+          else if (result.status === 'rejected') failed++;
         }
       }
-
-      logger.info(`[Recommend] Finished processing page with ${collected.length} valid recommendations.`);
-
+      if (collected.length === 0 && (budget.signal.aborted || failed > 0)) {
+        throw new RecommendationUnavailableError('Recommendation sources are unavailable; please retry');
+      }
       return {
         recommendations: collected,
-        hasMore: cursor < scoredChannels.length,
+        hasMore: startIndex + pageSize < scoredChannels.length || cursor < uncached.length || budget.signal.aborted,
+        partial: budget.signal.aborted || failed > 0,
       };
     } catch (error) {
       logger.error('Failed to get channel recommendations:', error);
       throw error;
+    } finally {
+      budget.dispose();
     }
   }
 
@@ -248,7 +227,8 @@ class RecommendationService {
   private async getDiscoveryRecommendations(
     page: number,
     pageSize: number,
-    listenedArtists: string[]
+    listenedArtists: string[],
+    budget: ReturnType<typeof createRecommendationBudget>
   ): Promise<ChannelRecommendation[]> {
     try {
       const gemini = require('./gemini.service');
@@ -264,11 +244,12 @@ class RecommendationService {
 
       // 生成發現關鍵字
       logger.info(`[Recommend] Generating discovery queries via Gemini using seeds: ${seedArtists.join(', ')}`);
-      const queries = await gemini.generateDiscoveryQueries({
+      const queries = await waitWithinBudget<string[]>(gemini.generateDiscoveryQueries({
         preferredMoods: { 'energetic': 5, 'chill': 3 },
         preferredGenres: { 'Pop': 5, 'J-Pop': 3 }
-      }, seedArtists);
-      
+      }, seedArtists, { signal: budget.signal, timeoutMs: budget.remainingMs() }), budget.signal);
+      budget.check();
+
       const effectiveQueries = (queries && queries.length > 0) ? queries : ['Trending music 2024', 'Recommended artists'];
 
       // 根據頁碼輪詢關鍵字
@@ -276,7 +257,10 @@ class RecommendationService {
       logger.info(`[Recommend] Discovery mode - Page ${page} using query: "${targetQuery}"`);
 
       // 執行搜尋
-      const tracks = await youtubeService.search(targetQuery, pageSize * 4);
+      const tracks = this.normalizeChannelVideos(await youtubeService.search(targetQuery, pageSize * 4, {
+        signal: budget.signal, timeoutMs: budget.remainingMs(),
+      }));
+      budget.check();
       
       // 將搜尋結果按頻道分組，並過濾掉已聽過的頻道
       const listenedSet = new Set(listenedArtists);
@@ -311,7 +295,7 @@ class RecommendationService {
       return results;
     } catch (error) {
       logger.error('[Recommend] Discovery Mode failed:', error);
-      return [];
+      throw new RecommendationUnavailableError('Discovery recommendations are unavailable; please retry');
     }
   }
 
