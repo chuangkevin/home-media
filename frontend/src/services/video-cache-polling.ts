@@ -16,6 +16,11 @@ export function hasVideoCachePollingExpired(elapsedMs: number): boolean {
   return elapsedMs >= VIDEO_CACHE_POLL_MAX_DURATION_MS
 }
 
+/** Avoid starting a second producer when the server already has this video in flight. */
+export function shouldRequestVideoCacheDownload(status: VideoCacheStatus): boolean {
+  return !status.cached && !status.downloading
+}
+
 /**
  * Claim one polling lifecycle for a video. Releasing the claim lets a later
  * open of the same track start a fresh poll after the previous one was canceled.

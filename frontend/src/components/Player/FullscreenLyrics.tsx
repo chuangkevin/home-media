@@ -30,6 +30,7 @@ import {
   claimVideoCachePolling,
   hasVideoCachePollingExpired,
   isVideoCacheProducerFailure,
+  shouldRequestVideoCacheDownload,
   VIDEO_CACHE_POLL_INTERVAL_MS,
 } from '../../services/video-cache-polling';
 import { toTraditional } from '../../utils/chineseConvert';
@@ -135,6 +136,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [videoDownloading, setVideoDownloading] = useState(false);
   const [videoDownloadProgress, setVideoDownloadProgress] = useState('');
   const [videoDownloadError, setVideoDownloadError] = useState('');
+  const [videoDownloadRetryVersion, setVideoDownloadRetryVersion] = useState(0);
 
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
@@ -268,6 +270,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const videoPollingVideoIdRef = useRef<string | null>(null);
   const showCachedVideo = videoCached && videoCachedForId === track.videoId;
   const videoId = track?.videoId;
+  const handleRetryVideoDownload = useCallback(() => {
+    setVideoDownloadError('');
+    setVideoDownloadProgress('正在檢查影片快取…');
+    setVideoDownloading(true);
+    setVideoDownloadRetryVersion(version => version + 1);
+  }, []);
+
   useEffect(() => {
     if (!open || !videoId) return;
 
@@ -278,6 +287,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     let cancelled = false;
     let finished = false;
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let serverDownloadInProgress = false;
+    let shouldRequestDownload = true;
 
     (async () => {
       // 檢查是否已快取
@@ -290,8 +301,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           setVideoCached(true);
           setVideoCachedForId(videoId);
           setVideoDownloading(false);
+          setVideoDownloadProgress('');
+          setVideoDownloadError('');
           return;
         }
+        serverDownloadInProgress = status.downloading;
+        shouldRequestDownload = shouldRequestVideoCacheDownload(status);
       } catch {
         if (cancelled) return;
       }
@@ -300,14 +315,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       setVideoDownloading(true);
       setVideoCached(false);
       setVideoCachedForId(null);
-      setVideoDownloadProgress('');
+      setVideoDownloadProgress(serverDownloadInProgress ? '正在等待影片快取完成' : '正在準備影片快取…');
       setVideoDownloadError('');
 
       let downloadRetryCount = 0;
       const MAX_DOWNLOAD_RETRIES = 3;
       const RETRY_DELAYS = [2000, 5000, 10000];
       let downloadFailed = false;
-      let downloadRequestAccepted = false;
+      // An active producer found on reopen has already been accepted by the
+      // server, so keep polling it instead of sending another POST.
+      let downloadRequestAccepted = serverDownloadInProgress;
 
       const scheduleRetry = () => {
         downloadRetryCount++;
@@ -342,7 +359,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           }
         });
       };
-      triggerDownload();
+      if (shouldRequestDownload) triggerDownload();
 
       // 輪詢等待下載完成
       const pollingStartedAt = Date.now();
@@ -351,7 +368,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         if (cancelled || finished) return;
         if (hasVideoCachePollingExpired(Date.now() - pollingStartedAt)) break;
         const elapsedSeconds = Math.ceil((Date.now() - pollingStartedAt) / 1000);
-        setVideoDownloadProgress(`下載中 ${elapsedSeconds}s`);
+        setVideoDownloadProgress(`目前等候 ${elapsedSeconds} 秒`);
         try {
           const status = await apiService.getVideoCacheStatus(videoId);
           if (cancelled || finished) return;
@@ -401,13 +418,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       if (retryTimeout) clearTimeout(retryTimeout);
       releasePolling();
     };
-  }, [open, videoId]);
+  }, [open, videoId, videoDownloadRetryVersion]);
 
   // 換歌時才重設影片快取狀態（不在 drawer 開關時重設）
   useEffect(() => {
     setVideoCached(false);
     setVideoCachedForId(null);
     setVideoDownloading(false);
+    setVideoDownloadProgress('');
     setVideoDownloadError('');
     setVideoReady(false);
     if (cachedVideoRef.current) {
@@ -1307,6 +1325,45 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     return (
       <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
+        {!showCachedVideo && (videoDownloading || videoDownloadError) && (
+          <Box
+            role={videoDownloadError ? 'alert' : 'status'}
+            aria-live={videoDownloadError ? 'assertive' : 'polite'}
+            sx={{
+              position: 'absolute', top: { xs: 8, sm: 16 }, left: '50%', transform: 'translateX(-50%)',
+              zIndex: 12, display: 'flex', alignItems: 'center', gap: 1, width: 'max-content',
+              maxWidth: 'calc(100% - 24px)', minHeight: 44, px: 1.5, py: 0.75,
+              color: 'common.white', bgcolor: 'rgba(0, 0, 0, 0.78)', borderRadius: 2,
+              boxShadow: 2, pointerEvents: videoDownloadError ? 'auto' : 'none',
+            }}
+          >
+            {videoDownloading && <CircularProgress size={18} color="inherit" aria-label="影片快取進度" />}
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+                {videoDownloadError ? '影片快取失敗' : '影片快取中'}
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255,255,255,0.82)', lineHeight: 1.3 }}>
+                {videoDownloadError
+                  ? `${videoDownloadError}。${videoReady ? 'YouTube 備援影片仍可播放' : 'YouTube 備援影片載入中，不影響音訊控制'}`
+                  : (videoReady ? 'YouTube 備援影片仍可播放' : 'YouTube 備援影片載入中，不影響音訊控制')}
+                {videoDownloading && videoDownloadProgress && (
+                  <Box component="span" aria-hidden="true"> · {videoDownloadProgress}</Box>
+                )}
+              </Typography>
+            </Box>
+            {videoDownloadError && (
+              <Button
+                color="inherit"
+                variant="outlined"
+                onClick={handleRetryVideoDownload}
+                aria-label="重試影片快取"
+                sx={{ minWidth: 72, minHeight: 44, whiteSpace: 'nowrap' }}
+              >
+                重試
+              </Button>
+            )}
+          </Box>
+        )}
         {showCachedVideo && (
           <video
             key={`cached-video-${track.videoId}`}
@@ -1355,13 +1412,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             />
             {!videoReady && (
               <Box sx={{ position: 'absolute', top: '50%', left: '50%', width: 'calc(100% - 48px)', maxWidth: 400, transform: 'translate(-50%, -50%)', color: 'white', zIndex: 2, textAlign: 'center' }}>
-                {!videoDownloadError && <CircularProgress color="inherit" aria-label="影片載入中" />}
-                <Typography role={videoDownloadError ? 'alert' : 'status'} variant="body2" sx={{ display: 'block', mt: 1 }}>
-                  {videoDownloading
-                    ? videoDownloadProgress || '下載中...'
-                    : videoDownloadError || '載入 YouTube 影片...'}
+                <CircularProgress color="inherit" aria-label="YouTube 備援影片載入中" />
+                <Typography role="status" variant="body2" sx={{ display: 'block', mt: 1 }}>
+                  正在載入 YouTube 備援影片…
                 </Typography>
-                <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255,255,255,0.78)', mt: 1 }}>音訊持續播放，你可以隨時返回歌詞。</Typography>
+                <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255,255,255,0.78)', mt: 1 }}>不影響音訊控制，你可以隨時返回歌詞。</Typography>
                 <Button color="inherit" variant="outlined" onClick={() => setViewMode('lyrics')} sx={{ mt: 2 }}>返回歌詞</Button>
               </Box>
             )}
