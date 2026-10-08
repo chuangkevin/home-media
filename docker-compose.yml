@@ -29,6 +29,7 @@ services:
       - ./data/cache:/app/data/cache
       - ./data/db:/app/data/db
       - ./data/audio-cache:/app/data/audio-cache
+      - ./data/video-cache:/app/data/video-cache
     restart: unless-stopped
     networks:
       - home-media-network

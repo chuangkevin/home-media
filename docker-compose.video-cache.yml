@@ -1,0 +1,6 @@
+# Additive deployment overlay for hosts whose base compose file has local settings.
+# Keep this override limited to the video cache bind mount.
+services:
+  backend:
+    volumes:
+      - ./data/video-cache:/app/data/video-cache

@@ -14,6 +14,9 @@ env:
 
 jobs:
   deploy:
+    concurrency:
+      group: home-media-deploy
+      cancel-in-progress: false
     # A successful shell step does not skip the remaining steps. Gate the entire job.
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
@@ -47,16 +50,85 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.DEPLOY_SERVER_IP }} >> ~/.ssh/known_hosts
 
+      - name: Stage video-cache deployment files
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          run_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          stage_name=".video-cache-deploy-${run_key}"
+          remote_stage="${DEPLOY_PATH}/${stage_name}"
+          remote_stage_b64=$(printf '%s' "$remote_stage" | base64 | tr -d '\n')
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_SERVER_IP" "bash -s -- '$remote_stage_b64'" <<'REMOTE'
+          set -euo pipefail
+          remote_stage=$(printf '%s' "$1" | base64 -d)
+          remote_parent=${remote_stage%/*}
+          remote_name=${remote_stage##*/}
+          cd -- "$remote_parent"
+          [[ ! -e "$remote_name" && ! -L "$remote_name" ]] || exit 1
+          mkdir -- "$remote_name"
+          [[ -d "$remote_name" && ! -L "$remote_name" ]] || exit 1
+          REMOTE
+          scp -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            docker-compose.video-cache.yml scripts/persist-video-cache.sh \
+            "$DEPLOY_USER@$DEPLOY_SERVER_IP:$remote_stage/"
+          deploy_path_b64=$(printf '%s' "$DEPLOY_PATH" | base64 | tr -d '\n')
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_SERVER_IP" "bash -s -- '$stage_name' '$run_key' '$deploy_path_b64'" <<'REMOTE'
+          set -euo pipefail
+          stage_name=$1
+          run_key=$2
+          deploy_path=$(printf '%s' "$3" | base64 -d)
+          cd -- "$deploy_path"
+          stage_dir="$deploy_path/$stage_name"
+          [[ -d "$stage_dir" && ! -L "$stage_dir" ]] || exit 1
+          [[ -f "$stage_dir/docker-compose.video-cache.yml" && ! -L "$stage_dir/docker-compose.video-cache.yml" ]] || exit 1
+          [[ -f "$stage_dir/persist-video-cache.sh" && ! -L "$stage_dir/persist-video-cache.sh" ]] || exit 1
+          if [[ -e scripts || -L scripts ]]; then
+            [[ -d scripts && ! -L scripts ]] || exit 1
+          else
+            mkdir -- scripts
+          fi
+
+          # Back up only the two deployment-owned files; never replace the host's base compose file.
+          for file in docker-compose.video-cache.yml scripts/persist-video-cache.sh; do
+            target="$deploy_path/$file"
+            if [[ -e "$target" || -L "$target" ]]; then
+              [[ -f "$target" && ! -L "$target" ]] || exit 1
+              cp -p -- "$target" "$target.bak.$run_key"
+            fi
+          done
+
+          mv -- "$stage_dir/docker-compose.video-cache.yml" \
+            "$deploy_path/docker-compose.video-cache.yml"
+          mv -- "$stage_dir/persist-video-cache.sh" \
+            "$deploy_path/scripts/persist-video-cache.sh"
+          chmod 755 -- "$deploy_path/scripts/persist-video-cache.sh"
+          rmdir -- "$deploy_path/$stage_name"
+          REMOTE
+
       - name: Deploy via SSH
         env:
           DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_SERVER_IP} '
-            set -e
+          set -euo pipefail
+          deploy_path_b64=$(printf '%s' "$DEPLOY_PATH" | base64 | tr -d '\n')
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$DEPLOY_USER@$DEPLOY_SERVER_IP" "bash -s -- '$deploy_path_b64'" <<'REMOTE'
+            set -euo pipefail
+            deploy_path=$(printf '%s' "$1" | base64 -d)
+            cd -- "$deploy_path"
 
             # 重試函數：最多重試 3 次，每次間隔遞增
+            compose() {
+              docker compose -f docker-compose.yml -f docker-compose.video-cache.yml "$@"
+            }
+
             retry_pull() {
               local max_attempts=3
               local attempt=1
@@ -64,7 +136,7 @@ jobs:
 
               while [ $attempt -le $max_attempts ]; do
                 echo "🔄 Pulling Docker images (attempt $attempt/$max_attempts)..."
-                if docker compose -f docker-compose.yml pull; then
+                if compose pull backend frontend; then
                   echo "✅ Pull successful!"
                   return 0
                 fi
@@ -81,34 +153,32 @@ jobs:
               return 1
             }
 
-            echo "📁 Navigating to deployment directory..."
-            cd '"${DEPLOY_PATH}"'
+            compose config -q
+            video_cache_manifest=$(mktemp "${TMPDIR:-/tmp}/home-media-video-cache.XXXXXX")
+            trap 'rm -f -- "$video_cache_manifest"' EXIT
+
+            # First pass preserves completed files visible before image pull.
+            bash scripts/persist-video-cache.sh prepare "$video_cache_manifest"
 
             retry_pull
 
+            # Refresh immediately before stopping the old backend; this catches
+            # downloads that finished during the image pull without copying temp files.
+            # A cache that finishes after this scan can be fetched again after restart.
+            bash scripts/persist-video-cache.sh prepare "$video_cache_manifest"
+
             echo "🛑 Stopping existing containers..."
-            docker compose -f docker-compose.yml down --remove-orphans --timeout 30 || true
-
-            echo "🧹 Force removing any leftover containers..."
+            docker stop --time 30 home-media-backend home-media-frontend 2>/dev/null || true
             docker rm -f home-media-backend home-media-frontend 2>/dev/null || true
-            sleep 3
-
-            echo "🔍 Checking for remaining containers..."
-            if docker ps -a --filter "name=home-media" -q | grep -q .; then
-              echo "⚠️ Containers still exist, force killing..."
-              docker ps -a --filter "name=home-media" -q | xargs -r docker rm -f 2>/dev/null || true
-              sleep 2
-            fi
 
             echo "🚀 Starting updated containers..."
-            docker compose -f docker-compose.yml up -d --force-recreate
+            compose up -d --force-recreate --no-deps backend frontend
 
-            echo "🧹 Cleaning up old images..."
-            docker image prune -af --filter "until=24h" || true
+            bash scripts/persist-video-cache.sh verify "$video_cache_manifest"
 
             echo "✅ Deployment completed successfully!"
-            docker compose -f docker-compose.yml ps
-          '
+            compose ps backend frontend
+          REMOTE
 
       - name: Health Check
         env:
