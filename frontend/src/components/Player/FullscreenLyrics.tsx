@@ -26,6 +26,12 @@ import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, 
 import { seekTo, setPendingTrack, setIsPlaying, reorderPlaylist, removeFromPlaylist, playNext } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
+import {
+  claimVideoCachePolling,
+  hasVideoCachePollingExpired,
+  isVideoCacheProducerFailure,
+  VIDEO_CACHE_POLL_INTERVAL_MS,
+} from '../../services/video-cache-polling';
 import { toTraditional } from '../../utils/chineseConvert';
 import { useLyricsSync } from '../../hooks/useLyricsSync';
 import AudioPlayer from './AudioPlayer';
@@ -261,21 +267,28 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 影片快取：Drawer 開啟就開始下載（不限影片 tab），但輪詢是輕量 API call 不影響 iOS PWA
   const videoPollingVideoIdRef = useRef<string | null>(null);
   const showCachedVideo = videoCached && videoCachedForId === track.videoId;
+  const videoId = track?.videoId;
   useEffect(() => {
-    if (!open || !track?.videoId) return;
-    // 避免同一首歌重複觸發 polling
-    if (videoPollingVideoIdRef.current === track.videoId && (videoCached || videoDownloading)) return;
-    videoPollingVideoIdRef.current = track.videoId;
+    if (!open || !videoId) return;
+
+    // Only one active poll per video; cleanup releases this claim so reopening
+    // the drawer can restart the same video's polling lifecycle.
+    const releasePolling = claimVideoCachePolling(videoPollingVideoIdRef, videoId);
+    if (!releasePolling) return;
     let cancelled = false;
+    let finished = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
     (async () => {
       // 檢查是否已快取
       try {
-        const status = await apiService.getVideoCacheStatus(track.videoId);
+        const status = await apiService.getVideoCacheStatus(videoId);
         if (cancelled) return;
         if (status.cached) {
+          finished = true;
+          if (retryTimeout) clearTimeout(retryTimeout);
           setVideoCached(true);
-          setVideoCachedForId(track.videoId);
+          setVideoCachedForId(videoId);
           setVideoDownloading(false);
           return;
         }
@@ -294,16 +307,37 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const MAX_DOWNLOAD_RETRIES = 3;
       const RETRY_DELAYS = [2000, 5000, 10000];
       let downloadFailed = false;
+      let downloadRequestAccepted = false;
+
+      const scheduleRetry = () => {
+        downloadRetryCount++;
+        if (downloadRetryCount <= MAX_DOWNLOAD_RETRIES) {
+          const delay = RETRY_DELAYS[downloadRetryCount - 1] || 10000;
+          retryTimeout = setTimeout(() => {
+            retryTimeout = null;
+            triggerDownload();
+          }, delay);
+          return true;
+        }
+
+        downloadFailed = true;
+        return false;
+      };
 
       const triggerDownload = () => {
-        apiService.downloadVideo(track.videoId).catch((err) => {
-          downloadRetryCount++;
-          if (downloadRetryCount <= MAX_DOWNLOAD_RETRIES) {
+        if (cancelled || finished) return;
+        apiService.downloadVideo(videoId).then(() => {
+          if (cancelled || finished) return;
+          // POST responds 202 before yt-dlp finishes. Status polling decides
+          // whether the producer actually completed successfully.
+          downloadRequestAccepted = true;
+        }).catch((err) => {
+          if (cancelled || finished) return;
+          const scheduled = scheduleRetry();
+          if (scheduled) {
             const delay = RETRY_DELAYS[downloadRetryCount - 1] || 10000;
-            console.warn(`🎬 Video download failed (attempt ${downloadRetryCount}/${MAX_DOWNLOAD_RETRIES}), retrying in ${delay / 1000}s`);
-            setTimeout(triggerDownload, delay);
+            console.warn(`🎬 Video download request failed (attempt ${downloadRetryCount}/${MAX_DOWNLOAD_RETRIES}), retrying in ${delay / 1000}s`);
           } else {
-            downloadFailed = true;
             console.error(`🎬 Video download failed after ${MAX_DOWNLOAD_RETRIES} retries:`, err);
           }
         });
@@ -311,22 +345,41 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       triggerDownload();
 
       // 輪詢等待下載完成
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 3000));
-        if (cancelled) return;
-        setVideoDownloadProgress(`下載中 ${(i + 1) * 3}s`);
+      const pollingStartedAt = Date.now();
+      while (!hasVideoCachePollingExpired(Date.now() - pollingStartedAt)) {
+        await new Promise(r => setTimeout(r, VIDEO_CACHE_POLL_INTERVAL_MS));
+        if (cancelled || finished) return;
+        if (hasVideoCachePollingExpired(Date.now() - pollingStartedAt)) break;
+        const elapsedSeconds = Math.ceil((Date.now() - pollingStartedAt) / 1000);
+        setVideoDownloadProgress(`下載中 ${elapsedSeconds}s`);
         try {
-          const status = await apiService.getVideoCacheStatus(track.videoId);
+          const status = await apiService.getVideoCacheStatus(videoId);
+          if (cancelled || finished) return;
           if (status.cached) {
+            finished = true;
+            if (retryTimeout) clearTimeout(retryTimeout);
             setVideoCached(true);
-            setVideoCachedForId(track.videoId);
+            setVideoCachedForId(videoId);
             setVideoDownloading(false);
             setVideoDownloadProgress('');
             setVideoDownloadError('');
             console.log(`🎬 影片下載完成: ${track.title}`);
             return;
           }
+
+          // A successful 202 only acknowledges the request. If its producer
+          // has already left the downloading state without a cache entry,
+          // retry it with the same bounded backoff as request failures.
+          if (isVideoCacheProducerFailure(status, downloadRequestAccepted)) {
+            downloadRequestAccepted = false;
+            if (!scheduleRetry()) {
+              console.error(`🎬 Video download producer failed after ${MAX_DOWNLOAD_RETRIES} retries`);
+            }
+          }
+
           if (downloadFailed && !status.downloading) {
+            finished = true;
+            if (retryTimeout) clearTimeout(retryTimeout);
             setVideoDownloading(false);
             setVideoDownloadProgress('');
             setVideoDownloadError('下載失敗，請稍後重試');
@@ -335,6 +388,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           }
         } catch { /* continue */ }
       }
+      if (cancelled || finished) return;
+      finished = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
       setVideoDownloading(false);
       setVideoDownloadProgress('');
       setVideoDownloadError('下載逾時，請稍後重試');
@@ -342,8 +398,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     return () => {
       cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      releasePolling();
     };
-  }, [open, track?.videoId, viewMode]);
+  }, [open, videoId]);
 
   // 換歌時才重設影片快取狀態（不在 drawer 開關時重設）
   useEffect(() => {
@@ -355,7 +413,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     if (cachedVideoRef.current) {
       delete cachedVideoRef.current.dataset.synced;
     }
-    videoPollingVideoIdRef.current = null;
     apiService.videoCacheCleanup().catch(() => {});
   }, [track?.videoId]);
 
@@ -1228,7 +1285,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               onClick={handleRetryTranslation}
               variant="outlined"
               color="warning"
-              sx={{ cursor: 'pointer' }}
+              sx={{ cursor: 'pointer', minHeight: 44 }}
             />
           </Box>
         )}
@@ -1476,7 +1533,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                         <Box
                           {...dragProvided.dragHandleProps}
                           aria-label={`拖曳排序：${item.title}`}
-                          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, minHeight: 44, flexShrink: 0, cursor: 'grab', color: 'text.secondary' }}
+                          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 44, minHeight: 44, flexShrink: 0, cursor: 'grab', color: 'text.secondary' }}
                         >
                           <DragIndicatorIcon fontSize="small" />
                         </Box>

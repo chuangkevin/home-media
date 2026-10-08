@@ -246,8 +246,10 @@ class AudioCacheService {
       metadata,
     };
 
-    // 檢查快取大小限制
-    await this.enforceLimit(blob.size);
+    // 檢查快取大小限制。Oversized items are simply not cached; playback can
+    // continue through its existing streaming path.
+    const withinLimits = await this.enforceLimit(blob.size, videoId);
+    if (!withinLimits) return;
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([this.storeName], 'readwrite');
@@ -328,32 +330,42 @@ class AudioCacheService {
    * 強制執行快取限制（數量和大小）
    * 如果超過限制，刪除最舊的項目
    */
-  private async enforceLimit(newSize: number): Promise<void> {
+  private async enforceLimit(newSize: number, replacingVideoId: string): Promise<boolean> {
+    if (newSize > this.MAX_CACHE_SIZE || this.MAX_ENTRIES < 1) {
+      console.warn('Skipping audio cache write because the item exceeds the configured cache limit');
+      return false;
+    }
+
     const all = await this.getAll();
-    const totalSize = all.reduce((total, item) => total + item.size, 0);
-    const entryCount = all.length;
+    const candidates = all.filter(item => item.videoId !== replacingVideoId);
+    const totalSize = candidates.reduce((total, item) => total + item.size, 0);
+    const entryCount = candidates.length;
 
     // 檢查是否需要清理（數量超過 200 或空間超過 2GB）
     const needsSizeCleanup = totalSize + newSize > this.MAX_CACHE_SIZE;
-    const needsCountCleanup = entryCount >= this.MAX_ENTRIES;
+    const needsCountCleanup = entryCount + 1 > this.MAX_ENTRIES;
 
     if (!needsSizeCleanup && !needsCountCleanup) {
-      return;
+      return true;
     }
 
     console.log(`⚠️ Cache limit exceeded (${entryCount} entries, ${(totalSize / 1024 / 1024).toFixed(2)}MB), cleaning old entries...`);
 
     // 按時間排序（最舊的在前）
-    all.sort((a, b) => a.timestamp - b.timestamp);
+    candidates.sort((a, b) => a.timestamp - b.timestamp);
 
     let freedSize = 0;
     let deletedCount = 0;
 
     // 刪除最舊的項目直到符合限制
-    for (const item of all) {
+    for (const item of candidates) {
+      await this.delete(item.videoId);
+      freedSize += item.size;
+      deletedCount++;
+
       // 計算刪除後的狀態
-      const remainingCount = entryCount - deletedCount - 1;
-      const remainingSize = totalSize - freedSize - item.size;
+      const remainingCount = entryCount - deletedCount;
+      const remainingSize = totalSize - freedSize;
 
       // 檢查是否已經符合限制
       const sizeOk = remainingSize + newSize <= this.MAX_CACHE_SIZE;
@@ -362,14 +374,14 @@ class AudioCacheService {
       if (sizeOk && countOk) {
         break;
       }
-
-      await this.delete(item.videoId);
-      freedSize += item.size;
-      deletedCount++;
     }
 
     const freedMB = (freedSize / 1024 / 1024).toFixed(2);
     console.log(`✅ Freed ${freedMB}MB by removing ${deletedCount} old entries`);
+
+    const remainingCount = entryCount - deletedCount;
+    const remainingSize = totalSize - freedSize;
+    return remainingCount + 1 <= this.MAX_ENTRIES && remainingSize + newSize <= this.MAX_CACHE_SIZE;
   }
 
   /**

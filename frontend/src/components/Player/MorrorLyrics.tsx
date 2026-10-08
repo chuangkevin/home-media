@@ -525,6 +525,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
                 borderColor: 'rgba(255,255,255,0.5)',
                 textShadow: textShadowLight,
                 cursor: 'pointer',
+                minHeight: 44,
                 '&:hover': { borderColor: 'white', backgroundColor: 'rgba(255,255,255,0.1)' },
               }}
             />

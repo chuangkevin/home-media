@@ -8,6 +8,33 @@ import { getDatabase } from '../config/database';
 const VIDEO_CACHE_DIR = path.join(process.cwd(), 'data', 'video-cache');
 const MAX_VIDEO_CACHE_MB = 5000; // 5GB 上限
 
+type ByteRangeResult =
+  | { kind: 'range'; start: number; end: number }
+  | { kind: 'unsatisfiable' }
+  | { kind: 'ignore' };
+
+/** Parse the single byte range supported by this endpoint without numeric overflow. */
+function parseByteRange(header: unknown, fileSize: number): ByteRangeResult {
+  if (typeof header !== 'string') return { kind: 'ignore' };
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim());
+  // Malformed, unsupported units, and multi-range requests are safely served in full.
+  if (!match || (!match[1] && !match[2])) return { kind: 'ignore' };
+
+  const size = BigInt(fileSize);
+  if (match[1]) {
+    const start = BigInt(match[1]);
+    const requestedEnd = match[2] ? BigInt(match[2]) : size - 1n;
+    if (start >= size || start > requestedEnd) return { kind: 'unsatisfiable' };
+    const end = requestedEnd >= size ? size - 1n : requestedEnd;
+    return { kind: 'range', start: Number(start), end: Number(end) };
+  }
+
+  const suffixLength = BigInt(match[2]);
+  if (suffixLength === 0n) return { kind: 'unsatisfiable' };
+  const start = suffixLength >= size ? 0n : size - suffixLength;
+  return { kind: 'range', start: Number(start), end: fileSize - 1 };
+}
+
 if (!fs.existsSync(VIDEO_CACHE_DIR)) {
   fs.mkdirSync(VIDEO_CACHE_DIR, { recursive: true });
 }
@@ -17,7 +44,14 @@ class VideoCacheService {
 
   /** Check if video is cached */
   has(videoId: string): boolean {
-    return fs.existsSync(this.getPath(videoId));
+    try {
+      const stat = fs.statSync(this.getPath(videoId));
+      // An empty placeholder is not a playable cache entry. Leave it in place;
+      // a later successful download can replace it without eagerly deleting cache files.
+      return stat.isFile() && stat.size > 0;
+    } catch {
+      return false;
+    }
   }
 
   /** Get file path */
@@ -222,36 +256,93 @@ class VideoCacheService {
   /** Stream video file to response */
   streamVideo(videoId: string, req: any, res: any): void {
     const filePath = this.getPath(videoId);
-    if (!fs.existsSync(filePath)) {
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(filePath);
+    } catch (err: any) {
+      const statusCode = err?.code === 'ENOENT' ? 404 : 500;
+      res.status(statusCode).json({ error: statusCode === 404 ? 'Video not cached' : 'Unable to access cached video' });
+      return;
+    }
+    if (!stat.isFile() || stat.size <= 0) {
       res.status(404).json({ error: 'Video not cached' });
       return;
     }
 
-    const stat = fs.statSync(filePath);
     const fileSize = stat.size;
-    const range = req.headers.range;
-
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunkSize = end - start + 1;
-
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+    const parsedRange = parseByteRange(req.headers?.range, fileSize);
+    if (parsedRange.kind === 'unsatisfiable') {
+      res.writeHead(416, {
+        'Content-Range': `bytes */${fileSize}`,
         'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': 'video/mp4',
+        'Content-Length': 0,
       });
-      fs.createReadStream(filePath, { start, end }).pipe(res);
-    } else {
-      res.writeHead(200, {
-        'Content-Length': fileSize,
-        'Content-Type': 'video/mp4',
-        'Accept-Ranges': 'bytes',
-      });
-      fs.createReadStream(filePath).pipe(res);
+      res.end();
+      return;
     }
+
+    const isPartial = parsedRange.kind === 'range';
+    const start = isPartial ? parsedRange.start : undefined;
+    const end = isPartial ? parsedRange.end : undefined;
+    const headers: Record<string, string | number> = {
+      'Content-Length': isPartial ? parsedRange.end - parsedRange.start + 1 : fileSize,
+      'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
+    };
+    if (isPartial) headers['Content-Range'] = `bytes ${parsedRange.start}-${parsedRange.end}/${fileSize}`;
+
+    let readStream: fs.ReadStream;
+    try {
+      readStream = fs.createReadStream(filePath, isPartial ? { start, end } : undefined);
+    } catch (err) {
+      logger.error(`Video cache stream creation failed for ${videoId}:`, err);
+      res.status(500).json({ error: 'Unable to stream cached video' });
+      return;
+    }
+
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      req.removeListener?.('aborted', onRequestAborted);
+      res.removeListener?.('close', onResponseClosed);
+      res.removeListener?.('finish', cleanup);
+    };
+    const onRequestAborted = () => {
+      readStream.destroy();
+      cleanup();
+    };
+    const onResponseClosed = () => {
+      if (!res.writableEnded) readStream.destroy();
+      cleanup();
+    };
+
+    req.once?.('aborted', onRequestAborted);
+    res.once?.('close', onResponseClosed);
+    res.once?.('finish', cleanup);
+
+    // Wait until the file descriptor is open before committing headers. If the file
+    // disappeared after stat, this still produces a clean 404 instead of a broken 200.
+    readStream.once('open', () => {
+      if (res.destroyed || res.writableEnded) {
+        readStream.destroy();
+        cleanup();
+        return;
+      }
+      res.writeHead(isPartial ? 206 : 200, headers);
+      readStream.pipe(res);
+    });
+    readStream.once('error', (err: any) => {
+      cleanup();
+      logger.error(`Video cache stream read failed for ${videoId}:`, err);
+      if (!res.headersSent && !res.writableEnded && !res.destroyed) {
+        const statusCode = err?.code === 'ENOENT' ? 404 : 500;
+        res.status(statusCode).json({ error: statusCode === 404 ? 'Video not cached' : 'Unable to stream cached video' });
+      } else if (!res.destroyed) {
+        // Headers/body may already be on the wire, so terminate the partial response.
+        res.destroy(err);
+      }
+    });
   }
 }
 
