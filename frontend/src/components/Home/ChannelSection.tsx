@@ -17,6 +17,12 @@ import {
   Alert,
 } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import {
+  homeMediaCardSx,
+  homeMediaTitleSx,
+  homeMediaPlaySx,
+  homeMediaShelfSx,
+} from './homeMediaStyles'
 import StorageIcon from '@mui/icons-material/Storage'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined'
@@ -242,15 +248,7 @@ export default function ChannelSection({
       <Box
         data-scroll-root
         sx={{
-          display: isDesktop ? 'grid' : 'flex',
-          gridTemplateColumns: isDesktop ? 'repeat(auto-fill, minmax(180px, 1fr))' : undefined,
-          overflowX: isDesktop ? 'visible' : 'auto',
-          maxWidth: '100%',
-          minWidth: 0,
-          gap: 2,
-          pb: 1,
-          scrollSnapType: isDesktop ? 'none' : 'x proximity',
-          scrollbarWidth: 'thin',
+          ...homeMediaShelfSx,
           '&::-webkit-scrollbar': { height: 6 },
           '&::-webkit-scrollbar-thumb': { backgroundColor: 'action.selected', borderRadius: 3 },
         }}
@@ -266,15 +264,7 @@ export default function ChannelSection({
               scrollSnapAlign: 'start',
             }}
           >
-            <Card
-              sx={{
-                height: '100%',
-                boxShadow: 'none',
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 2,
-              }}
-            >
+            <Card sx={homeMediaCardSx}>
               <CardActionArea
                 onClick={() => onPlay(video)}
                 aria-label={`播放 ${video.title}，${video.channel || channel.channelName}`}
@@ -284,31 +274,34 @@ export default function ChannelSection({
                   flexDirection: 'column',
                   alignItems: 'stretch',
                   justifyContent: 'flex-start',
+                  '&.Mui-focusVisible': { outlineOffset: -3 },
                 }}
               >
                 <Box sx={{ position: 'relative' }}>
                   <CardMedia
                     component="img"
                     loading="lazy"
-                    image={video.thumbnail}
+                    image={
+                      video.thumbnail || `https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`
+                    }
                     alt=""
-                    sx={{ width: '100%', aspectRatio: '16 / 10', objectFit: 'cover' }}
+                    sx={{
+                      width: '100%',
+                      aspectRatio: '16 / 10',
+                      objectFit: 'cover',
+                      bgcolor: 'action.selected',
+                    }}
                   />
                   <Box
+                    aria-hidden="true"
                     sx={{
                       position: 'absolute',
                       bottom: 8,
                       right: 8,
-                      width: 44,
-                      height: 44,
-                      display: 'grid',
-                      placeItems: 'center',
-                      bgcolor: 'primary.main',
-                      color: 'primary.contrastText',
-                      borderRadius: '50%',
+                      ...homeMediaPlaySx,
                     }}
                   >
-                    <PlayArrowIcon sx={{ fontSize: 26 }} />
+                    <PlayArrowIcon />
                   </Box>
                   <Box
                     component="span"
@@ -348,19 +341,7 @@ export default function ChannelSection({
                   )}
                 </Box>
                 <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 }, minWidth: 0 }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      fontWeight: 600,
-                      fontSize: 14,
-                      overflow: 'hidden',
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      lineHeight: 1.5,
-                      minHeight: '3em',
-                    }}
-                  >
+                  <Typography variant="body2" sx={homeMediaTitleSx}>
                     {video.title}
                   </Typography>
                   <Typography

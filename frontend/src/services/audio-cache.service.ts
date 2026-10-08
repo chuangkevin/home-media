@@ -1,3 +1,5 @@
+import { fetchOptionalCacheSettings } from './playback-load';
+
 /**
  * 音訊快取服務
  * 使用 IndexedDB 儲存音訊 blob，實現離線播放和快速重播
@@ -45,15 +47,15 @@ class AudioCacheService {
   private CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 天快取期限
   private readonly PRELOAD_ENABLED = true;
   private settingsLoaded = false;
+  private settingsLoadStarted = false;
 
   /**
    * 從後端載入快取設定
    */
   private async loadSettings(): Promise<void> {
     try {
-      const response = await fetch('/api/settings');
-      if (response.ok) {
-        const settings = await response.json();
+      const settings = await fetchOptionalCacheSettings();
+      if (settings) {
         
         if (settings.audio_cache_ttl_days) {
           this.CACHE_TTL = settings.audio_cache_ttl_days * 24 * 60 * 60 * 1000;
@@ -81,9 +83,10 @@ class AudioCacheService {
     if (this.db) return;
     if (this.initPromise) return this.initPromise;
 
-    // 載入快取設定
-    if (!this.settingsLoaded) {
-      await this.loadSettings();
+    // Optional settings load in the background; cached audio also works offline.
+    if (!this.settingsLoaded && !this.settingsLoadStarted) {
+      this.settingsLoadStarted = true;
+      void this.loadSettings();
     }
 
     this.initPromise = new Promise((resolve, reject) => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, IconButton, Snackbar, ButtonBase, Alert } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, IconButton, Snackbar, ButtonBase, Alert, Button } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import FavoriteIcon from '@mui/icons-material/Favorite';
@@ -11,6 +11,7 @@ import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, p
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
+import { createPlaybackLoadAttempt, readOptionalCache, waitForAudioReady } from '../../services/playback-load';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { useAutoQueue } from '../../hooks/useAutoQueue';
 import { usePlaybackPersistence } from '../../hooks/usePlaybackPersistence';
@@ -38,9 +39,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const { isEnabled: continuousMode, sessionId: continuousSessionId } = useSelector((state: RootState) => state.continuousPlayer);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
+  const [playbackError, setPlaybackError] = useState<{ track: Track; message: string } | null>(null);
+  const pendingRequestVersionRef = useRef(0);
+  const pendingAudioOwnerRef = useRef<number | null>(null);
+  const bypassBrowserCacheRef = useRef<string | null>(null);
   const [favoritePending, setFavoritePending] = useState(false);
   const favoriteRequestRef = useRef(false);
   const [favoriteNotice, setFavoriteNotice] = useState<{ message: string; error: boolean } | null>(null);
+  useEffect(() => () => { pendingRequestVersionRef.current += 1; }, []);
   // autoplayBlocked removed — radio 模式永遠自動重試播放，不需要手動按鈕
   const currentVideoIdRef = useRef<string | null>(null);
   const activeLyricsVideoIdRef = useRef<string | null>(null);
@@ -446,6 +452,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       return;
     }
 
+    const requestVersion = ++pendingRequestVersionRef.current;
+    const attempt = createPlaybackLoadAttempt(() => pendingRequestVersionRef.current === requestVersion);
+    const { controller, isCurrent: isCurrentRequest } = attempt;
+    let ownsAudio = false;
+    const commitTrack = () => {
+      attempt.confirm();
+      if (pendingAudioOwnerRef.current === requestVersion) pendingAudioOwnerRef.current = null;
+      dispatch(confirmPendingTrack());
+    };
+    setPlaybackError(null);
+
     console.log(`🔄 Pending track: ${pendingTrack.title} (${videoId}), preparing...`);
     setIsLoading(true);
     setIsCached(false); // 立即重置，避免顯示前一首的快取狀態
@@ -457,7 +474,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       try {
 
         // 🚀 優先檢查前端 IndexedDB 快取（最快！）
-        const browserCached = await audioCacheService.get(videoId);
+        const bypass = bypassBrowserCacheRef.current === videoId;
+        if (bypass) bypassBrowserCacheRef.current = null;
+        const browserCached = await readOptionalCache(() => audioCacheService.get(videoId), controller.signal, { bypass });
+        if (!isCurrentRequest()) return;
         
         if (browserCached) {
           // ✅ 前端有 cache，直接用 Blob URL 播放（秒開！）
@@ -471,13 +491,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
           currentBlobUrlRef.current = blobUrl;
           pauseInternally(audio);
+          pendingAudioOwnerRef.current = requestVersion;
+          ownsAudio = true;
+          const ready = waitForAudioReady(audio, controller.signal);
+          void ready.catch(() => {}); // The owned await below reports failures; avoid an orphan if src assignment throws.
           audio.currentTime = 0;
           audio.src = blobUrl;
           audio.load();
 
           // 非阻塞載入 SponsorBlock segments（背景載入，不等待）
           apiService.getSponsorBlockSegments(videoId).then(segments => {
-            if (segments.length > 0) {
+            if (isCurrentRequest() && segments.length > 0) {
               skipSegmentsRef.current = segments;
               skippedSegmentsRef.current = new Set();
               console.log(`🚫 [SponsorBlock] Pre-loaded ${segments.length} segments for cached track`);
@@ -501,6 +525,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             if (isPlayingRef.current) {
               console.log(`▶️ 快取秒開播放: ${pendingTrack.title}`);
               audio.play().then(() => {
+                if (!isCurrentRequest()) return;
                 // iOS PWA crash recovery: seek to persisted position
                 const recoverySeek = playbackStateService.consumeRecoverySeekTarget();
                 if (recoverySeek !== null) {
@@ -509,17 +534,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                   console.log(`🔄 [PWA Recovery] Seeked to ${recoverySeek.toFixed(1)}s`);
                 }
               }).catch((error) => {
+                if (!isCurrentRequest()) return;
                 if (error.name === 'NotAllowedError') {
                   // 自動播放被阻擋：設定 isPlaying(false) 讓 UI 正確顯示暫停
                   // 等任意 user interaction 自動重試（比舊版大按鈕 UX 更好）
                   console.warn('⚠️ Autoplay blocked, will retry on user interaction');
                   dispatch(setIsPlaying(false));
                   const retryPlay = () => {
+                    if (!isCurrentRequest()) return;
                     audioRef.current?.play().then(() => {
+                      if (!isCurrentRequest()) return;
                       dispatch(setIsPlaying(true));
                       document.removeEventListener('click', retryPlay);
                       document.removeEventListener('touchstart', retryPlay);
                     }).catch(() => {
+                      if (!isCurrentRequest()) return;
                       // 仍然失敗 — 重新掛 listener 持續等待下次互動
                       document.addEventListener('click', retryPlay, { once: true });
                       document.addEventListener('touchstart', retryPlay, { once: true });
@@ -533,19 +562,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               });
             }
           };
-          if (audio.readyState >= 2) {
-            playWhenReady();
-          } else {
-            audio.addEventListener('canplay', () => playWhenReady(), { once: true });
-            // Fallback: 3 秒後強制嘗試
-            setTimeout(() => { if (audio.paused && isPlayingRef.current) audio.play().catch(() => {}); }, 3000);
-          }
+          await ready;
+          if (!isCurrentRequest()) return;
+          playWhenReady();
 
           // 背景觸發後端預加載（不等待）
           apiService.preloadAudio(videoId).catch(() => {});
 
           // 確認切換
-          dispatch(confirmPendingTrack());
+          commitTrack();
           setIsLoading(false);
           
           // 🎵 快取路徑也需要載入歌詞！
@@ -553,21 +578,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             dispatch(setLyricsLoading(true));
             try {
               const lyrics = await loadLyricsWithPreferences(pendingTrack);
-              if (lyrics && isCurrentLyricsRequest(videoId)) {
+              if (lyrics && isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
                 console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
                 dispatch(setCurrentLyrics(lyrics));
                 lyricsCacheService.set(videoId, lyrics).catch(() => {});
-              } else if (isCurrentLyricsRequest(videoId)) {
+              } else if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
                 console.log(`⚠️ 找不到歌詞: ${pendingTrack.title}`);
                 dispatch(setLyricsError('找不到歌詞'));
               }
             } catch (error) {
               console.error('獲取歌詞失敗:', error);
-              if (isCurrentLyricsRequest(videoId)) {
+              if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
                 dispatch(setLyricsError('獲取歌詞失敗'));
               }
             } finally {
-              if (isCurrentLyricsRequest(videoId)) {
+              if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
                 dispatch(setLyricsLoading(false));
               }
             }
@@ -581,8 +606,15 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audioCacheService.abortDownload(videoId);
         const streamUrl = apiService.getStreamUrl(videoId);
 
+        const pendingAudio = audioRef.current!;
+        pendingAudioOwnerRef.current = requestVersion;
+        ownsAudio = true;
         // 🔒 iOS session 保活：handleEnded 已搶先設定 audio.src，這裡直接沿用，不重設
         const sessionKeeperActive = iosSessionKeeperRef.current === videoId;
+        const ready = waitForAudioReady(pendingAudio, controller.signal, {
+          reuseExistingSource: sessionKeeperActive,
+        });
+        void ready.catch(() => {}); // The owned await below reports failures even if readiness rejects early.
         if (sessionKeeperActive) {
           console.log(`🎵 [iOS session keeper] 繼承已開始的串流: ${pendingTrack.title}`);
           iosSessionKeeperRef.current = null; // 消費掉，避免重複觸發
@@ -595,7 +627,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
         // 非阻塞載入 SponsorBlock segments（串流路徑也需要跳過非音樂段落）
         apiService.getSponsorBlockSegments(videoId).then(segments => {
-          if (segments.length > 0 && currentVideoIdRef.current === videoId) {
+          if (isCurrentRequest() && segments.length > 0 && currentVideoIdRef.current === videoId) {
             skipSegmentsRef.current = segments;
             skippedSegmentsRef.current = new Set();
             console.log(`🚫 [SponsorBlock] Pre-loaded ${segments.length} segments for streaming track`);
@@ -604,7 +636,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               const audio = audioRef.current;
               // 串流路徑：確認 buffer 已準備好再 seek
               const trySkipIntro = () => {
-                if (currentVideoIdRef.current !== videoId) return;
+                if (!isCurrentRequest() || currentVideoIdRef.current !== videoId) return;
                 if (audio.buffered.length > 0 && audio.buffered.end(0) >= introSeg.end) {
                   audio.currentTime = introSeg.end;
                   skippedSegmentsRef.current.add(segments.indexOf(introSeg));
@@ -625,6 +657,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         const bgVideoId = videoId;
         const bgStreamUrl = apiService.getStreamUrl(videoId);
         setTimeout(() => { (async () => {
+          if (!isCurrentRequest()) return;
           // 直接下載到前端 IndexedDB（不等 backend cache，邊播邊下）
           console.log(`⏬ 背景下載到 IndexedDB: ${pendingTrack.title}`);
           try {
@@ -638,7 +671,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             // Fallback：等 backend cache 完成再下載
             for (let i = 0; i < 20; i++) {
               await new Promise(r => setTimeout(r, 3000));
-              if (currentVideoIdRef.current !== bgVideoId) return;
+              if (!isCurrentRequest() || currentVideoIdRef.current !== bgVideoId) return;
               const s = await apiService.getCacheStatus(bgVideoId).catch(() => ({ cached: false }));
               if (s.cached) {
                 try {
@@ -652,9 +685,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             }
           }
 
-          if (currentVideoIdRef.current !== bgVideoId) return;
+          if (!isCurrentRequest() || currentVideoIdRef.current !== bgVideoId) return;
           const blob = await audioCacheService.get(bgVideoId);
-          if (!blob || currentVideoIdRef.current !== bgVideoId) return;
+          if (!blob || !isCurrentRequest() || currentVideoIdRef.current !== bgVideoId) return;
 
           const audio = audioRef.current;
           if (!audio) return;
@@ -673,7 +706,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           audio.removeEventListener('ended', preventEnded, { capture: true });
           audio.removeEventListener('error', preventEnded, { capture: true });
 
-          if (currentVideoIdRef.current !== bgVideoId) { URL.revokeObjectURL(blobUrl); return; }
+          if (!isCurrentRequest() || currentVideoIdRef.current !== bgVideoId) { URL.revokeObjectURL(blobUrl); return; }
           if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
           currentBlobUrlRef.current = blobUrl;
           try { audio.currentTime = curTime; } catch {}
@@ -720,24 +753,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         // 等待音訊準備好再確認切換
         // 使用多重事件監聽和 timeout fallback 確保手機端可以正常播放
         let hasConfirmed = false;
-        let fallbackTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
         const confirmAndPlay = (eventSource: string) => {
-          if (hasConfirmed) return;
+          if (hasConfirmed || !isCurrentRequest()) return;
           hasConfirmed = true;
-
-          // 清除 fallback timeout
-          if (fallbackTimeoutId) {
-            clearTimeout(fallbackTimeoutId);
-            fallbackTimeoutId = null;
-          }
 
           const shouldPlay = isPlayingRef.current;
           console.log(`🎵 Audio ready (${eventSource}): ${pendingTrack.title}, isPlaying: ${shouldPlay}`);
           setIsLoading(false);
 
           // 確認切換（UI 現在更新）
-          dispatch(confirmPendingTrack());
+          commitTrack();
 
           // Trigger background style analysis for current track
           if (pendingTrack) {
@@ -749,6 +775,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           if (shouldPlay) {
             console.log(`▶️ Auto-playing audio: ${pendingTrack.title}`);
             audio.play().then(() => {
+              if (!isCurrentRequest()) return;
               // iOS PWA crash recovery: seek to persisted position
               const recoverySeek = playbackStateService.consumeRecoverySeekTarget();
               if (recoverySeek !== null) {
@@ -757,17 +784,21 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 console.log(`🔄 [PWA Recovery] Seeked to ${recoverySeek.toFixed(1)}s`);
               }
             }).catch((error) => {
+                if (!isCurrentRequest()) return;
               console.error('Failed to auto-play:', error);
               if (error.name === 'NotAllowedError') {
                 // 自動播放被阻擋：設定 isPlaying(false) 讓 UI 正確顯示暫停
                 console.warn('⚠️ Autoplay blocked (stream), will retry on user interaction');
                 dispatch(setIsPlaying(false));
                 const retryPlay = () => {
+                  if (!isCurrentRequest()) return;
                   audioRef.current?.play().then(() => {
+                    if (!isCurrentRequest()) return;
                     dispatch(setIsPlaying(true));
                     document.removeEventListener('click', retryPlay);
                     document.removeEventListener('touchstart', retryPlay);
                   }).catch(() => {
+                    if (!isCurrentRequest()) return;
                     // 仍然失敗 — 重新掛 listener 持續等待下次互動
                     document.addEventListener('click', retryPlay, { once: true });
                     document.addEventListener('touchstart', retryPlay, { once: true });
@@ -786,7 +817,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           (async () => {
             try {
               let lyrics = await loadLyricsWithPreferences(pendingTrack);
-              if (lyrics && lyrics.lines?.length > 0 && isCurrentLyricsRequest(videoId)) {
+              if (lyrics && lyrics.lines?.length > 0 && isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
                 // 用 SponsorBlock music_offtopic 計算 offset
                 // 如果影片前面有非音樂段落，歌詞時間戳需要加上 offset
                 const segments = skipSegmentsRef.current;
@@ -807,96 +838,26 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
                 console.log(`📝 歌詞載入: ${pendingTrack.title} (${lyrics.source}, ${lyrics.lines.length} 行, synced: ${lyrics.isSynced})`);
                 dispatch(setCurrentLyrics(lyrics));
                 lyricsCacheService.set(videoId, lyrics).catch(() => {});
-              } else if (isCurrentLyricsRequest(videoId)) {
+              } else if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
                 dispatch(setLyricsError('找不到歌詞'));
               }
             } catch (error) {
               console.error('獲取歌詞失敗:', error);
-              if (isCurrentLyricsRequest(videoId)) {
+              if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
                 dispatch(setLyricsError('獲取歌詞失敗'));
               }
             } finally {
-              if (isCurrentLyricsRequest(videoId)) {
+              if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
                 dispatch(setLyricsLoading(false));
               }
             }
           })();
         };
 
-        const handleCanPlay = () => confirmAndPlay('canplay');
-        const handleCanPlayThrough = () => confirmAndPlay('canplaythrough');
-        const handleLoadedData = () => confirmAndPlay('loadeddata');
-
-        const handleLoadedMetadata = () => {
-          dispatch(setDuration(pendingTrack.duration || audio.duration));
-          // 在手機端，有時只有 loadedmetadata 會觸發，延遲 500ms 後確認
-          setTimeout(() => {
-            if (!hasConfirmed && audio.readyState >= 1) {
-              confirmAndPlay('loadedmetadata-delayed');
-            }
-          }, 500);
-        };
-
-        // 多重事件監聽確保相容性（手機瀏覽器可能只觸發部分事件）
-        audio.addEventListener('canplay', handleCanPlay, { once: true });
-        audio.addEventListener('canplaythrough', handleCanPlayThrough, { once: true });
-        audio.addEventListener('loadeddata', handleLoadedData, { once: true });
-        audio.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
-
-        // iOS session keeper：audio.src 在 handleEnded 已設定，canplay 可能在此 effect 觸發前就已 fire
-        // 立刻檢查 readyState，若已就緒直接確認
-        if (sessionKeeperActive && audio.readyState >= 2) {
-          confirmAndPlay('session-keeper-already-ready');
-        } else if (sessionKeeperActive && audio.readyState >= 1) {
-          // metadata 已載入，短暫等待即可
-          setTimeout(() => { if (!hasConfirmed) confirmAndPlay('session-keeper-meta-ready'); }, 200);
-        }
-
-        // Timeout fallback：10秒後如果還沒觸發任何事件，根據 readyState 決定
-        fallbackTimeoutId = setTimeout(() => {
-          if (!hasConfirmed) {
-            if (audio.readyState >= 2) {
-              // readyState >= 2 表示有足夠數據可以播放
-              console.warn(`⚠️ Audio events timeout (readyState: ${audio.readyState}), confirming: ${pendingTrack.title}`);
-              confirmAndPlay('timeout-fallback');
-            } else if (audio.readyState >= 1) {
-              // readyState 1 表示有元數據但數據不足，再等 5 秒
-              console.warn(`⚠️ Audio not ready (readyState: ${audio.readyState}), waiting 5 more seconds...`);
-              setTimeout(() => {
-                if (!hasConfirmed) {
-                  console.warn(`⚠️ Extended timeout, forcing confirm (readyState: ${audio.readyState})`);
-                  confirmAndPlay('extended-timeout');
-                }
-              }, 5000);
-            } else {
-              // readyState 0 表示還沒開始加載，再等 15 秒
-              // （設定 src 後瀏覽器需要時間開始載入）
-              console.warn(`⚠️ Audio not started loading (readyState: 0), waiting 15 more seconds...`);
-              setTimeout(() => {
-                if (!hasConfirmed) {
-                  if (audio.readyState >= 1) {
-                    console.warn(`⚠️ Audio started loading after delay, confirming...`);
-                    confirmAndPlay('delayed-start-confirm');
-                  } else {
-                    // readyState 仍是 0：觸發重試而不是放棄
-                    console.warn(`⚠️ Audio readyState still 0 after 25s, triggering retry for: ${pendingTrack.title}`);
-                    const vid = currentVideoIdRef.current;
-                    if (vid) {
-                      const freshUrl = `${apiService.getStreamUrl(vid)}?_retry=timeout&_t=${Date.now()}`;
-                      audio.src = freshUrl;
-                      audio.load();
-                      audio.play().catch(() => {});
-                    } else {
-                      setIsLoading(false);
-                      dispatch(cancelPendingTrack());
-                      dispatch(setIsPlaying(false));
-                    }
-                  }
-                }
-              }, 15000);
-            }
-          }
-        }, 10000);
+        await ready;
+        if (!isCurrentRequest()) return;
+        dispatch(setDuration(pendingTrack.duration || audio.duration));
+        confirmAndPlay('media-ready');
 
         // audio.load() was already called when setting audio.src at the start of this path (line 421).
         // Do NOT call audio.load() again here — it would cancel the in-progress stream request,
@@ -904,7 +865,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         // the in-flight stream, making the audio element wait for the entire download to complete.
 
       } catch (error) {
+        if (!isCurrentRequest() || controller.signal.aborted) return;
         console.error('Failed to load pending audio:', error);
+        if (pendingAudioOwnerRef.current === requestVersion) pendingAudioOwnerRef.current = null;
+        if (ownsAudio && audioRef.current) {
+          pauseInternally(audioRef.current);
+          audioRef.current.removeAttribute('src');
+          audioRef.current.load();
+          currentVideoIdRef.current = null; // A retry of this same video must reload it.
+          if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
+          currentBlobUrlRef.current = null;
+        }
+        dispatch(setLyricsLoading(false));
+        setPlaybackError({ track: pendingTrack, message: error instanceof Error ? error.message : '音訊載入失敗，請再試一次。' });
         setIsLoading(false);
         dispatch(cancelPendingTrack());
         dispatch(setIsPlaying(false));
@@ -915,6 +888,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     // 清理函數
     return () => {
+      attempt.dispose();
+      if (!attempt.confirmed) setIsLoading(false);
+      if (pendingAudioOwnerRef.current === requestVersion) {
+        pendingAudioOwnerRef.current = null;
+        if (!attempt.confirmed && ownsAudio && audioRef.current) {
+          pauseInternally(audioRef.current);
+          audioRef.current.removeAttribute('src');
+          audioRef.current.load();
+          currentVideoIdRef.current = null;
+        }
+      }
       // 如果有未使用的 pending blob URL，釋放它
       if (pendingBlobUrlRef.current) {
         URL.revokeObjectURL(pendingBlobUrlRef.current);
@@ -1115,6 +1099,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       return;
     }
 
+    let effectActive = true;
     let stalledTimeout: ReturnType<typeof setTimeout> | null = null;
     let endFallbackTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastTimeUpdate = Date.now();
@@ -1407,10 +1392,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
 
     const handleError = async (e: Event) => {
+      // The pending request owns first-load errors, including while an old track is displayed.
+      if (pendingAudioOwnerRef.current !== null) return;
       const error = (e.target as HTMLAudioElement).error;
       console.error('Audio error:', error?.code, error?.message);
 
       const videoId = currentVideoIdRef.current;
+      const requestVersion = pendingRequestVersionRef.current;
+      const canRetry = () => effectActive
+        && pendingAudioOwnerRef.current === null
+        && pendingRequestVersionRef.current === requestVersion
+        && currentVideoIdRef.current === videoId;
       if (!videoId || isCached) {
         console.warn(`⚠️ Audio error on ${isCached ? 'cached' : 'unknown'} track, skipping to next`);
         dispatch(setIsPlaying(false));
@@ -1430,10 +1422,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       console.log(`🔄 Retry ${streamRetryCount}/${MAX_STREAM_RETRIES}: waiting ${delay}ms, checking cache first...`);
 
       await new Promise(r => setTimeout(r, delay));
-      if (currentVideoIdRef.current !== videoId) return;
+      if (!canRetry()) return;
 
       // 先檢查背景下載是否已完成
       const status = await apiService.getCacheStatus(videoId).catch(() => ({ cached: false }));
+      if (!canRetry()) return;
       if (status.cached) {
         console.log(`✅ 背景下載已完成，從快取播放: ${videoId}`);
         setIsCached(true);
@@ -1646,6 +1639,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      effectActive = false;
       if (stalledTimeout) clearTimeout(stalledTimeout);
       if (endFallbackTimeout) clearTimeout(endFallbackTimeout);
       clearInterval(checkFakePlayback);
@@ -1833,11 +1827,28 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
   }, [embedded]);
 
+  const playbackErrorNotice = playbackError && !embedded ? (
+    <Alert severity="error" role="alert" action={
+      <Button color="inherit" onClick={() => {
+        const track = playbackError.track;
+        // A failed browser blob must not trap Retry in the same corrupt cache entry.
+        bypassBrowserCacheRef.current = track.videoId;
+        currentVideoIdRef.current = null;
+        setPlaybackError(null);
+        dispatch(setPendingTrack(track));
+        dispatch(setIsPlaying(true));
+      }}>重試播放</Button>
+    }>
+      無法播放「{playbackError.track.title}」。{playbackError.message}
+    </Alert>
+  ) : null;
+
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
   if (!currentTrack && !pendingTrack) {
     if (embedded) return null;
     return (<>
+      {playbackErrorNotice}
       <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
       <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
     </>);
@@ -1849,6 +1860,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   if (!displayTrack) {
     if (embedded) return null;
     return (<>
+      {playbackErrorNotice}
       <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
       <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
     </>);
@@ -1889,6 +1901,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         flexDirection: 'column',
       }}
     >
+      {playbackErrorNotice}
       {embedded ? (
         <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 3, '&:last-child': { pb: 3 } }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center', alignItems: 'center', minWidth: 0, gap: 2 }}>

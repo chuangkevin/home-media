@@ -13,6 +13,12 @@ import {
   Button,
 } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import {
+  homeMediaCardSx,
+  homeMediaTitleSx,
+  homeMediaPlaySx,
+  homeMediaShelfSx,
+} from './homeMediaStyles'
 import apiService from '../../services/api.service'
 import type { RootState } from '../../store'
 import type { Track } from '../../types/track.types'
@@ -120,9 +126,11 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
 
   const renderRow = (title: string, items: PersonalizedItem[], compact = false) => {
     if (!items || items.length === 0) return null
-    const limit = isDesktop ? (expanded[title] ? 20 : compact ? 4 : 6) : 10
+    const collapsedLimit = compact ? 4 : isDesktop ? 6 : 10
+    const canExpand = compact || isDesktop
+    const limit = canExpand && expanded[title] ? 20 : collapsedLimit
     const visibleItems = items.slice(0, limit)
-    const compactRows = isDesktop && compact
+    const compactRows = compact
     return (
       <Box component="section" aria-label={title} sx={{ minWidth: 0 }}>
         <Box
@@ -131,15 +139,18 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: 1,
-            mb: 1.5,
+            mb: 2,
+            flexWrap: 'wrap',
           }}
         >
           <Typography variant="h6" component="h2" sx={{ fontWeight: 700, fontSize: 20 }}>
             {title}
           </Typography>
-          {isDesktop && items.length > (compact ? 4 : 6) && (
+          {canExpand && items.length > collapsedLimit && (
             <Button
               size="small"
+              aria-expanded={Boolean(expanded[title])}
+              aria-label={`${expanded[title] ? '收合' : '顯示更多'}${title}`}
               onClick={() => setExpanded((prev) => ({ ...prev, [title]: !prev[title] }))}
               sx={{ minHeight: 44, whiteSpace: 'nowrap' }}
             >
@@ -149,34 +160,26 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
         </Box>
         <Box
           sx={{
-            display: isDesktop ? 'grid' : 'flex',
-            gridTemplateColumns: compactRows
-              ? 'minmax(0, 1fr)'
-              : isDesktop
-                ? 'repeat(auto-fill, minmax(160px, 1fr))'
-                : undefined,
-            overflowX: isDesktop ? 'visible' : 'auto',
-            minWidth: 0,
-            maxWidth: '100%',
-            gap: 1.5,
-            pb: 1,
-            scrollSnapType: isDesktop ? 'none' : 'x proximity',
-            scrollbarWidth: 'thin',
+            ...homeMediaShelfSx,
+            ...(compactRows && {
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr)',
+                md: 'repeat(2, minmax(0, 1fr))',
+              },
+              overflowX: 'visible',
+              scrollSnapType: 'none',
+            }),
           }}
         >
           {visibleItems.map((item) => (
             <Card
               key={item.videoId}
               sx={{
-                minWidth: isDesktop ? 0 : 168,
-                maxWidth: isDesktop ? 'none' : 168,
-                width: isDesktop ? '100%' : undefined,
+                ...homeMediaCardSx,
+                width: compactRows || isDesktop ? '100%' : { xs: 192, sm: 216 },
                 flexShrink: 0,
-                borderRadius: 2,
-                boxShadow: 'none',
                 scrollSnapAlign: 'start',
-                border: '1px solid',
-                borderColor: 'divider',
               }}
             >
               <CardActionArea
@@ -186,8 +189,9 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
                   height: '100%',
                   display: compactRows ? 'flex' : 'block',
                   textAlign: 'left',
-                  p: compactRows ? 1 : 0,
-                  gap: compactRows ? 1.5 : 0,
+                  p: compactRows ? 1.5 : 0,
+                  gap: compactRows ? { xs: 1, sm: 1.5 } : 0,
+                  '&.Mui-focusVisible': { outlineOffset: -3 },
                 }}
               >
                 <Box sx={{ position: 'relative', flexShrink: 0, width: compactRows ? 64 : '100%' }}>
@@ -198,6 +202,7 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
                     alt=""
                     sx={{
                       objectFit: 'cover',
+                      bgcolor: 'action.selected',
                       width: '100%',
                       aspectRatio: compactRows ? '1' : '16 / 10',
                       borderRadius: compactRows ? 1 : 0,
@@ -205,17 +210,12 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
                   />
                   {!compactRows && (
                     <Box
+                      aria-hidden="true"
                       sx={{
                         position: 'absolute',
                         right: 8,
                         bottom: 8,
-                        display: 'grid',
-                        placeItems: 'center',
-                        width: 44,
-                        height: 44,
-                        borderRadius: '50%',
-                        bgcolor: 'primary.main',
-                        color: 'primary.contrastText',
+                        ...homeMediaPlaySx,
                       }}
                     >
                       <PlayArrowIcon />
@@ -230,19 +230,7 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
                     '&:last-child': { pb: compactRows ? 0 : 1.5 },
                   }}
                 >
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      fontWeight: 600,
-                      fontSize: 14,
-                      lineHeight: 1.5,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                      minHeight: compactRows ? undefined : '3em',
-                    }}
-                  >
+                  <Typography variant="body2" sx={homeMediaTitleSx}>
                     {item.title}
                   </Typography>
                   <Typography
@@ -256,16 +244,7 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
                   </Typography>
                 </CardContent>
                 {compactRows && (
-                  <Box
-                    sx={{
-                      width: 44,
-                      height: 44,
-                      display: 'grid',
-                      placeItems: 'center',
-                      color: 'primary.main',
-                      flexShrink: 0,
-                    }}
-                  >
+                  <Box aria-hidden="true" sx={homeMediaPlaySx}>
                     <PlayArrowIcon />
                   </Box>
                 )}
@@ -283,20 +262,18 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
         <Skeleton animation={false} variant="text" width={120} height={32} sx={{ mb: 1.5 }} />
         <Box
           sx={{
-            display: isDesktop ? 'grid' : 'flex',
-            gridTemplateColumns: isDesktop ? 'repeat(3, minmax(0, 1fr))' : undefined,
-            gap: 1.5,
+            ...homeMediaShelfSx,
             overflow: 'hidden',
           }}
         >
-          {[1, 2, 3].map((i) => (
+          {[1, 2, 3, 4, 5, 6].map((i) => (
             <Skeleton
               key={i}
               animation={false}
               variant="rounded"
-              width={isDesktop ? '100%' : 168}
+              width={isDesktop ? '100%' : undefined}
               height={180}
-              sx={{ borderRadius: 2, flexShrink: 0 }}
+              sx={{ borderRadius: 2, flexShrink: 0, width: { xs: 192, sm: 216, md: '100%' } }}
             />
           ))}
         </Box>
@@ -333,17 +310,8 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
       {data && (
         <>
           {renderRow('最近播放', data.recentlyPlayed)}
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' },
-              gap: 3,
-              minWidth: 0,
-            }}
-          >
-            {renderRow('常聽的歌', data.mostPlayed, true)}
-            {renderRow('我的收藏', data.favorites, true)}
-          </Box>
+          {renderRow('常聽的歌', data.mostPlayed, true)}
+          {renderRow('我的收藏', data.favorites, true)}
         </>
       )}
     </Box>
