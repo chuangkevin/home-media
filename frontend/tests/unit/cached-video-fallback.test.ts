@@ -70,7 +70,7 @@ test('cached-video error handler leaves audio state alone and iframe fallback re
   assert.doesNotMatch(handler, /querySelector|audioEl|dispatch\(|setIsPlaying/)
 
   assert.match(playerEffect, /showCachedVideo/)
-  assert.match(playerEffect, /startTime = Math\.floor\(audioEl\?\.currentTime \|\| currentTime\)/)
-  assert.match(playerEffect, /event\.target\.seekTo\(liveTime, true\)/)
+  assert.match(playerEffect, /startTime = Math\.floor\(audioEl\?\.currentTime \?\? currentTime\)/)
+  assert.match(playerEffect, /follower\.onReady\(event\)/)
   assert.match(source, /\[open, viewMode, showCachedVideo, track\.videoId\]/)
 })

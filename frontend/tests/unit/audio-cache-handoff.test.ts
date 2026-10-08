@@ -286,7 +286,8 @@ test('player uses only the existing two audio nodes and rebinds source-owned eve
     'components/Player/FullscreenLyrics.tsx',
   ]) {
     const consumer = read(name)
-    assert.match(consumer, /getActivePlaybackAudio\(\)/)
+    if (name.endsWith('VideoPlayer.tsx')) assert.match(consumer, /createYouTubeVideoFollower/)
+    else assert.match(consumer, /getActivePlaybackAudio\(\)/)
     assert.doesNotMatch(consumer, /document.querySelector\('audio'\)/)
   }
   const crossfade = read('hooks/useCrossfade.ts')

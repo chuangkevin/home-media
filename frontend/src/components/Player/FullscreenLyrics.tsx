@@ -1,4 +1,5 @@
 import { getActivePlaybackAudio } from '../../services/active-audio';
+import { createYouTubeVideoFollower } from '../../services/youtube-video-follower';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box, Typography, Drawer, CircularProgress, Alert, IconButton, Tooltip, Chip,
@@ -457,6 +458,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 獲取播放狀態
   const { isPlaying: audioIsPlaying } = useSelector((state: RootState) => state.player);
+  const [iframeAutoplayBlocked, setIframeAutoplayBlocked] = useState(false);
+  const iframePlayingRef = useRef(audioIsPlaying);
+  iframePlayingRef.current = audioIsPlaying;
+  const iframeFollowerRef = useRef<ReturnType<typeof createYouTubeVideoFollower> | null>(null);
+  const iframeGenerationRef = useRef(0);
 
   // 影片模式：audio element 持續播放（背景播放 + 鎖屏需要），YouTube iframe 靜音
   // AudioPlayer 的 displayMode effect 負責管理，FullscreenLyrics 不碰 audio element
@@ -489,22 +495,35 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
 
     let isMounted = true;
+    const generation = ++iframeGenerationRef.current;
+    let ownedPlayer: any = null;
+    const isCurrent = () => isMounted && iframeGenerationRef.current === generation
+      && isOpenRef.current && viewModeRef.current === 'video'
+      && activeTrackVideoIdRef.current === track.videoId;
+    const follower = createYouTubeVideoFollower({
+      isCurrent, getPlayer: () => playerRef.current,
+      getPlaying: () => iframePlayingRef.current,
+      onBlockedChange: setIframeAutoplayBlocked,
+    });
+    iframeFollowerRef.current = follower;
+    setIframeAutoplayBlocked(false);
     // setVideoError(null);
     setVideoReady(false);
 
     const initPlayer = () => {
-      if (!isMounted || !videoContainerRef.current) return;
+      if (!isCurrent() || ownedPlayer || !videoContainerRef.current) return;
 
       if (window.YT && window.YT.Player) {
         // 建立 player 前取得 live audio 時間，用 start 參數讓 YouTube 從正確位置開始 buffer
         const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
-        const startTime = Math.floor(audioEl?.currentTime || currentTime);
+        const startTime = Math.floor(audioEl?.currentTime ?? currentTime);
         console.log(`🎬 建立 YouTube player, start=${startTime}s`);
 
-        playerRef.current = new window.YT.Player(videoContainerRef.current, {
+        ownedPlayer = new window.YT.Player(videoContainerRef.current, {
           videoId: track.videoId,
           playerVars: {
-            autoplay: 1,
+            autoplay: 0,
+            mute: 1,
             enablejsapi: 1,
             origin: window.location.origin,
             playsinline: 1,
@@ -512,37 +531,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           },
           events: {
             onReady: (event: any) => {
-              if (!isMounted) return;
+              if (!follower.onReady(event)) return;
               setVideoReady(true);
-              event.target.mute();
-              // 再次精確同步（start 只精確到秒）
-              const liveTime = (getActivePlaybackAudio() as HTMLAudioElement | null)?.currentTime || currentTime;
-              event.target.seekTo(liveTime, true);
-              event.target.playVideo();
-              console.log(`🎬 onReady: seekTo ${liveTime.toFixed(1)}s (start was ${startTime}s)`);
             },
-            onStateChange: (event: any) => {
-              if (!isMounted) return;
-              const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
-              const audioTime = audioEl?.currentTime || 0;
-
-              if (event.data === 1) {
-                // iframe 開始播放 — 立即同步到 audio 位置
-                const videoTime = event.target.getCurrentTime();
-                if (Math.abs(videoTime - audioTime) > 1) {
-                  console.log(`🎬 iframe playing, 同步: video=${videoTime.toFixed(1)}→audio=${audioTime.toFixed(1)}`);
-                  event.target.seekTo(audioTime, true);
-                }
-              } else if (event.data === 2 || event.data === -1) {
-                // iframe 暫停 — 如果 audio 在播放，強制 iframe 跟上
-                if (audioEl && !audioEl.paused) {
-                  event.target.seekTo(audioTime, true);
-                  event.target.playVideo();
-                }
-              }
-            },
+            onStateChange: follower.onStateChange,
+            onAutoplayBlocked: follower.onAutoplayBlocked,
             onError: (event: any) => {
-              if (!isMounted) return;
+              if (!isCurrent() || event.target !== ownedPlayer) return;
+              follower.dispose();
+              setVideoReady(false);
               // YouTube 嵌入錯誤
               const errorCode = event.data;
               // setVideoErrorCode(errorCode);
@@ -563,6 +560,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             },
           },
         });
+        playerRef.current = ownedPlayer;
       }
     };
 
@@ -574,10 +572,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     return () => {
       isMounted = false;
-      if (playerRef.current && playerRef.current.destroy) {
-        playerRef.current.destroy();
-        playerRef.current = null;
-      }
+      follower.dispose();
+      if (iframeFollowerRef.current === follower) iframeFollowerRef.current = null;
+      if (playerRef.current === ownedPlayer) playerRef.current = null;
+      ownedPlayer?.destroy?.();
+      if (window.onYouTubeIframeAPIReady === initPlayer) window.onYouTubeIframeAPIReady = () => {};
       setVideoReady(false);
     };
   }, [open, viewMode, showCachedVideo, track.videoId]);
@@ -592,34 +591,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       return;
     }
 
-    // 首次同步：立即修正
-    if (playerRef.current?.seekTo) {
-      const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
-      const audioTime = audioEl?.currentTime || 0;
-      if (audioTime > 0) {
-        playerRef.current.seekTo(audioTime, true);
-        console.log(`🎬 首次同步: seekTo ${audioTime.toFixed(1)}s`);
-      }
-    }
-
-    let syncAttempts = 0;
-    videoTimeSyncRef.current = setInterval(() => {
-      if (playerRef.current && playerRef.current.getCurrentTime && playerRef.current.seekTo) {
-        const videoTime = playerRef.current.getCurrentTime();
-        const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
-        const audioTime = audioEl?.currentTime || 0;
-        const drift = Math.abs(videoTime - audioTime);
-        syncAttempts++;
-        // 前 10 次無條件同步（iframe 剛載入時 getCurrentTime 可能不準）
-        // 之後偏差超過 1 秒才修正
-        if (drift > 1 || syncAttempts <= 10) {
-          if (drift > 0.5) {
-            playerRef.current.seekTo(audioTime, true);
-            console.log(`🎬 同步 #${syncAttempts}: video=${videoTime.toFixed(1)}→audio=${audioTime.toFixed(1)} (drift=${drift.toFixed(1)}s)`);
-          }
-        }
-      }
-    }, 500);
+    iframeFollowerRef.current?.tick();
+    videoTimeSyncRef.current = setInterval(() => iframeFollowerRef.current?.tick(), 500);
 
     return () => {
       if (videoTimeSyncRef.current) {
@@ -633,15 +606,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   useEffect(() => {
     if (!videoReady || viewMode !== 'video' || !playerRef.current) return;
 
-    try {
-      if (audioIsPlaying) {
-        playerRef.current.playVideo?.();
-      } else {
-        playerRef.current.pauseVideo?.();
-      }
-    } catch (e) {
-      // 忽略播放器尚未準備好的錯誤
-    }
+    iframeFollowerRef.current?.tick();
   }, [audioIsPlaying, videoReady, viewMode]);
 
   // 快取影片模式：高準度同步（音樂場景目標 < 200ms）
@@ -793,9 +758,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     try {
       if (showCachedVideo && cachedVideoRef.current) {
         seekFollowingVideo(cachedVideoRef.current, seekTarget);
-      } else if (videoReady && playerRef.current?.seekTo) {
-        console.log(`🎬 FullscreenLyrics: 影片跳轉到 ${seekTarget.toFixed(1)}s`);
-        playerRef.current.seekTo(seekTarget, true);
+      } else if (videoReady) {
+        // Follow the active audio owner's completed seek through the same
+        // readiness/buffering/paused-state guard as periodic synchronization.
+        iframeFollowerRef.current?.tick();
       }
     } catch (e) {
       console.error('🎬 影片跳轉失敗:', e);
@@ -1462,6 +1428,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 zIndex: 1,
               }}
             />
+            {iframeAutoplayBlocked && (
+              <Box sx={{ position: 'absolute', top: 12, left: 12, right: 12, zIndex: 2, textAlign: 'center', bgcolor: 'rgba(0,0,0,0.8)', p: 1, color: 'white' }}>
+                <Typography role="status" variant="body2">瀏覽器暫停了影片自動播放，音樂仍由音訊播放器控制。</Typography>
+                <Button color="inherit" aria-label="重試影片播放" sx={{ minHeight: 44 }} onClick={() => {
+                  dispatch(setIsPlaying(true));
+                  iframeFollowerRef.current?.retryOnGesture();
+                }}>點擊播放影片</Button>
+              </Box>
+            )}
             {!videoReady && (
               <Box sx={{ position: 'absolute', top: '50%', left: '50%', width: 'calc(100% - 48px)', maxWidth: 400, transform: 'translate(-50%, -50%)', color: 'white', zIndex: 2, textAlign: 'center' }}>
                 <CircularProgress color="inherit" aria-label="YouTube 備援影片載入中" />
