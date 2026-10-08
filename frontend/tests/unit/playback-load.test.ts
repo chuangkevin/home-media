@@ -1,11 +1,79 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  AudioLoadError,
   createPlaybackLoadAttempt,
   fetchOptionalCacheSettings,
   readOptionalCache,
   waitForAudioReady,
 } from "../../src/services/playback-load";
+
+test("timeout diagnostics preserve sanitized media state before source cleanup", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const audio = new FakeAudio();
+  Object.assign(audio, {
+    networkState: 2,
+    paused: true,
+    error: null,
+    currentSrc: "https://example.invalid/audio?credential=do-not-log",
+    buffered: { length: 0 },
+  });
+  audio.readyState = 1;
+  let now = 100;
+  const ready = waitForAudioReady(
+    audio.asElement(),
+    new AbortController().signal,
+    { now: () => now },
+  );
+  const rejected = assert.rejects(ready, (error: unknown) => {
+    assert.ok(error instanceof AudioLoadError);
+    assert.deepEqual(error.diagnostic, {
+      reason: "timeout",
+      elapsedMs: 30000,
+      readyState: 1,
+      networkState: 2,
+      paused: true,
+      mediaErrorCode: null,
+      bufferedRanges: 0,
+      sourceAssigned: true,
+    });
+    assert.equal(
+      JSON.stringify(error.diagnostic).includes("credential"),
+      false,
+    );
+    assert.equal(JSON.stringify(error.diagnostic).includes("https:"), false);
+    return true;
+  });
+  now += 30000;
+  t.mock.timers.tick(30000);
+  audio.readyState = 0;
+  await rejected;
+});
+
+test("media error diagnostics include only numeric code, not browser error message or URL", async () => {
+  const audio = new FakeAudio();
+  Object.assign(audio, {
+    networkState: 3,
+    paused: true,
+    buffered: { length: 1 },
+    error: { code: 3, message: "https://example.invalid/private-token" },
+  });
+  const ready = waitForAudioReady(
+    audio.asElement(),
+    new AbortController().signal,
+    { now: () => 7 },
+  );
+  const rejected = assert.rejects(ready, (error: unknown) => {
+    assert.ok(error instanceof AudioLoadError);
+    assert.equal(error.diagnostic.reason, "media-error");
+    assert.equal(error.diagnostic.mediaErrorCode, 3);
+    assert.equal(error.diagnostic.elapsedMs, 0);
+    assert.equal(JSON.stringify(error).includes("private-token"), false);
+    return true;
+  });
+  audio.dispatchEvent(new Event("error"));
+  await rejected;
+});
 
 class FakeAudio extends EventTarget {
   readyState = 0;

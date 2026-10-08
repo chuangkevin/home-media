@@ -531,21 +531,33 @@ class AudioCacheService {
     videoId: string,
     streamUrl: string,
     metadata?: CachedAudioMetadata,
-    options?: { priority?: 'high' | 'low' }
+    options?: { priority?: 'high' | 'low'; signal?: AbortSignal }
   ): Promise<string> {
+    const abortError = () => new DOMException('Audio download cancelled', 'AbortError');
+    if (options?.signal?.aborted) throw abortError();
     if (this.inFlightDownloads.has(videoId)) {
+      // Borrowed requests do not give this caller ownership of an existing job.
       return this.inFlightDownloads.get(videoId)!;
     }
 
     const controller = new AbortController();
     this.inFlightControllers.set(videoId, controller);
     const priority = options?.priority || 'high';
+    const abortOwnedDownload = () => {
+      controller.abort();
+      if (this.inFlightControllers.get(videoId) === controller) {
+        this.inFlightControllers.delete(videoId);
+        this.inFlightDownloads.delete(videoId);
+      }
+    };
+    options?.signal?.addEventListener('abort', abortOwnedDownload, { once: true });
 
-    const downloadPromise = (async () => {
+    const downloadPromise = Promise.resolve().then(async () => {
       const releaseLowPrioritySlot = priority === 'low'
         ? await this.acquireLowPrioritySlot()
         : null;
       try {
+        if (controller.signal.aborted) throw abortError();
         console.log(`⏬ Downloading audio: ${videoId}`);
         const startTime = Date.now();
 
@@ -556,12 +568,14 @@ class AudioCacheService {
           credentials: 'omit',
           signal: controller.signal,
         });
+        if (controller.signal.aborted) throw abortError();
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         const blob = await response.blob();
+        if (controller.signal.aborted) throw abortError();
         const downloadTime = ((Date.now() - startTime) / 1000).toFixed(2);
         const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
 
@@ -591,10 +605,15 @@ class AudioCacheService {
         if (releaseLowPrioritySlot) {
           releaseLowPrioritySlot();
         }
-        this.inFlightDownloads.delete(videoId);
-        this.inFlightControllers.delete(videoId);
+        options?.signal?.removeEventListener('abort', abortOwnedDownload);
+        // A cancelled A may finish after a new A job has started. Never erase
+        // that newer job's cancellation handle or deduplication entry.
+        if (this.inFlightControllers.get(videoId) === controller) {
+          this.inFlightDownloads.delete(videoId);
+          this.inFlightControllers.delete(videoId);
+        }
       }
-    })();
+    });
 
     this.inFlightDownloads.set(videoId, downloadPromise);
     return downloadPromise;

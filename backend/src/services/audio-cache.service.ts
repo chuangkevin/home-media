@@ -2,22 +2,25 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import http from 'http';
-import { spawn, execFileSync } from 'child_process';
+import { spawn, execFile } from 'child_process';
+import { createAudioCacheWriter } from './audio-cache-writer';
+import { promisify } from 'util';
 import { URL } from 'url';
 import logger from '../utils/logger';
 import youtubeService from './youtube.service';
 
-// ffmpeg 路徑：優先系統安裝的 ffmpeg，fallback 到 ffmpeg-static
-let ffmpegPath: string | null = null;
-try {
-  execFileSync('ffmpeg', ['-version'], { stdio: 'pipe', timeout: 5000 });
-  ffmpegPath = 'ffmpeg';
-} catch {
-  try {
-    ffmpegPath = require('ffmpeg-static');
-  } catch {
-    // ffmpeg 不可用，跳過 remux
+const execFileAsync = promisify(execFile);
+// Resolve lazily and asynchronously; even the first remux leaves HTTP/Socket.IO responsive.
+let ffmpegPath: Promise<string | null> | undefined;
+function getFfmpegPath(): Promise<string | null> {
+  if (!ffmpegPath) {
+    ffmpegPath = execFileAsync('ffmpeg', ['-version'], { timeout: 5000, killSignal: 'SIGKILL' })
+      .then(() => 'ffmpeg')
+      .catch(() => {
+        try { return require('ffmpeg-static') as string | null; } catch { return null; }
+      });
   }
+  return ffmpegPath;
 }
 
 const AUDIO_CACHE_DIR = process.env.AUDIO_CACHE_DIR || path.join(process.cwd(), 'data', 'audio-cache');
@@ -62,37 +65,36 @@ class AudioCacheService {
    * 修正 DASH m4a 容器為標準 m4a（Safari/iOS 相容）
    * yt-dlp 用 -o - 管道輸出時不會執行 FixupM4a，需手動 remux
    */
-  remuxIfNeeded(filePath: string): void {
-    if (!ffmpegPath || !fs.existsSync(filePath)) return;
-
+  async remuxIfNeeded(filePath: string, signal?: AbortSignal): Promise<void> {
+    const handle = await fs.promises.open(filePath, 'r');
+    const buf = Buffer.alloc(12);
     try {
-      // 讀取前 12 bytes 檢查是否為 DASH 容器
-      const fd = fs.openSync(filePath, 'r');
-      const buf = Buffer.alloc(12);
-      fs.readSync(fd, buf, 0, 12, 0);
-      fs.closeSync(fd);
-      const brand = buf.toString('ascii', 8, 12);
-      if (brand !== 'dash') return; // 已經是標準 m4a，不需要 remux
-
-      const tmpOut = `${filePath}.remux.m4a`;
-      logger.info(`🔧 [Remux] Fixing DASH container: ${path.basename(filePath)}`);
-      execFileSync(ffmpegPath, [
-        '-i', filePath,
-        '-c', 'copy',
-        '-movflags', '+faststart',
-        '-f', 'mp4',  // 明確指定輸出格式
-        '-y',
-        tmpOut,
-      ], { timeout: 30000, stdio: 'pipe' });
-
-      // 替換原檔
-      fs.unlinkSync(filePath);
-      fs.renameSync(tmpOut, filePath);
-      logger.info(`✅ [Remux] Fixed: ${path.basename(filePath)}`);
-    } catch (err) {
-      logger.error(`[Remux] Failed for ${path.basename(filePath)}:`, err);
-      // 清理暫存檔
-      try { fs.unlinkSync(`${filePath}.remux.tmp`); } catch {}
+      const { bytesRead } = await handle.read(buf, 0, 12, 0);
+      if (bytesRead < 12) throw new Error('Incomplete audio cache header');
+    } finally {
+      await handle.close();
+    }
+    if (buf.toString('ascii', 8, 12) !== 'dash') return;
+    const executable = await getFfmpegPath();
+    if (!executable) throw new Error('ffmpeg unavailable for DASH audio');
+    const tmpOut = `${filePath}.remux.tmp`;
+    const startedAt = Date.now();
+    logger.info(`[Remux] Started: ${path.basename(filePath)}`);
+    try {
+      await execFileAsync(executable, [
+        '-i', filePath, '-c', 'copy', '-movflags', '+faststart',
+        '-f', 'mp4', '-y', tmpOut,
+      ], { timeout: 30000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024, signal });
+      if (signal?.aborted) throw new Error('Remux cancelled');
+      const stats = await fs.promises.stat(tmpOut);
+      if (stats.size < 12) throw new Error('Empty remux output');
+      await fs.promises.rename(tmpOut, filePath);
+      logger.info(`[Remux] Completed in ${Date.now() - startedAt}ms: ${path.basename(filePath)}`);
+    } catch (error) {
+      logger.warn(`[Remux] Failed after ${Date.now() - startedAt}ms: ${path.basename(filePath)}`);
+      throw error;
+    } finally {
+      await fs.promises.unlink(tmpOut).catch(() => {});
     }
   }
 
@@ -694,134 +696,34 @@ class AudioCacheService {
   /**
    * 執行 yt-dlp 直接下載（內部方法）
    */
-  private doDownloadWithYtDlp(videoId: string): Promise<string | null> {
-    return new Promise((resolve) => {
-      const cachePath = this.getCachePath(videoId);
-      const tempPath = `${cachePath}.tmp`;
-
-      const ytdlpPath = youtubeService.getYtDlpPath();
-      const baseArgs = youtubeService.getYtDlpBaseArgs();
-
-      const args = [
-        ...baseArgs,
-        '-f', 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio',
-        '-o', '-', // 輸出到 stdout
-        `https://www.youtube.com/watch?v=${videoId}`,
-      ];
-
-      console.log(`📥 [AudioCache] yt-dlp download: ${videoId}`);
-      logger.info(`Starting yt-dlp download for ${videoId}`);
-
-      // 初始化下載進度
-      this.downloadProgressMap.set(videoId, {
-        videoId,
-        downloadedBytes: 0,
-        totalBytes: null,
-        percentage: 0,
-        status: 'downloading',
-        startedAt: Date.now(),
-      });
-
-      const proc = spawn(ytdlpPath, args);
-      const writeStream = fs.createWriteStream(tempPath);
-      let downloadedBytes = 0;
-      let stderrOutput = '';
-
-      // Handle backpressure: when writeStream signals drain, resume stdout
-      writeStream.on('drain', () => {
-        if (proc.stdout && !proc.stdout.destroyed) {
-          proc.stdout.resume();
-        }
-      });
-
-      proc.stdout.on('data', (chunk: Buffer) => {
-        downloadedBytes += chunk.length;
-
-        // 寫入快取檔案（處理 backpressure）
-        const canContinue = writeStream.write(chunk);
-        if (!canContinue && proc.stdout) {
-          proc.stdout.pause();
-        }
-
-        // 更新進度
-        this.downloadProgressMap.set(videoId, {
-          ...this.downloadProgressMap.get(videoId)!,
-          downloadedBytes,
-        });
-      });
-
-      proc.stderr.on('data', (chunk: Buffer) => {
-        stderrOutput += chunk.toString();
-      });
-
-      proc.stdout.on('end', () => {
-        writeStream.end();
-      });
-
-      writeStream.on('finish', () => {
-        if (downloadedBytes > 0 && fs.existsSync(tempPath)) {
-          try {
-            fs.renameSync(tempPath, cachePath);
-            // 修正 DASH m4a 容器為標準 m4a（Safari/iOS 相容）
-            this.remuxIfNeeded(cachePath);
-            const stats = fs.statSync(cachePath);
-            console.log(`✅ [AudioCache] yt-dlp downloaded: ${videoId} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-            logger.info(`Audio cached via yt-dlp: ${videoId} (${stats.size} bytes)`);
-
-            this.downloadProgressMap.set(videoId, {
-              ...this.downloadProgressMap.get(videoId)!,
-              downloadedBytes: stats.size,
-              totalBytes: stats.size,
-              percentage: 100,
-              status: 'completed',
-            });
-            setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
-
-            this.cleanupIfNeeded();
-            resolve(cachePath);
-          } catch (err) {
-            console.error(`❌ [AudioCache] Save error: ${videoId}`, err);
-            this.downloadProgressMap.set(videoId, { ...this.downloadProgressMap.get(videoId)!, status: 'failed' });
-            setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
-            resolve(null);
-          }
-        } else {
-          // 沒有數據
-          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
-          resolve(null);
-        }
-      });
-
-      writeStream.on('error', (err) => {
-        console.error(`❌ [AudioCache] Write error: ${videoId}`, err);
-        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
-        this.downloadProgressMap.set(videoId, { ...this.downloadProgressMap.get(videoId)!, status: 'failed' });
-        setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
-        resolve(null);
-      });
-
-      proc.on('close', (code) => {
-        if (code !== 0) {
-          console.error(`❌ [AudioCache] yt-dlp failed (code ${code}): ${videoId} - ${stderrOutput.slice(-300)}`);
-          logger.error(`yt-dlp download failed for ${videoId} (code ${code}): ${stderrOutput.slice(-300)}`);
-          // writeStream finish/error 會處理 resolve
-          writeStream.destroy();
-          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
-          this.downloadProgressMap.set(videoId, { ...this.downloadProgressMap.get(videoId)!, status: 'failed' });
-          setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
-          resolve(null);
-        }
-      });
-
-      proc.on('error', (err) => {
-        console.error(`❌ [AudioCache] yt-dlp spawn error: ${videoId}`, err);
-        writeStream.destroy();
-        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
-        this.downloadProgressMap.set(videoId, { ...this.downloadProgressMap.get(videoId)!, status: 'failed' });
-        setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
-        resolve(null);
-      });
+  private async doDownloadWithYtDlp(videoId: string): Promise<string | null> {
+    const cachePath = this.getCachePath(videoId);
+    const proc = spawn(youtubeService.getYtDlpPath(), [
+      ...youtubeService.getYtDlpBaseArgs(),
+      '-f', 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio',
+      '-o', '-', `https://www.youtube.com/watch?v=${videoId}`,
+    ]);
+    this.downloadProgressMap.set(videoId, {
+      videoId, downloadedBytes: 0, totalBytes: null, percentage: 0,
+      status: 'downloading', startedAt: Date.now(),
     });
+    proc.stderr.resume();
+    const writer = createAudioCacheWriter(proc, cachePath,
+      (file, signal) => this.remuxIfNeeded(file, signal), {
+        onProgress: downloadedBytes => this.downloadProgressMap.set(videoId, {
+          ...this.downloadProgressMap.get(videoId)!, downloadedBytes,
+        }),
+      });
+    const result = await writer.completion;
+    const size = result ? this.getFileSize(videoId) : null;
+    this.downloadProgressMap.set(videoId, {
+      ...this.downloadProgressMap.get(videoId)!,
+      status: result ? 'completed' : 'failed',
+      ...(size !== null ? { downloadedBytes: size, totalBytes: size, percentage: 100 } : {}),
+    });
+    setTimeout(() => this.downloadProgressMap.delete(videoId), 30000);
+    if (result) this.cleanupIfNeeded();
+    return result;
   }
 
   /**

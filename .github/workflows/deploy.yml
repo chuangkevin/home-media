@@ -14,21 +14,16 @@ env:
 
 jobs:
   deploy:
+    # A successful shell step does not skip the remaining steps. Gate the entire job.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'workflow_run' &&
+           github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'main' &&
+           github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check workflow conclusion
-        if: ${{ github.event_name == 'workflow_run' }}
-        run: |
-          echo "workflow_run conclusion: ${{ github.event.workflow_run.conclusion }}"
-          if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
-            echo "Upstream build did not succeed, skip deploy."
-            echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- **Status**: skipped (upstream workflow conclusion: ${{ github.event.workflow_run.conclusion }})" >> $GITHUB_STEP_SUMMARY
-            exit 0
-          fi
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -154,6 +149,24 @@ jobs:
             'docker exec -i home-media-backend node -' \
             < scripts/post-deploy-diagnostic.cjs 2>/dev/null; then
             echo '{"stage":"diagnostic","category":"transport_or_probe_failed_no_retry"}'
+          fi
+
+      - name: Tailnet HTTPS hostname diagnostics (not an audibility test)
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          # Existing Tailscale connection is already established in this deploy job.
+          if ! timeout --signal=TERM 35s node scripts/diagnose-ingress.cjs tailnet; then
+            echo '{"vantage":"github_runner_tailnet_hostname","stage":"diagnostic","category":"probe_failed_no_retry"}'
+          fi
+
+      - name: Tailnet WebSocket upgrade diagnostic (not a session or audio test)
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          # One strict-TLS handshake through the already established Tailnet.
+          if ! timeout --signal=TERM 25s node scripts/probe-websocket-upgrade.cjs; then
+            echo '{"vantage":"github_runner_tailnet_hostname","stage":"websocket_upgrade","category":"probe_failed_no_retry"}'
           fi
 
       - name: Deployment Summary

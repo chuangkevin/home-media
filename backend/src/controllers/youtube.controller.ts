@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import fs from 'fs';
 import { spawn } from 'child_process';
 import { pipeline } from 'stream';
+import { createAudioCacheWriter } from '../services/audio-cache-writer';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
 import downloadManager from '../services/download-manager.service';
@@ -11,8 +11,8 @@ import logger from '../utils/logger';
 export class YouTubeController {
   /**
    * Track in-flight yt-dlp stream processes per videoId to avoid duplicate spawns.
-   * If a stream request arrives for a videoId that already has an active yt-dlp process,
-   * respond with 429 to let the client retry later.
+   * Requests for the same video wait for the current producer/cache owner;
+   * a failed owner is replaced by at most one new producer at a time.
    */
   private inFlightStreams: Map<string, Promise<void>> = new Map();
 
@@ -157,10 +157,11 @@ export class YouTubeController {
       }
 
       // Check for in-flight yt-dlp process for this videoId
-      if (this.inFlightStreams.has(videoId)) {
+      while (this.inFlightStreams.has(videoId)) {
         console.log(`⏳ [Stream] In-flight yt-dlp already running for ${videoId}, waiting for completion`);
         try {
           await this.inFlightStreams.get(videoId);
+          if (res.destroyed) return;
           // After waiting, check if cache now exists
           if (audioCacheService.has(videoId)) {
             console.log(`🎵 [Stream] In-flight completed, serving from cache: ${videoId}`);
@@ -188,30 +189,20 @@ export class YouTubeController {
       });
       this.inFlightStreams.set(videoId, inFlightPromise);
 
-      // Clean up in-flight tracking — delayed until cache write completes
-      let cacheWriteComplete = false;
+      // Only this owner can clear its slot. Hold it through remux/publication;
+      // releasing on HTTP close lets later requests race the unfinished writer.
       const cleanupInFlight = () => {
-        this.inFlightStreams.delete(videoId);
+        if (this.inFlightStreams.get(videoId) === inFlightPromise) {
+          this.inFlightStreams.delete(videoId);
+        }
         resolveInFlight();
       };
-      res.on('finish', () => {
-        if (cacheWriteComplete || !this.inFlightStreams.has(videoId)) {
-          cleanupInFlight();
-        }
-      });
-      res.on('close', () => {
-        // Give cache write 5 seconds to complete before force cleanup
-        setTimeout(() => {
-          if (!cacheWriteComplete) {
-            cleanupInFlight();
-          }
-        }, 5000);
-      });
-
-      this.streamWithYtDlp(req, res, videoId, () => {
-        cacheWriteComplete = true;
+      try {
+        this.streamWithYtDlp(req, res, videoId, cleanupInFlight);
+      } catch (error) {
         cleanupInFlight();
-      });
+        throw error;
+      }
 
     } catch (error) {
       logger.error('Stream controller error:', error);
@@ -238,53 +229,31 @@ export class YouTubeController {
     ];
 
     console.log(`🚀 [Stream] Spawning yt-dlp for: ${videoId}`);
-    const ytdlp = spawn(ytdlpPath, args);
-
-    let headersSent = false;
+    const ytdlp = spawn(ytdlpPath, args, { timeout: 300000, killSignal: 'SIGKILL' });
     let hasData = false;
     let stderrOutput = '';
-
-    // 準備快取寫入
-    const cachePath = audioCacheService.getCachePath(videoId);
-    const tempPath = `${cachePath}.tmp`;
-    let cacheStream: fs.WriteStream | null = null;
-
-    // 不是 Range request 時才寫入快取（避免與已存在的快取檔案衝突）
-    if (!req.headers.range) {
-      if (fs.existsSync(cachePath) || fs.existsSync(tempPath)) {
-        // Cache already exists or is being written, don't write again
-        console.log(`⚠️ [Stream] Cache file already exists for ${videoId}, skipping cache write`);
-        cacheStream = null;
-      } else {
-        cacheStream = fs.createWriteStream(tempPath);
-        cacheStream.on('error', (err) => {
-          logger.error(`Cache write error for ${videoId}:`, err);
-          cacheStream = null;
-        });
-      }
+    // Live playback starts before cache finalization/remux.
+    const cacheWriter = !req.headers.range && !audioCacheService.has(videoId)
+      ? createAudioCacheWriter(ytdlp, audioCacheService.getCachePath(videoId),
+        (file, signal) => audioCacheService.remuxIfNeeded(file, signal),
+        { keepStreamingOnError: true })
+      : null;
+    let producerDone = false;
+    let cacheDone = !cacheWriter;
+    const finishOwnership = () => {
+      if (producerDone && cacheDone) onCacheWriteComplete?.();
+    };
+    if (cacheWriter) {
+      void cacheWriter.completion.then(() => { cacheDone = true; finishOwnership(); });
     }
-
-    // 收集 stderr（yt-dlp 的進度/錯誤資訊）
+    ytdlp.once('close', () => { producerDone = true; finishOwnership(); });
     ytdlp.stderr.on('data', (chunk: Buffer) => {
-      stderrOutput += chunk.toString();
+      stderrOutput = (stderrOutput + chunk.toString()).slice(-500);
     });
-
-    // Handle backpressure: when cacheStream signals drain, resume stdout
-    if (cacheStream) {
-      cacheStream.on('drain', () => {
-        if (ytdlp.stdout && !ytdlp.stdout.destroyed) {
-          ytdlp.stdout.resume();
-        }
-      });
-    }
-
-    // 當有 stdout 數據時
     ytdlp.stdout.on('data', (chunk: Buffer) => {
       hasData = true;
-
-      // 第一次收到數據時發送 headers
-      if (!headersSent) {
-        headersSent = true;
+      if (res.destroyed || res.writableEnded) return;
+      if (!res.headersSent) {
         res.status(200);
         res.setHeader('Content-Type', 'audio/mp4');
         res.setHeader('Transfer-Encoding', 'chunked');
@@ -293,125 +262,31 @@ export class YouTubeController {
         res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
         res.setHeader('Cache-Control', 'no-cache');
       }
-
-      // 寫入 HTTP response
-      if (!res.writableEnded) {
-        res.write(chunk);
-      }
-
-      // 同時寫入快取檔案（處理 backpressure）
-      if (cacheStream && !cacheStream.destroyed) {
-        const canContinue = cacheStream.write(chunk);
-        if (!canContinue && ytdlp.stdout) {
-          ytdlp.stdout.pause();
-        }
-      }
+      res.write(chunk);
     });
-
-    // stdout 結束
     ytdlp.stdout.on('end', () => {
-      // 只有收到資料才結束 response；沒資料時讓 close 事件處理錯誤
-      if (hasData && !res.writableEnded) {
-        res.end();
-      }
-
-      // 完成快取寫入
-      if (cacheStream && !cacheStream.destroyed) {
-        cacheStream.end(() => {
-          if (hasData && fs.existsSync(tempPath)) {
-            try {
-              const stats = fs.statSync(tempPath);
-              if (stats.size > 0) {
-                fs.renameSync(tempPath, cachePath);
-                console.log(`💾 [Stream] Cached: ${videoId} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-                // 非同步修正 DASH m4a 容器（不阻塞回應）
-                setImmediate(() => audioCacheService.remuxIfNeeded(cachePath));
-              } else {
-                fs.unlinkSync(tempPath);
-              }
-            } catch (err) {
-              logger.error(`Cache rename error for ${videoId}:`, err);
-              try { fs.unlinkSync(tempPath); } catch {}
-            }
-          }
-          // Signal that cache write is complete so in-flight dedup can clean up
-          if (onCacheWriteComplete) {
-            onCacheWriteComplete();
-          }
-        });
-      } else {
-        // No cache write in progress, signal completion immediately
-        if (onCacheWriteComplete) {
-          onCacheWriteComplete();
-        }
-      }
+      if (hasData && !res.writableEnded && !res.destroyed) res.end();
     });
-
-    // yt-dlp 進程結束
-    ytdlp.on('close', (code) => {
-      if (code !== 0) {
-        console.error(`❌ [Stream] yt-dlp failed (code ${code}) for ${videoId}: ${stderrOutput.slice(-500)}`);
-        logger.error(`yt-dlp stream failed for ${videoId} (code ${code}): ${stderrOutput.slice(-500)}`);
-
-        // 如果還沒發送任何數據，返回錯誤
-        if (!headersSent && !res.headersSent) {
-          res.status(500).json({
-            error: 'Failed to stream audio',
-            details: stderrOutput.slice(-200),
-          });
-        } else if (!res.writableEnded) {
-          res.end();
-        }
-
-        // 清理快取臨時檔案
-        if (cacheStream) {
-          cacheStream.destroy();
-          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
-        }
-      } else if (!hasData) {
-        // yt-dlp 正常結束但沒有產出資料
-        console.error(`❌ [Stream] yt-dlp produced no output for ${videoId}: ${stderrOutput.slice(-300)}`);
-        if (!res.headersSent) {
-          res.status(500).json({
-            error: 'No audio data received',
-            details: stderrOutput.slice(-200),
-          });
-        } else if (!res.writableEnded) {
-          res.end();
-        }
-        // 清理空的快取臨時檔案
-        if (cacheStream) {
-          cacheStream.destroy();
-          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
-        }
-      }
-    });
-
-    // yt-dlp spawn 錯誤
-    ytdlp.on('error', (err) => {
-      console.error(`❌ [Stream] yt-dlp spawn error for ${videoId}:`, err);
-      logger.error(`yt-dlp spawn error for ${videoId}:`, err);
-
+    const streamError = () => {
+      if (res.destroyed || res.writableEnded) return;
       if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to start audio stream' });
-      }
-
-      if (cacheStream) {
-        cacheStream.destroy();
-        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+        res.status(500).json({ error: 'Failed to stream audio' });
+      } else res.end();
+    };
+    ytdlp.stdout.on('error', streamError);
+    ytdlp.on('error', streamError);
+    ytdlp.on('close', code => {
+      if (code !== 0 || !hasData) {
+        logger.error(`yt-dlp stream failed for ${videoId} (code ${code}): ${stderrOutput}`);
+        streamError();
       }
     });
-
-    // 客戶端斷開時，殺掉 yt-dlp 進程
-    // 但如果快取正在寫入，繼續寫完
-    req.on('close', () => {
-      if (!ytdlp.killed) {
-        // 如果已經有數據且正在寫入快取，不殺進程（讓它完成快取）
-        // 否則殺掉以節省資源
-        if (!cacheStream || !hasData) {
-          ytdlp.kill('SIGTERM');
-        }
-        // 如果有 cacheStream，讓 yt-dlp 繼續執行以完成快取
+    res.on('close', () => {
+      // A completed HTTP response may still be remuxing. Do not cancel it.
+      if (res.writableEnded) return;
+      if (!cacheWriter || !hasData) {
+        if (cacheWriter) cacheWriter.cancel();
+        else ytdlp.kill('SIGKILL');
       }
     });
   }

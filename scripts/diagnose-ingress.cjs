@@ -7,13 +7,14 @@ const mode = process.argv[2];
 const choices = {
   public: {base: 'https://radio.sisihome.org', vantage: 'github_runner_public_before_tailnet'},
   nginx: {base: 'http://frontend:80', vantage: 'backend_container_to_nginx'},
+  tailnet: {base: 'https://radio.sisihome.org', vantage: 'github_runner_tailnet_hostname'},
 };
 if (!Object.hasOwn(choices, mode)) {
   console.log(JSON.stringify({stage: 'diagnostic', category: 'unsupported_probe_mode'}));
   process.exit(1);
 }
 const {base: BASE, vantage} = choices[mode];
-const client = mode === 'public' ? https : http;
+const client = mode === 'nginx' ? http : https;
 const tlsFailures = new Set(['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT',
   'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
   'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'ERR_TLS_CERT_ALTNAME_INVALID']);

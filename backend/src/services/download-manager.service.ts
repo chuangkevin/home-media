@@ -1,8 +1,8 @@
-import { ChildProcess, spawn } from 'child_process';
+import { spawn } from 'child_process';
+import { createAudioCacheWriter } from './audio-cache-writer';
 import * as fs from 'fs';
 import youtubeService from './youtube.service';
 import audioCacheService from './audio-cache.service';
-import logger from '../utils/logger';
 
 /**
  * 雙佇列下載管理器
@@ -12,9 +12,8 @@ import logger from '../utils/logger';
 
 interface Job {
   videoId: string;
-  proc: ChildProcess;
-  resolve: (path: string | null) => void;
-  reject: (err: Error) => void;
+  completion: Promise<string | null>;
+  cancel: () => void;
 }
 
 const MAX_LOW_PRIORITY = 3;
@@ -23,8 +22,6 @@ class DownloadManager {
   private highPriority: Job | null = null;
   private lowPriority: Job[] = [];
   private lowQueue: string[] = [];
-  // Callbacks registered by waiters (e.g. stream route) for in-progress downloads
-  private completionCallbacks: Map<string, Array<(path: string | null) => void>> = new Map();
 
   /**
    * 高優先級：立即下載，abort 所有其他任務
@@ -38,12 +35,7 @@ class DownloadManager {
 
     // 同一首歌已在高優先級下載？等它完成
     if (this.highPriority?.videoId === videoId) {
-      return new Promise((resolve, reject) => {
-        const oldResolve = this.highPriority!.resolve;
-        const oldReject = this.highPriority!.reject;
-        this.highPriority!.resolve = (path) => { oldResolve(path); resolve(path); };
-        this.highPriority!.reject = (err) => { oldReject(err); reject(err); };
-      });
+      return this.highPriority.completion;
     }
 
     // 殺掉舊的高優先級（不同歌）
@@ -71,18 +63,15 @@ class DownloadManager {
 
     // 啟動高優先級下載
     console.log(`🔴 [DM] HIGH PRIORITY: ${videoId}`);
-    return new Promise((resolve, reject) => {
-      const job = this.spawnJob(videoId, resolve, reject);
-      this.highPriority = job;
-
-      job.proc.on('close', () => {
-        if (this.highPriority === job) {
-          this.highPriority = null;
-          // 高優先級完成後恢復低優先級佇列
-          this.processLowQueue();
-        }
-      });
+    const job = this.spawnJob(videoId);
+    this.highPriority = job;
+    void job.completion.then(() => {
+      if (this.highPriority === job) {
+        this.highPriority = null;
+        this.processLowQueue();
+      }
     });
+    return job.completion;
   }
 
   /**
@@ -123,25 +112,9 @@ class DownloadManager {
    * Callers should impose their own timeout (e.g. Promise.race with a setTimeout).
    */
   awaitDownload(videoId: string): Promise<string | null> | null {
-    const isActive =
-      this.highPriority?.videoId === videoId ||
-      this.lowPriority.some(j => j.videoId === videoId);
-    if (!isActive) return null;
-
-    return new Promise<string | null>(resolve => {
-      if (!this.completionCallbacks.has(videoId)) {
-        this.completionCallbacks.set(videoId, []);
-      }
-      this.completionCallbacks.get(videoId)!.push(resolve);
-    });
-  }
-
-  private triggerCompletionCallbacks(videoId: string, path: string | null): void {
-    const callbacks = this.completionCallbacks.get(videoId);
-    if (callbacks && callbacks.length > 0) {
-      this.completionCallbacks.delete(videoId);
-      for (const cb of callbacks) cb(path);
-    }
+    const job = this.highPriority?.videoId === videoId
+      ? this.highPriority : this.lowPriority.find(job => job.videoId === videoId);
+    return job?.completion ?? null;
   }
 
   /**
@@ -163,10 +136,10 @@ class DownloadManager {
       if (audioCacheService.has(videoId)) continue;
 
       console.log(`🔵 [DM] LOW PRIORITY (${this.lowPriority.length + 1}/${MAX_LOW_PRIORITY}): ${videoId}`);
-      const job = this.spawnJob(videoId, () => {}, () => {});
+      const job = this.spawnJob(videoId);
       this.lowPriority.push(job);
 
-      job.proc.on('close', () => {
+      void job.completion.then(() => {
         const idx = this.lowPriority.indexOf(job);
         if (idx !== -1) {
           this.lowPriority.splice(idx, 1);
@@ -176,104 +149,20 @@ class DownloadManager {
     }
   }
 
-  private spawnJob(videoId: string, resolve: (path: string | null) => void, reject: (err: Error) => void): Job {
-    const ytdlpPath = youtubeService.getYtDlpPath();
-    const baseArgs = youtubeService.getYtDlpBaseArgs();
-    const cachePath = audioCacheService.getCachePath(videoId);
-    const tempPath = `${cachePath}.tmp`;
-
-    const args = [
-      ...baseArgs,
+  private spawnJob(videoId: string): Job {
+    const proc = spawn(youtubeService.getYtDlpPath(), [
+      ...youtubeService.getYtDlpBaseArgs(),
       '-f', 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio',
-      '-o', '-',
-      `https://www.youtube.com/watch?v=${videoId}`,
-    ];
-
-    const proc = spawn(ytdlpPath, args, { timeout: 300000 });
-    const writeStream = fs.createWriteStream(tempPath);
-    let downloadedBytes = 0;
-    let aborted = false;
-
-    // Wrap resolve so completion callbacks are always fired exactly once,
-    // regardless of whether resolution comes from success, error, or killJob.
-    let settled = false;
-    const callResolve = (path: string | null) => {
-      if (settled) return;
-      settled = true;
-      resolve(path);
-      this.triggerCompletionCallbacks(videoId, path);
-    };
-
-    proc.stdout.on('data', (chunk: Buffer) => {
-      if (aborted) return;
-      downloadedBytes += chunk.length;
-      const ok = writeStream.write(chunk);
-      if (!ok) {
-        proc.stdout.pause();
-      }
-    });
-
-    writeStream.on('drain', () => {
-      if (!aborted) proc.stdout.resume();
-    });
-
-    proc.stdout.on('end', () => {
-      if (aborted) return;
-      writeStream.end(() => {
-        if (downloadedBytes > 0 && fs.existsSync(tempPath)) {
-          try {
-            const stats = fs.statSync(tempPath);
-            if (stats.size > 0) {
-              fs.renameSync(tempPath, cachePath);
-              audioCacheService.remuxIfNeeded(cachePath);
-              console.log(`✅ [DM] Downloaded: ${videoId} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-              callResolve(cachePath);
-              return;
-            }
-          } catch (err) {
-            logger.error(`[DM] Save error: ${videoId}`, err);
-          }
-        }
-        try { fs.unlinkSync(tempPath); } catch {}
-        callResolve(null);
-      });
-    });
-
-    proc.on('error', (err) => {
-      if (aborted) return;
-      console.error(`❌ [DM] Process error: ${videoId}`, err);
-      try { fs.unlinkSync(tempPath); } catch {}
-      callResolve(null);
-    });
-
-    proc.stderr.on('data', (data: Buffer) => {
-      const msg = data.toString().trim();
-      if (msg && !msg.startsWith('WARNING')) {
-        // Only log non-warning stderr
-      }
-    });
-
-    const job: Job = {
-      videoId,
-      proc,
-      resolve: callResolve, // stored so killJob can fire it (and thus callbacks)
-      reject,
-    };
-
-    return job;
+      '-o', '-', `https://www.youtube.com/watch?v=${videoId}`,
+    ]);
+    proc.stderr.resume();
+    const writer = createAudioCacheWriter(proc, audioCacheService.getCachePath(videoId),
+      (file, signal) => audioCacheService.remuxIfNeeded(file, signal));
+    return { videoId, ...writer };
   }
 
   private killJob(job: Job): void {
-    try {
-      job.proc.kill('SIGTERM');
-      setTimeout(() => {
-        try { job.proc.kill('SIGKILL'); } catch {}
-      }, 2000);
-    } catch {}
-    job.resolve(null); // Resolve with null, don't reject (cleaner)
-    // Clean up temp file
-    const tempPath = audioCacheService.getCachePath(job.videoId) + '.tmp';
-    try { fs.unlinkSync(tempPath); } catch {}
+    job.cancel();
   }
 
   /**

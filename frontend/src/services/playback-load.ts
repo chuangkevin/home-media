@@ -72,12 +72,59 @@ export async function fetchOptionalCacheSettings(
   }
 }
 
+export interface AudioLoadDiagnostic {
+  reason: "media-error" | "timeout";
+  elapsedMs: number;
+  readyState: number;
+  networkState: number | null;
+  paused: boolean | null;
+  mediaErrorCode: number | null;
+  bufferedRanges: number;
+  sourceAssigned: boolean;
+}
+
+export class AudioLoadError extends Error {
+  constructor(
+    message: string,
+    readonly diagnostic: AudioLoadDiagnostic,
+  ) {
+    super(message);
+    this.name = "AudioLoadError";
+  }
+}
+
 /** Attach before assigning src/load(). Each attempt owns and removes its listeners. */
 export function waitForAudioReady(
   audio: HTMLAudioElement,
   signal: AbortSignal,
-  options: { timeoutMs?: number; reuseExistingSource?: boolean } = {},
+  options: {
+    timeoutMs?: number;
+    reuseExistingSource?: boolean;
+    now?: () => number;
+  } = {},
 ): Promise<void> {
+  const now = options.now ?? Date.now;
+  const startedAt = now();
+  const loadError = (reason: AudioLoadDiagnostic["reason"]) =>
+    new AudioLoadError(
+      reason === "timeout"
+        ? "音訊載入逾時，請再試一次。"
+        : "音訊載入失敗，請檢查連線後重試。",
+      {
+        reason,
+        elapsedMs: Math.max(0, now() - startedAt),
+        readyState: audio.readyState,
+        networkState: Number.isFinite(audio.networkState)
+          ? audio.networkState
+          : null,
+        paused: typeof audio.paused === "boolean" ? audio.paused : null,
+        mediaErrorCode: audio.error?.code ?? null,
+        bufferedRanges: audio.buffered?.length ?? 0,
+        sourceAssigned: Boolean(
+          audio.currentSrc || audio.getAttribute?.("src"),
+        ),
+      },
+    );
   return new Promise((resolve, reject) => {
     let settled = false;
     const readyEvents = ["canplay", "canplaythrough", "loadeddata"];
@@ -97,7 +144,7 @@ export function waitForAudioReady(
     const onReady = () => {
       if (audio.readyState >= 2) finish();
     };
-    const onError = () => finish(new Error("音訊載入失敗，請檢查連線後重試。"));
+    const onError = () => finish(loadError("media-error"));
     const onAbort = () => {
       const error = new Error("Playback request cancelled");
       error.name = "AbortError";
@@ -105,7 +152,7 @@ export function waitForAudioReady(
     };
     const timer = setTimeout(() => {
       if (audio.readyState >= 2) finish();
-      else finish(new Error("音訊載入逾時，請再試一次。"));
+      else finish(loadError("timeout"));
     }, options.timeoutMs ?? 30000);
     readyEvents.forEach((event) => audio.addEventListener(event, onReady));
     audio.addEventListener("error", onError);

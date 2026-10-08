@@ -11,7 +11,7 @@ import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, p
 import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
-import { createPlaybackLoadAttempt, readOptionalCache, waitForAudioReady } from '../../services/playback-load';
+import { AudioLoadError, createPlaybackLoadAttempt, readOptionalCache, waitForAudioReady } from '../../services/playback-load';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { useAutoQueue } from '../../hooks/useAutoQueue';
 import { usePlaybackPersistence } from '../../hooks/usePlaybackPersistence';
@@ -42,11 +42,16 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const [playbackError, setPlaybackError] = useState<{ track: Track; message: string } | null>(null);
   const pendingRequestVersionRef = useRef(0);
   const pendingAudioOwnerRef = useRef<number | null>(null);
+  const backgroundDownloadRef = useRef<AbortController | null>(null);
   const bypassBrowserCacheRef = useRef<string | null>(null);
   const [favoritePending, setFavoritePending] = useState(false);
   const favoriteRequestRef = useRef(false);
   const [favoriteNotice, setFavoriteNotice] = useState<{ message: string; error: boolean } | null>(null);
-  useEffect(() => () => { pendingRequestVersionRef.current += 1; }, []);
+  useEffect(() => () => {
+    pendingRequestVersionRef.current += 1;
+    backgroundDownloadRef.current?.abort();
+    backgroundDownloadRef.current = null;
+  }, []);
   // autoplayBlocked removed — radio 模式永遠自動重試播放，不需要手動按鈕
   const currentVideoIdRef = useRef<string | null>(null);
   const activeLyricsVideoIdRef = useRef<string | null>(null);
@@ -455,6 +460,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const requestVersion = ++pendingRequestVersionRef.current;
     const attempt = createPlaybackLoadAttempt(() => pendingRequestVersionRef.current === requestVersion);
     const { controller, isCurrent: isCurrentRequest } = attempt;
+    backgroundDownloadRef.current?.abort();
+    const backgroundController = new AbortController();
+    backgroundDownloadRef.current = backgroundController;
+    let backgroundTimer: ReturnType<typeof setTimeout> | null = null;
+    backgroundController.signal.addEventListener('abort', () => {
+      if (backgroundTimer !== null) clearTimeout(backgroundTimer);
+      backgroundTimer = null;
+    }, { once: true });
+    const cancelBackgroundDownload = () => {
+      // Abort only this generation's job, never a newer same-video request.
+      backgroundController.abort();
+      if (backgroundDownloadRef.current === backgroundController) backgroundDownloadRef.current = null;
+    };
     let ownsAudio = false;
     const commitTrack = () => {
       attempt.confirm();
@@ -656,38 +674,45 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         // 2 秒延遲確保音訊元素的串流請求先到達，不與背景下載競爭
         const bgVideoId = videoId;
         const bgStreamUrl = apiService.getStreamUrl(videoId);
-        setTimeout(() => { (async () => {
-          if (!isCurrentRequest()) return;
+        backgroundTimer = setTimeout(() => { (async () => {
+          backgroundTimer = null;
+          if (!isCurrentRequest() || backgroundController.signal.aborted) return;
           // 直接下載到前端 IndexedDB（不等 backend cache，邊播邊下）
           console.log(`⏬ 背景下載到 IndexedDB: ${pendingTrack.title}`);
           try {
             await audioCacheService.fetchAndCache(bgVideoId, bgStreamUrl, {
               title: pendingTrack.title, channel: pendingTrack.channel,
               thumbnail: pendingTrack.thumbnail, duration: pendingTrack.duration,
-            });
+            }, { signal: backgroundController.signal });
+            if (!isCurrentRequest() || backgroundController.signal.aborted) return;
             console.log(`✅ 背景下載完成: ${pendingTrack.title}`);
           } catch (err) {
+            if (!isCurrentRequest() || backgroundController.signal.aborted) return;
             console.warn(`⚠️ 背景下載失敗，嘗試等 backend cache:`, err);
             // Fallback：等 backend cache 完成再下載
             for (let i = 0; i < 20; i++) {
               await new Promise(r => setTimeout(r, 3000));
-              if (!isCurrentRequest() || currentVideoIdRef.current !== bgVideoId) return;
+              if (!isCurrentRequest() || backgroundController.signal.aborted || currentVideoIdRef.current !== bgVideoId) return;
               const s = await apiService.getCacheStatus(bgVideoId).catch(() => ({ cached: false }));
+              if (!isCurrentRequest() || backgroundController.signal.aborted) return;
               if (s.cached) {
                 try {
                   await audioCacheService.fetchAndCache(bgVideoId, bgStreamUrl, {
                     title: pendingTrack.title, channel: pendingTrack.channel,
                     thumbnail: pendingTrack.thumbnail, duration: pendingTrack.duration,
-                  });
+                  }, { signal: backgroundController.signal });
                   break;
-                } catch { continue; }
+                } catch {
+                  if (backgroundController.signal.aborted) return;
+                  continue;
+                }
               }
             }
           }
 
-          if (!isCurrentRequest() || currentVideoIdRef.current !== bgVideoId) return;
+          if (!isCurrentRequest() || backgroundController.signal.aborted || currentVideoIdRef.current !== bgVideoId) return;
           const blob = await audioCacheService.get(bgVideoId);
-          if (!blob || !isCurrentRequest() || currentVideoIdRef.current !== bgVideoId) return;
+          if (!blob || !isCurrentRequest() || backgroundController.signal.aborted || currentVideoIdRef.current !== bgVideoId) return;
 
           const audio = audioRef.current;
           if (!audio) return;
@@ -706,7 +731,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           audio.removeEventListener('ended', preventEnded, { capture: true });
           audio.removeEventListener('error', preventEnded, { capture: true });
 
-          if (!isCurrentRequest() || currentVideoIdRef.current !== bgVideoId) { URL.revokeObjectURL(blobUrl); return; }
+          if (!isCurrentRequest() || backgroundController.signal.aborted || currentVideoIdRef.current !== bgVideoId) { URL.revokeObjectURL(blobUrl); return; }
           if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
           currentBlobUrlRef.current = blobUrl;
           try { audio.currentTime = curTime; } catch {}
@@ -715,8 +740,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           setCacheToast(true);
         })(); }, 2000);
 
-        // 音訊準備好了，現在確認切換
-        console.log(`✅ Pending track ready: ${pendingTrack.title}`);
+        // Source assignment is not media readiness. Success is logged only after await ready.
+        console.log(`⏳ 等待音訊資料: ${pendingTrack.title}`);
 
         const audio = audioRef.current!;
 
@@ -867,6 +892,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       } catch (error) {
         if (!isCurrentRequest() || controller.signal.aborted) return;
         console.error('Failed to load pending audio:', error);
+        if (error instanceof AudioLoadError) {
+          console.error('[Playback load diagnostic]', { requestVersion, ...error.diagnostic });
+        }
+        cancelBackgroundDownload();
         if (pendingAudioOwnerRef.current === requestVersion) pendingAudioOwnerRef.current = null;
         if (ownsAudio && audioRef.current) {
           pauseInternally(audioRef.current);
@@ -889,7 +918,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // 清理函數
     return () => {
       attempt.dispose();
-      if (!attempt.confirmed) setIsLoading(false);
+      if (!attempt.confirmed) {
+        cancelBackgroundDownload();
+        setIsLoading(false);
+      }
       if (pendingAudioOwnerRef.current === requestVersion) {
         pendingAudioOwnerRef.current = null;
         if (!attempt.confirmed && ownsAudio && audioRef.current) {
