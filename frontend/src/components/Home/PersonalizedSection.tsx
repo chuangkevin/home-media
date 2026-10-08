@@ -124,13 +124,13 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
     onPlay(track)
   }
 
-  const renderRow = (title: string, items: PersonalizedItem[], compact = false) => {
+  const renderRow = (title: string, items: PersonalizedItem[], expandableCollection = false) => {
     if (!items || items.length === 0) return null
-    const collapsedLimit = compact ? 4 : isDesktop ? 6 : 10
-    const canExpand = compact || isDesktop
+    // Collection previews keep their shorter limit, but share the same card layout as every shelf.
+    const collapsedLimit = expandableCollection ? 4 : isDesktop ? 6 : 10
+    const canExpand = expandableCollection || isDesktop
     const limit = canExpand && expanded[title] ? 20 : collapsedLimit
     const visibleItems = items.slice(0, limit)
-    const compactRows = compact
     return (
       <Box component="section" aria-label={title} sx={{ minWidth: 0 }}>
         <Box
@@ -158,26 +158,13 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
             </Button>
           )}
         </Box>
-        <Box
-          sx={{
-            ...homeMediaShelfSx,
-            ...(compactRows && {
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: 'minmax(0, 1fr)',
-                md: 'repeat(2, minmax(0, 1fr))',
-              },
-              overflowX: 'visible',
-              scrollSnapType: 'none',
-            }),
-          }}
-        >
+        <Box sx={homeMediaShelfSx}>
           {visibleItems.map((item) => (
             <Card
               key={item.videoId}
               sx={{
                 ...homeMediaCardSx,
-                width: compactRows || isDesktop ? '100%' : { xs: 192, sm: 216 },
+                width: isDesktop ? '100%' : { xs: 192, sm: 216 },
                 flexShrink: 0,
                 scrollSnapAlign: 'start',
               }}
@@ -187,14 +174,14 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
                 aria-label={`播放 ${item.title}，${item.channel}`}
                 sx={{
                   height: '100%',
-                  display: compactRows ? 'flex' : 'block',
-                  textAlign: 'left',
-                  p: compactRows ? 1.5 : 0,
-                  gap: compactRows ? { xs: 1, sm: 1.5 } : 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'stretch',
+                  justifyContent: 'flex-start',
                   '&.Mui-focusVisible': { outlineOffset: -3 },
                 }}
               >
-                <Box sx={{ position: 'relative', flexShrink: 0, width: compactRows ? 64 : '100%' }}>
+                <Box sx={{ position: 'relative', width: '100%' }}>
                   <CardMedia
                     component="img"
                     loading="lazy"
@@ -204,30 +191,27 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
                       objectFit: 'cover',
                       bgcolor: 'action.selected',
                       width: '100%',
-                      aspectRatio: compactRows ? '1' : '16 / 10',
-                      borderRadius: compactRows ? 1 : 0,
+                      aspectRatio: '16 / 10',
                     }}
                   />
-                  {!compactRows && (
-                    <Box
-                      aria-hidden="true"
-                      sx={{
-                        position: 'absolute',
-                        right: 8,
-                        bottom: 8,
-                        ...homeMediaPlaySx,
-                      }}
-                    >
-                      <PlayArrowIcon />
-                    </Box>
-                  )}
+                  <Box
+                    aria-hidden="true"
+                    sx={{
+                      position: 'absolute',
+                      right: 8,
+                      bottom: 8,
+                      ...homeMediaPlaySx,
+                    }}
+                  >
+                    <PlayArrowIcon />
+                  </Box>
                 </Box>
                 <CardContent
                   sx={{
-                    p: compactRows ? 0 : 1.5,
+                    p: 1.5,
                     flex: 1,
                     minWidth: 0,
-                    '&:last-child': { pb: compactRows ? 0 : 1.5 },
+                    '&:last-child': { pb: 1.5 },
                   }}
                 >
                   <Typography variant="body2" sx={homeMediaTitleSx}>
@@ -243,11 +227,6 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
                     {item.channel}
                   </Typography>
                 </CardContent>
-                {compactRows && (
-                  <Box aria-hidden="true" sx={homeMediaPlaySx}>
-                    <PlayArrowIcon />
-                  </Box>
-                )}
               </CardActionArea>
             </Card>
           ))}
