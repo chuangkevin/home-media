@@ -548,7 +548,11 @@ class YouTubeService {
    * @param limit 返回數量
    * @returns 該頻道的影片列表
    */
-  async getChannelVideos(channelName: string, limit: number = 20): Promise<YouTubeSearchResult[]> {
+  async getChannelVideos(
+    channelName: string,
+    limit: number = 20,
+    processOptions: { signal?: AbortSignal; timeoutMs?: number } = {}
+  ): Promise<YouTubeSearchResult[]> {
     try {
       // 1. 檢查 24 小時快取
       const cached = this.getCachedChannelVideos(channelName, limit);
@@ -571,13 +575,37 @@ class YouTubeService {
 
       // 2. 使用 yt-dlp 搜尋 + 過濾
       const rawFetchLimit = Math.max(limit * 5, limit + 40);
-      const result: any = await youtubedl(`ytsearch${rawFetchLimit}:${channelName}`, {
+      const spawnOptions: import('child_process').SpawnOptions = {
+        timeout: processOptions.timeoutMs ?? 30_000,
+        // yt-dlp is a one-shot metadata process; force-stop it at the deadline
+        // instead of letting an unresponsive child occupy a limiter slot forever.
+        killSignal: 'SIGKILL',
+      };
+      if (processOptions.signal) spawnOptions.signal = processOptions.signal;
+
+      const child = (youtubedl as any).exec(`ytsearch${rawFetchLimit}:${channelName}`, {
         ...this.getYtDlpBaseOptions(),
         dumpSingleJson: true,
         flatPlaylist: true,
         geoBypassCountry: 'TW',
         extractorArgs: 'youtube:lang=zh-TW', // 強制使用繁體中文
-      } as any);
+      } as any, spawnOptions);
+
+      // tinyspawn rejects immediately on an AbortSignal error. Keep this promise
+      // pending until the OS child has actually closed so callers (including the
+      // recommendation semaphore) do not release capacity while yt-dlp is alive.
+      const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
+      let childResult: any;
+      try {
+        childResult = await child;
+      } catch (error) {
+        await closed;
+        throw error;
+      }
+      await closed;
+
+      const stdout = childResult.stdout as string;
+      const result: any = stdout.trimStart().startsWith('{') ? JSON.parse(stdout) : stdout;
 
       const entries = result?.entries || [];
 

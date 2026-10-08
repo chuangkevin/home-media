@@ -36,6 +36,8 @@ interface ChannelRecommendationPage {
 class RecommendationService {
   private readonly VIDEOS_PER_CHANNEL = 20; // 每個頻道推薦 20 首影片（橫向滾動 lazy load）
 
+  constructor(private readonly channelFetchTimeoutMs = 10_000) {}
+
   private normalizeChannelVideos(videos: YouTubeSearchResult[]): YouTubeSearchResult[] {
     return videos
       .filter(v => v.duration > 0 && v.duration <= 600)
@@ -195,13 +197,13 @@ class RecommendationService {
           // 獲取新影片（透過全域 semaphore 限制同時最多 5 個並行 fetch，
           // 每個 fetch 有獨立 10s timeout 防止 youtube-sr/yt-dlp hang 住）
           logger.info(`[Recommend] No cache. Fetching videos for channel: ${channel.channelName}`);
-          const videos = await channelFetchLimit(() => Promise.race([
-            youtubeService.getChannelVideos(channel.channelName, this.VIDEOS_PER_CHANNEL + 1),
-            new Promise<YouTubeSearchResult[]>(resolve => setTimeout(() => {
-              logger.warn(`[Recommend] Timeout fetching videos for channel: ${channel.channelName}`);
-              resolve([]);
-            }, 10000)),
-          ]));
+          const videos = await channelFetchLimit(() =>
+            youtubeService.getChannelVideos(
+              channel.channelName,
+              this.VIDEOS_PER_CHANNEL + 1,
+              { timeoutMs: this.channelFetchTimeoutMs }
+            )
+          );
           logger.info(`[Recommend] Fetched ${videos.length} videos for channel: ${channel.channelName}`);
 
           const sorted = this.normalizeChannelVideos(videos);
@@ -438,4 +440,5 @@ class RecommendationService {
   }
 }
 
+export { RecommendationService };
 export default new RecommendationService();
