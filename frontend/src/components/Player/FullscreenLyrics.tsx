@@ -27,6 +27,7 @@ import { seekTo, setPendingTrack, setIsPlaying, reorderPlaylist, removeFromPlayl
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { shouldUseCachedVideo, transitionCachedVideoFallback } from '../../services/cached-video-fallback';
+import { seekFollowingVideo, isFollowingVideoSeek, finishFollowingVideoSeek } from '../../services/video-follow-seek';
 import {
   claimVideoCachePolling,
   hasVideoCachePollingExpired,
@@ -104,6 +105,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 顯示模式
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
+  const viewModeRef = useRef(viewMode);
+  viewModeRef.current = viewMode;
   const isFullscreenLayout = true;
   const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
@@ -443,6 +446,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     if (cachedVideoRef.current) {
       delete cachedVideoRef.current.dataset.synced;
     }
+    cachedVideoUserSeekingRef.current = false;
     apiService.videoCacheCleanup().catch(() => {});
   }, [track?.videoId]);
 
@@ -659,6 +663,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       if (cachedVideoRef.current) {
         cachedVideoRef.current.playbackRate = 1;
       }
+      cachedVideoUserSeekingRef.current = false;
       return;
     }
 
@@ -666,6 +671,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const videoEl = cachedVideoRef.current;
       const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
       if (!videoEl || !audioEl) return;
+      if (videoEl.readyState < 2 || audioEl.readyState < 2 || videoEl.seeking || audioEl.seeking) return;
 
       if (cachedVideoUserSeekingRef.current) return;
 
@@ -691,7 +697,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         const now = Date.now();
         if (now - lastHardSeekAtRef.current > 4500) {
           try {
-            videoEl.currentTime = audioEl.currentTime;
+            seekFollowingVideo(videoEl, audioEl.currentTime);
             videoEl.playbackRate = 1;
             lastHardSeekAtRef.current = now;
             console.log(`🎬 [CachedVideo] hard sync: ${drift.toFixed(2)}s`);
@@ -754,7 +760,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       if (audioEl) {
         try {
           // 先 seek 到 audio 的位置（影片還是暫停狀態，不會卡）
-          videoEl.currentTime = audioEl.currentTime;
+          seekFollowingVideo(videoEl, audioEl.currentTime);
         } catch {}
 
         // 延遲播放 — 等影片 buffer 好再開始，避免解鎖瞬間卡頓
@@ -762,7 +768,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           const ve = cachedVideoRef.current;
           const ae = document.querySelector('audio') as HTMLAudioElement | null;
           if (ve && ae && !ae.paused) {
-            try { ve.currentTime = ae.currentTime; } catch {}
+            try { seekFollowingVideo(ve, ae.currentTime); } catch {}
             ve.play().catch(() => {});
           }
           // 再給 1 秒才解除恢復鎖，讓影片穩定播放後 sync interval 才介入
@@ -785,7 +791,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     try {
       if (showCachedVideo && cachedVideoRef.current) {
-        cachedVideoRef.current.currentTime = seekTarget;
+        seekFollowingVideo(cachedVideoRef.current, seekTarget);
       } else if (videoReady && playerRef.current?.seekTo) {
         console.log(`🎬 FullscreenLyrics: 影片跳轉到 ${seekTarget.toFixed(1)}s`);
         playerRef.current.seekTo(seekTarget, true);
@@ -1392,11 +1398,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               display: viewMode === 'video' ? 'block' : 'none',
             }}
             onCanPlay={(e) => {
-              const videoEl = e.target as HTMLVideoElement;
+              const videoEl = e.currentTarget;
+              if (
+                cachedVideoRef.current !== videoEl || !isOpenRef.current ||
+                viewModeRef.current !== 'video' || activeTrackVideoIdRef.current !== track.videoId
+              ) return;
               const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
               if (audioEl && !videoEl.dataset.synced) {
                 videoEl.dataset.synced = '1';
-                videoEl.currentTime = audioEl.currentTime;
+                seekFollowingVideo(videoEl, audioEl.currentTime);
                 console.log(`🎬 cached video 同步到 audio: ${audioEl.currentTime.toFixed(1)}s`);
               }
             }}
@@ -1420,14 +1430,21 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               }));
             }}
             onSeeking={(e) => {
-              const videoEl = e.target as HTMLVideoElement;
+              const videoEl = e.currentTarget;
+              if (
+                cachedVideoRef.current !== videoEl || !isOpenRef.current ||
+                viewModeRef.current !== 'video' || activeTrackVideoIdRef.current !== track.videoId ||
+                isFollowingVideoSeek(videoEl)
+              ) return;
               cachedVideoUserSeekingRef.current = true;
               dispatch(seekTo(videoEl.currentTime));
             }}
-            onSeeked={() => {
-              setTimeout(() => {
+            onSeeked={(e) => {
+              const videoEl = e.currentTarget;
+              finishFollowingVideoSeek(videoEl);
+              if (cachedVideoRef.current === videoEl && !videoEl.seeking) {
                 cachedVideoUserSeekingRef.current = false;
-              }, 200);
+              }
             }}
             onPause={() => {}}
             muted
