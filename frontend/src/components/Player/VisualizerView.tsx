@@ -20,10 +20,10 @@ export default function VisualizerView({ track }: VisualizerViewProps) {
         sx={{
           position: 'relative',
           width: '100%',
-          aspectRatio: '16/9',
+          minHeight: { xs: 320, sm: 400 },
           borderRadius: 2,
           overflow: 'hidden',
-          boxShadow: 6,
+          boxShadow: 0,
         }}
       >
         <Box
@@ -31,6 +31,8 @@ export default function VisualizerView({ track }: VisualizerViewProps) {
           src={track.thumbnail}
           alt={track.title}
           sx={{
+            position: 'absolute',
+            inset: 0,
             width: '100%',
             height: '100%',
             objectFit: 'cover',
@@ -45,7 +47,9 @@ export default function VisualizerView({ track }: VisualizerViewProps) {
             top: '50%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
-            p: 4,
+            p: { xs: 2.5, sm: 4 },
+            width: 'calc(100% - 40px)',
+            maxWidth: 440,
             backgroundColor: 'rgba(0, 0, 0, 0.7)',
             backdropFilter: 'blur(10px)',
           }}

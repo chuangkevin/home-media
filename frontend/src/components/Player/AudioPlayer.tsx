@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, IconButton, Snackbar } from '@mui/material';
+import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, IconButton, Snackbar, ButtonBase, Alert } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import FavoriteIcon from '@mui/icons-material/Favorite';
@@ -38,6 +38,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const { isEnabled: continuousMode, sessionId: continuousSessionId } = useSelector((state: RootState) => state.continuousPlayer);
   // isCompactPlayer removed - mini player is always compact now
   const [isLoading, setIsLoading] = useState(false);
+  const [favoritePending, setFavoritePending] = useState(false);
+  const favoriteRequestRef = useRef(false);
+  const [favoriteNotice, setFavoriteNotice] = useState<{ message: string; error: boolean } | null>(null);
   // autoplayBlocked removed — radio 模式永遠自動重試播放，不需要手動按鈕
   const currentVideoIdRef = useRef<string | null>(null);
   const activeLyricsVideoIdRef = useRef<string | null>(null);
@@ -1851,6 +1854,24 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     </>);
   }
 
+  const handleToggleFavorite = async () => {
+    if (favoriteRequestRef.current) return;
+    favoriteRequestRef.current = true;
+    setFavoritePending(true);
+    try {
+      const result = await dispatch(toggleFavorite({
+        videoId: displayTrack.videoId, title: displayTrack.title, channel: displayTrack.channel,
+        thumbnail: displayTrack.thumbnail, duration: displayTrack.duration,
+      })).unwrap();
+      setFavoriteNotice({ message: `${result.favorited ? '已收藏' : '已取消收藏'}「${displayTrack.title}」`, error: false });
+    } catch {
+      setFavoriteNotice({ message: '無法更新收藏，請稍後再試。', error: true });
+    } finally {
+      favoriteRequestRef.current = false;
+      setFavoritePending(false);
+    }
+  };
+
   return (
     <Card
       sx={{
@@ -1858,207 +1879,64 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           flexShrink: 0, // 不被壓縮
         }),
         borderRadius: 0,
+        border: 0,
+        borderTop: embedded ? 0 : 1,
+        borderColor: 'divider',
+        backgroundColor: 'background.paper',
+        boxShadow: 'none',
         height: embedded ? '100%' : 'auto',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       {embedded ? (
-        /* ===== EMBEDDED 模式（全螢幕歌詞內）===== */
-        <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', pb: 2, '&:last-child': { pb: 2 } }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'flex-start', pt: 2, alignItems: 'center' }}>
-            <CardMedia
-              component="img"
-              sx={{ width: '100%', height: 'auto', aspectRatio: '1', maxWidth: 280, borderRadius: 1 }}
-              image={displayTrack.thumbnail}
-              alt={displayTrack.title}
-            />
-            <Box sx={{ width: '100%', mt: 1 }}>
-              <Box sx={{ overflow: 'hidden', width: '100%' }}>
-                <Typography
-                  variant="subtitle1"
-                  sx={{
-                    fontWeight: 600,
-                    width: '100%',
-                    textAlign: 'center',
-                    display: 'inline-block',
-                    whiteSpace: 'nowrap',
-                    animation: displayTrack.title.length > 25 ? 'marquee-embedded 14s ease-in-out infinite' : 'none',
-                    '@keyframes marquee-embedded': {
-                      '0%': { transform: 'translateX(0)' },
-                      '15%': { transform: 'translateX(0)' },
-                      '50%': { transform: 'translateX(calc(-100% + 220px))' },
-                      '65%': { transform: 'translateX(calc(-100% + 220px))' },
-                      '85%': { transform: 'translateX(0)' },
-                      '100%': { transform: 'translateX(0)' },
-                    },
-                  }}
-                >
-                  {displayTrack.title}
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="text.secondary" noWrap sx={{ textAlign: 'center', mb: 1 }}>
-                {displayTrack.channel}
+        <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 3, '&:last-child': { pb: 3 } }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center', alignItems: 'center', minWidth: 0, gap: 2 }}>
+            <Typography variant="overline" sx={{ color: 'text.secondary', fontSize: '0.75rem', letterSpacing: '0.12em' }}>正在播放</Typography>
+            <CardMedia component="img" image={displayTrack.thumbnail} alt={displayTrack.title}
+              sx={{ width: '100%', aspectRatio: '1', maxWidth: 260, objectFit: 'cover', borderRadius: 2 }} />
+            <Box sx={{ width: '100%', minWidth: 0 }}>
+              <Typography variant="h6" title={displayTrack.title} sx={{ fontSize: '1.125rem', fontWeight: 700, lineHeight: 1.5,
+                display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+                {displayTrack.title}
               </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2, overflowWrap: 'anywhere' }}>{displayTrack.channel}</Typography>
               <PlayerControls embedded />
               <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mt: 2 }}>
-                {onOpenLyrics && (
-                  <IconButton onClick={onOpenLyrics}><LyricsIcon /></IconButton>
-                )}
-                <IconButton onClick={() => {
-                  dispatch(toggleFavorite({
-                    videoId: displayTrack.videoId,
-                    title: displayTrack.title,
-                    channel: displayTrack.channel,
-                    thumbnail: displayTrack.thumbnail,
-                    duration: displayTrack.duration,
-                  }));
-                }}>
-                  {favoriteIds[displayTrack.videoId]
-                    ? <FavoriteIcon sx={{ color: 'error.main' }} />
-                    : <FavoriteBorderIcon />}
+                {onOpenLyrics && <IconButton aria-label="展開歌詞" onClick={onOpenLyrics}><LyricsIcon /></IconButton>}
+                <IconButton aria-label={favoriteIds[displayTrack.videoId] ? '取消收藏歌曲' : '收藏歌曲'} aria-pressed={!!favoriteIds[displayTrack.videoId]}
+                  disabled={favoritePending} onClick={handleToggleFavorite}>
+                  {favoritePending ? <CircularProgress size={20} /> : favoriteIds[displayTrack.videoId] ? <FavoriteIcon sx={{ color: 'error.main' }} /> : <FavoriteBorderIcon />}
                 </IconButton>
-                <IconButton onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)}><PlaylistAddIcon /></IconButton>
+                <IconButton aria-label="加入播放清單" aria-haspopup="menu" onClick={(event) => setPlaylistMenuAnchor(event.currentTarget)}><PlaylistAddIcon /></IconButton>
               </Box>
             </Box>
           </Box>
         </CardContent>
       ) : (
-        /* ===== 迷你播放器模式（固定在底部）===== */
-        <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 }, touchAction: 'none', userSelect: 'none' }}>
-          {/* 第一行：封面 + 標題/頻道 + 功能按鈕 */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.75 }}>
-            {/* 點擊封面/標題展開歌詞 */}
-            <Box
-              onClick={onOpenLyrics}
-              sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexGrow: 1, minWidth: 0, cursor: 'pointer' }}
-            >
-            {/* 封面圖：播放時帶琥珀光暈 */}
-            <Box sx={{ position: 'relative', flexShrink: 0 }}>
-              <CardMedia
-                component="img"
-                sx={{
-                  width: 46,
-                  height: 46,
-                  borderRadius: 1.5,
-                  display: 'block',
-                  boxShadow: isPlaying
-                    ? '0 0 0 2px rgba(245,166,35,0.35), 0 4px 16px rgba(0,0,0,0.45)'
-                    : '0 2px 10px rgba(0,0,0,0.4)',
-                  transition: 'box-shadow 0.4s ease',
-                  animation: isPlaying ? 'pulse-glow 2.8s ease-in-out infinite' : 'none',
-                }}
-                image={displayTrack.thumbnail}
-                alt={displayTrack.title}
-              />
-              {/* 正在播放均衡器動畫 */}
-              {isPlaying && !isLoading && !isLoadingTrack && (
-                <Box sx={{
-                  position: 'absolute',
-                  bottom: 4,
-                  right: 4,
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  gap: '2px',
-                  height: 14,
-                }}>
-                  {[
-                    { anim: 'eq-bar1 0.7s ease-in-out infinite' },
-                    { anim: 'eq-bar2 0.85s ease-in-out infinite 0.1s' },
-                    { anim: 'eq-bar3 0.75s ease-in-out infinite 0.2s' },
-                  ].map((bar, i) => (
-                    <Box key={i} sx={{
-                      width: 2,
-                      borderRadius: 1,
-                      backgroundColor: '#F5A623',
-                      animation: bar.anim,
-                    }} />
-                  ))}
+        <CardContent sx={{ py: 1, px: { xs: 1.5, sm: 3 }, '&:last-child': { pb: 1 }, width: '100%', maxWidth: 1440, mx: 'auto',
+          display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(280px, 1fr) minmax(320px, 1.25fr)' }, gap: { xs: 0.5, lg: 4 }, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+            <ButtonBase onClick={onOpenLyrics} aria-label={`展開播放器：${displayTrack.title}`} title={displayTrack.title}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flex: 1, minWidth: 0, textAlign: 'left', borderRadius: 1, justifyContent: 'flex-start', py: 0.5 }}>
+              <CardMedia component="img" image={displayTrack.thumbnail} alt=""
+                sx={{ width: { xs: 44, sm: 52 }, height: { xs: 44, sm: 52 }, borderRadius: 1, flexShrink: 0, objectFit: 'cover' }} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" noWrap sx={{ fontWeight: 650, fontSize: '0.875rem', lineHeight: 1.5 }}>{displayTrack.title}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ minWidth: 0, fontSize: '0.75rem' }}>{displayTrack.channel}</Typography>
+                  {!isLoading && !isLoadingTrack && <Box role="img" aria-label={isCached ? '可離線播放' : '串流播放'}
+                    sx={{ width: 6, height: 6, flexShrink: 0, borderRadius: '50%', backgroundColor: isCached ? 'success.main' : 'text.secondary' }} />}
+                  {(isLoading || isLoadingTrack) && <CircularProgress size={14} aria-label="歌曲載入中" />}
                 </Box>
-              )}
-            </Box>
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <Box sx={{ overflow: 'hidden', width: '100%' }}>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    fontWeight: 600,
-                    fontFamily: '"Outfit", sans-serif',
-                    fontSize: '0.85rem',
-                    lineHeight: 1.3,
-                    display: 'inline-block',
-                    whiteSpace: 'nowrap',
-                    animation: displayTrack.title.length > 20 ? 'marquee-mini 14s ease-in-out infinite' : 'none',
-                    '@keyframes marquee-mini': {
-                      '0%': { transform: 'translateX(0)' },
-                      '15%': { transform: 'translateX(0)' },
-                      '50%': { transform: 'translateX(calc(-100% + 150px))' },
-                      '65%': { transform: 'translateX(calc(-100% + 150px))' },
-                      '85%': { transform: 'translateX(0)' },
-                      '100%': { transform: 'translateX(0)' },
-                    },
-                  }}
-                >
-                  {displayTrack.title}
-                </Typography>
               </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  noWrap
-                  sx={{ flex: 1, minWidth: 0, fontFamily: '"Outfit", sans-serif', fontSize: '0.72rem' }}
-                >
-                  {displayTrack.channel}
-                </Typography>
-                {/* 快取狀態：小圓點取代 Chip */}
-                {!isLoading && !isLoadingTrack && (
-                  <Box
-                    title={isCached ? '本機快取' : '串流播放'}
-                    sx={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      flexShrink: 0,
-                      backgroundColor: isCached ? '#4ADE80' : '#40C4FF',
-                      boxShadow: isCached
-                        ? '0 0 4px rgba(74,222,128,0.7)'
-                        : '0 0 4px rgba(64,196,255,0.7)',
-                    }}
-                  />
-                )}
-                {(isLoading || isLoadingTrack) && <CircularProgress size={12} />}
-              </Box>
-            </Box>
-            </Box>{/* end clickable area */}
-            {/* 功能按鈕 */}
-              <>
-                {onOpenLyrics && (
-                  <IconButton size="small" onClick={onOpenLyrics} sx={{ color: 'text.secondary' }}>
-                    <LyricsIcon fontSize="small" />
-                  </IconButton>
-                )}
-                {displayTrack && (
-                  <IconButton size="small" onClick={() => {
-                    dispatch(toggleFavorite({
-                      videoId: displayTrack.videoId,
-                      title: displayTrack.title,
-                      channel: displayTrack.channel,
-                      thumbnail: displayTrack.thumbnail,
-                      duration: displayTrack.duration,
-                    }));
-                  }}>
-                    {favoriteIds[displayTrack.videoId]
-                      ? <FavoriteIcon fontSize="small" sx={{ color: 'error.main' }} />
-                      : <FavoriteBorderIcon fontSize="small" sx={{ color: 'text.secondary' }} />}
-                  </IconButton>
-                )}
-                <IconButton size="small" onClick={(e) => setPlaylistMenuAnchor(e.currentTarget)} sx={{ color: 'text.secondary' }}>
-                  <PlaylistAddIcon fontSize="small" />
-                </IconButton>
-              </>
+            </ButtonBase>
+            <IconButton aria-label={favoriteIds[displayTrack.videoId] ? '取消收藏歌曲' : '收藏歌曲'} aria-pressed={!!favoriteIds[displayTrack.videoId]}
+              disabled={favoritePending} onClick={handleToggleFavorite}>
+              {favoritePending ? <CircularProgress size={20} /> : favoriteIds[displayTrack.videoId] ? <FavoriteIcon fontSize="small" sx={{ color: 'error.main' }} /> : <FavoriteBorderIcon fontSize="small" />}
+            </IconButton>
+            <IconButton aria-label="加入播放清單" aria-haspopup="menu" onClick={(event) => setPlaylistMenuAnchor(event.currentTarget)}><PlaylistAddIcon fontSize="small" /></IconButton>
           </Box>
-          {/* 第二行：進度條 + 控制按鈕 */}
           <PlayerControls isCompact />
         </CardContent>
       )}
@@ -2080,6 +1958,17 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           onClose={() => setPlaylistMenuAnchor(null)}
         />
       )}
+      <Snackbar
+        open={!!favoriteNotice}
+        autoHideDuration={4000}
+        onClose={() => setFavoriteNotice(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ top: 'max(8px, env(safe-area-inset-top, 8px)) !important' }}
+      >
+        <Alert severity={favoriteNotice?.error ? 'error' : 'success'} onClose={() => setFavoriteNotice(null)}>
+          {favoriteNotice?.message}
+        </Alert>
+      </Snackbar>
       <Snackbar
         open={cacheToast}
         autoHideDuration={2000}

@@ -7,9 +7,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import SearchIcon from '@mui/icons-material/Search';
-import EditIcon from '@mui/icons-material/Edit';
 import TuneIcon from '@mui/icons-material/Tune';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckIcon from '@mui/icons-material/Check';
@@ -18,10 +16,8 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import OndemandVideoIcon from '@mui/icons-material/OndemandVideo';
 import AlbumIcon from '@mui/icons-material/Album';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import ClosedCaptionIcon from '@mui/icons-material/ClosedCaption';
-import FullscreenIcon from '@mui/icons-material/Fullscreen';
-import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
+import QueueMusicIcon from '@mui/icons-material/QueueMusic';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, AppDispatch } from '../../store';
 import type { Track } from '../../types/track.types';
@@ -64,11 +60,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
   const isUltrawide = useMediaQuery('(min-width: 1500px) and (orientation: landscape)');
   const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)'); // 滑鼠裝置
-  const showLandscapeSidePanel = useMediaQuery('(orientation: landscape) and (min-width: 700px) and (min-height: 360px)');
+  const showLandscapeSidePanel = useMediaQuery('(min-width: 1024px) and (min-height: 560px)');
+  const showQueueSidebar = useMediaQuery('(min-width: 1280px) and (min-height: 560px)');
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
-  const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
-  const isIOSPortrait = isIOSDevice && !isLandscape;
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
@@ -99,8 +94,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 顯示模式
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
-  const [isFullscreenLayout, setIsFullscreenLayout] = useState(false);
+  const isFullscreenLayout = true;
   const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [lyricsSettingsOpen, setLyricsSettingsOpen] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setQueueOpen(showQueueSidebar);
+      setLyricsSettingsOpen(false);
+    }
+  }, [open, showQueueSidebar]);
 
   // 橫向自動視為全螢幕佈局
   const effectiveFullscreen = isFullscreenLayout || isLandscape;
@@ -132,6 +135,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<LyricsSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [searchSource, setSearchSource] = useState<LyricsSource>('lrclib');
 
@@ -142,6 +147,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [isReloadingLyrics, setIsReloadingLyrics] = useState(false);
   const [isRefreshingLyricsView, setIsRefreshingLyricsView] = useState(false);
 
+  // Closing or rearranging the sheet discards only an unapplied calibration.
+  useEffect(() => {
+    setIsFineTuning(false);
+    setFineTuneOffset(0);
+  }, [open, showQueueSidebar, track.videoId]);
+
   // YouTube CC 載入狀態
   const [isLoadingYouTubeCC, setIsLoadingYouTubeCC] = useState(false);
 
@@ -151,12 +162,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       clearTimeout(translationRetryTimeoutRef.current);
       translationRetryTimeoutRef.current = null;
     }
-    dispatch(setCurrentLyrics(null));
+    // AudioPlayer owns the shared lyrics lifecycle. A lazy-mounted sheet must
+    // retain lyrics that AudioPlayer has already loaded for this track.
     setTranslations([]);
     setTranslationError(false);
     setIsTranslating(false);
     translationGenRef.current += 1;
-  }, [dispatch, track?.videoId]);
+  }, [track?.videoId]);
 
   const clearLyricsViewState = useCallback(() => {
     if (translationRetryTimeoutRef.current) {
@@ -776,7 +788,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
       container.scrollTo({
         top: container.scrollTop + scrollOffset,
-        behavior: 'smooth',
+        behavior: reduceMotion ? 'auto' : 'smooth',
       });
     }
   }, [currentLineIndex, open, isFineTuning, viewMode]);
@@ -798,13 +810,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
       container.scrollTo({
         top: container.scrollTop + scrollOffset,
-        behavior: 'smooth',
+        behavior: reduceMotion ? 'auto' : 'smooth',
       });
     }
   };
 
   // 時間偏移控制（短按 ±0.5s，長按持續）
-  const offsetIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const applyOffset = (delta: number) => {
     const newOffset = Math.round((timeOffset + delta) * 10) / 10;
@@ -816,15 +827,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   const handleOffsetIncrease = () => applyOffset(0.5);
   const handleOffsetDecrease = () => applyOffset(-0.5);
-
-  // 長按持續調整
-  const startHold = (delta: number) => {
-    applyOffset(delta);
-    offsetIntervalRef.current = setInterval(() => applyOffset(delta), 200);
-  };
-  const stopHold = () => {
-    if (offsetIntervalRef.current) { clearInterval(offsetIntervalRef.current); offsetIntervalRef.current = null; }
-  };
 
   const handleOffsetReset = () => {
     dispatch(resetTimeOffset());
@@ -913,6 +915,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
       setSearchOpen(false);
     } catch (error) {
+      setSearchError('重新載入歌詞失敗，請稍後重試。');
       console.error('Reload lyrics failed:', error);
     } finally {
       setIsRefreshingLyricsView(false);
@@ -947,6 +950,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 搜尋歌詞
   const handleSearch = async () => {
+    if (isSearching) return;
+    if (searchSource !== 'ai' && !searchQuery.trim()) return;
+    setSearchError('');
+    setHasSearched(true);
     if (searchSource === 'ai') {
       // AI 模式：清掉快取，強制重新辨識
       setIsSearching(true);
@@ -974,9 +981,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           setSearchOpen(false);
           console.log(`🤖 AI 歌詞已套用: ${result.lines.length} 行 (${result.language})`);
         } else {
+          setSearchError('這次未能辨識出歌詞，請重試或選擇其他來源。');
           console.warn('AI 歌詞生成失敗');
         }
       } catch (error) {
+        setSearchError('AI 辨識暫時無法使用，請稍後重試。');
         console.error('AI lyrics generation failed:', error);
       } finally {
         setIsRefreshingLyricsView(false);
@@ -993,6 +1002,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const results = await apiService.searchLyrics(searchQuery, searchSource);
       setSearchResults(results);
     } catch (error) {
+      setSearchError('暫時無法搜尋歌詞，請稍後重試。');
       console.error('Search lyrics failed:', error);
     } finally {
       setIsSearching(false);
@@ -1023,6 +1033,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         setSearchOpen(false);
       }
     } catch (error) {
+      setSearchError('無法套用這份歌詞，請重試或選擇其他結果。');
       console.error('Apply lyrics failed:', error);
     } finally {
       setIsRefreshingLyricsView(false);
@@ -1033,11 +1044,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const handleSourceChange = (_: React.MouseEvent<HTMLElement>, newSource: LyricsSource | null) => {
     if (newSource) {
       setSearchSource(newSource);
+      setHasSearched(false);
+      setSearchError('');
       setSearchResults([]);
     }
   };
 
   const handleOpenSearch = () => {
+    setHasSearched(false);
+    setSearchError('');
     // 簡單清理標題：移除 (Official Video) 等後綴
     const cleaned = track.title
       .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p|live).*?[\)\]】》]/gi, '')
@@ -1076,10 +1091,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   useEffect(() => {
     if (open && currentTrackRef.current) {
       setTimeout(() => {
-        currentTrackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        currentTrackRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
       }, 300);
     }
-  }, [open, currentIndex, currentVideoId]);
+  }, [open, queueOpen, currentIndex, currentVideoId, reduceMotion]);
 
   // 完整播放清單（已播放灰色 + 目前高亮 + 待播正常）
 
@@ -1088,7 +1103,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     if (isLoading) {
       return (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
+          <CircularProgress aria-label="歌詞載入中" />
         </Box>
       );
     }
@@ -1096,7 +1111,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     if (isRefreshingLyricsView) {
       return (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
+          <CircularProgress aria-label="重新載入歌詞" />
         </Box>
       );
     }
@@ -1111,9 +1126,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     if (!currentLyrics) {
       return (
-        <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-          無法找到歌詞
-        </Typography>
+        <Box sx={{ textAlign: 'center', px: 3, py: 6 }}>
+          <Typography variant="h6" sx={{ fontSize: '1.125rem', mb: 1 }}>還沒找到這首歌的歌詞</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>音樂會繼續播放。你可以換個關鍵字或歌詞來源。</Typography>
+          <Button variant="outlined" startIcon={<SearchIcon />} onClick={handleOpenSearch}>搜尋歌詞</Button>
+        </Box>
       );
     }
 
@@ -1126,17 +1143,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
 
     // 全螢幕橫向模式：更大的歌詞
-    const isLandscapeFullscreen = isFullscreenLayout && isLandscape;
 
     return (
       <Box sx={{ 
-        px: isLandscapeFullscreen ? 6 : 2,
-        maxWidth: isLandscapeFullscreen ? '1200px' : 'none',
+        px: { xs: 1.5, sm: 3 },
+        maxWidth: 900,
         mx: 'auto',
         width: '100%',
       }}>
         {/* 頂部填充 - Ultrawide 縮減填充 */}
-        <Box sx={{ height: isUltrawide ? '5vh' : (isShortViewport ? '10vh' : '25vh') }} />
+        <Box sx={{ height: isShortViewport ? '12vh' : '20vh' }} />
         {currentLyrics.lines.map((line, index) => {
           const isActive = currentLyrics.isSynced && index === currentLineIndex;
           const isPassed = currentLyrics.isSynced && index < currentLineIndex;
@@ -1146,11 +1162,21 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               key={index}
               ref={(el: HTMLDivElement | null) => (lineRefs.current[index] = el)}
               onClick={() => currentLyrics.isSynced && handleLyricClick(line.time, index)}
+              role={currentLyrics.isSynced ? 'button' : undefined}
+              tabIndex={currentLyrics.isSynced ? 0 : undefined}
+              aria-label={currentLyrics.isSynced ? `跳至歌詞：${toTraditional(line.text)}` : undefined}
+              aria-current={isActive ? 'true' : undefined}
+              onKeyDown={(event) => {
+                if (currentLyrics.isSynced && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault();
+                  handleLyricClick(line.time, index);
+                }
+              }}
               sx={{
-                py: isUltrawide ? 1 : (isLandscapeFullscreen ? 3 : 2),
+                py: { xs: 1.75, sm: 2.5 },
                 px: 2,
                 textAlign: 'center',
-                transition: 'all 0.3s ease',
+                transition: 'color 0.2s ease, background-color 0.2s ease',
                 borderRadius: 1,
                 backgroundColor: isActive ? 'action.selected' : 'transparent',
                 cursor: currentLyrics.isSynced ? 'pointer' : 'default',
@@ -1162,19 +1188,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               <Typography
                 sx={{
                   fontWeight: isActive ? 700 : 400,
-                  fontSize: isUltrawide
-                    ? (isActive ? '3.8rem' : '2.4rem')
-                    : (isLandscapeFullscreen 
-                      ? (isActive ? '2.8rem' : '1.8rem')
-                      : (isActive ? '1.6rem' : '1.2rem')),
+                  fontSize: { xs: '1.25rem', sm: '1.5rem', lg: '1.75rem', xl: '2rem' },
                   color: isActive
                     ? 'primary.main'
                     : isPassed
                     ? 'text.secondary'
                     : 'text.primary',
-                  opacity: isPassed ? 0.5 : 1,
+                  opacity: 1,
                   transition: 'all 0.3s ease',
-                  lineHeight: isLandscapeFullscreen ? 1.2 : 1.5,
+                  lineHeight: 1.6,
                 }}
               >
                 {toTraditional(line.text)}
@@ -1183,13 +1205,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               {translations[index] && translations[index] !== toTraditional(line.text) && (
                 <Typography
                   sx={{
-                    fontSize: isUltrawide
-                      ? (isActive ? '1.8rem' : '1.2rem')
-                      : (isLandscapeFullscreen
-                        ? (isActive ? '1.4rem' : '1rem')
-                        : (isActive ? '0.95rem' : '0.8rem')),
-                    color: isActive ? 'primary.light' : 'text.disabled',
-                    opacity: isPassed ? 0.4 : 0.7,
+                    fontSize: { xs: '0.875rem', sm: '1rem', lg: '1.125rem' },
+                    color: 'text.secondary',
+                    opacity: 1,
                     mt: isUltrawide ? 0.1 : 0.3,
                     lineHeight: 1.2,
                     fontStyle: 'italic',
@@ -1220,7 +1238,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
         )}
         {/* 底部填充 */}
-        <Box sx={{ height: isUltrawide ? '10vh' : (isShortViewport ? '10vh' : '25vh') }} />
+        <Box sx={{ height: isShortViewport ? '12vh' : '20vh' }} />
       </Box>
     );
   };
@@ -1279,13 +1297,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               }}
             />
             {!videoReady && (
-              <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'white', zIndex: 2, textAlign: 'center' }}>
-                <CircularProgress color="inherit" />
-                <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+              <Box sx={{ position: 'absolute', top: '50%', left: '50%', width: 'calc(100% - 48px)', maxWidth: 400, transform: 'translate(-50%, -50%)', color: 'white', zIndex: 2, textAlign: 'center' }}>
+                {!videoDownloadError && <CircularProgress color="inherit" aria-label="影片載入中" />}
+                <Typography role={videoDownloadError ? 'alert' : 'status'} variant="body2" sx={{ display: 'block', mt: 1 }}>
                   {videoDownloading
                     ? videoDownloadProgress || '下載中...'
                     : videoDownloadError || '載入 YouTube 影片...'}
                 </Typography>
+                <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255,255,255,0.78)', mt: 1 }}>音訊持續播放，你可以隨時返回歌詞。</Typography>
+                <Button color="inherit" variant="outlined" onClick={() => setViewMode('lyrics')} sx={{ mt: 2 }}>返回歌詞</Button>
               </Box>
             )}
           </Box>
@@ -1409,7 +1429,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               {playlist.map((item, idx) => {
                 // 跳過幽靈歌曲（未載入完的 placeholder）
                 if (!item.title || item.title === '載入中...') return null;
-                const isPlayed = idx < currentIndex;
                 const isCurrent = idx === currentIndex;
                 return (
                   <Draggable key={`${item.videoId}-${idx}`} draggableId={`${idx}-${item.videoId}`} index={idx}>
@@ -1422,6 +1441,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                         {...dragProvided.draggableProps}
                       >
                       <SwipeablePlaylistItem
+                        trackTitle={item.title}
                         isFavorited={!!favoriteIds[item.videoId]}
                         isDesktop={isDesktop}
                         onSwipeRight={() => dispatch(toggleFavorite({
@@ -1452,33 +1472,32 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                             borderRadius: 1,
                           }),
                         }}
-                        secondaryAction={!isCurrent ? (
-                          <IconButton size={isUltrawide ? "large" : "small"} onClick={() => handlePlayFromList(item)}>
-                            <PlayArrowIcon fontSize={isUltrawide ? "medium" : "small"} />
-                          </IconButton>
-                        ) : undefined}
                       >
                         <Box
                           {...dragProvided.dragHandleProps}
-                          sx={{ display: 'flex', alignItems: 'center', pl: 0.5, cursor: 'grab', color: 'text.disabled' }}
+                          aria-label={`拖曳排序：${item.title}`}
+                          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, minHeight: 44, flexShrink: 0, cursor: 'grab', color: 'text.secondary' }}
                         >
                           <DragIndicatorIcon fontSize="small" />
                         </Box>
                         <ListItemButton
                           onClick={() => !isCurrent && handlePlayFromList(item)}
+                          aria-label={`${isCurrent ? '正在播放' : '播放'}：${item.title}`}
+                          aria-current={isCurrent ? 'true' : undefined}
                           sx={{
-                            py: isUltrawide ? 1.5 : 0.5,
-                            px: isUltrawide ? 2 : 1,
-                            opacity: isPlayed ? 0.45 : 1,
-                            backgroundColor: isCurrent ? 'rgba(255,255,255,0.08)' : 'transparent',
-                            height: isUltrawide ? 80 : 'auto',
+                            py: 1,
+                            px: 1,
+                            opacity: 1,
+                            backgroundColor: isCurrent ? 'action.selected' : 'transparent',
+                            minHeight: 64,
+                            minWidth: 0,
                           }}
                         >
-                          <ListItemAvatar sx={{ minWidth: isUltrawide ? 72 : 48 }}>
+                          <ListItemAvatar sx={{ minWidth: 48 }}>
                             <Avatar
                               variant="rounded"
                               src={item.thumbnail}
-                              sx={{ width: isUltrawide ? 60 : 40, height: isUltrawide ? 60 : 40, opacity: isPlayed ? 0.5 : 1 }}
+                              sx={{ width: 40, height: 40 }}
                             />
                           </ListItemAvatar>
                           <ListItemText
@@ -1487,7 +1506,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                                 variant="body2"
                                 noWrap
                                 sx={{
-                                  fontSize: isUltrawide ? '1.15rem' : '0.85rem',
+                                  fontSize: '0.875rem',
                                   fontWeight: isCurrent ? 700 : 400,
                                   color: isCurrent ? 'primary.main' : 'text.primary',
                                 }}
@@ -1496,7 +1515,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                               </Typography>
                             }
                             secondary={
-                              <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: isUltrawide ? '0.95rem' : '0.75rem' }}>
+                              <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: '0.75rem' }}>
                                 {item.channel}
                               </Typography>
                             }
@@ -1551,419 +1570,188 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         open={open}
         onClose={onClose}
         PaperProps={{
+          role: 'dialog',
+          'aria-modal': true,
+          'aria-label': `正在播放：${track.title}`,
           sx: {
-            height: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
-            maxHeight: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
-            borderTopLeftRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
-            borderTopRightRadius: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 16,
-            bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
-            paddingTop: 0,
-            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            height: 'var(--app-dvh, 100dvh)',
+            maxHeight: 'var(--app-dvh, 100dvh)',
+            borderRadius: 0,
+            bottom: 0,
             display: 'flex',
-            flexDirection: isLandscape ? 'row' : 'column',
-            pb: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 3,
+            flexDirection: showLandscapeSidePanel ? 'row' : 'column',
+            overflow: 'hidden',
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
-            transition: isDraggingRef.current ? 'none' : 'transform 0.3s ease',
+            transition: isDraggingRef.current || reduceMotion ? 'none' : 'transform 0.25s ease',
           },
         }}
-        ModalProps={{
-          keepMounted: true,
-          sx: {
-            bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
-            height: (effectiveFullscreen || isMorrorFullscreen) ? 'var(--app-dvh, 100dvh)' : 'calc(var(--app-dvh, 100dvh) - 172px - env(safe-area-inset-bottom, 0px))',
-            '& .MuiBackdrop-root': {
-              bottom: (effectiveFullscreen || isMorrorFullscreen) ? 0 : 'calc(172px + env(safe-area-inset-bottom, 0px))',
-            },
-          },
-        }}
+        ModalProps={{ keepMounted: true }}
       >
-        {/* 橫式裝置：左側播放器 — 沉浸全螢幕時隱藏，窄屏時也隱藏 */}
         {showLandscapeSidePanel && !isMorrorFullscreen && (
-          <Box
-            sx={{
-              width: isUltrawide ? 320 : 300,
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              borderRight: 1,
-              borderColor: 'divider',
-              overflow: 'auto',
-            }}
-          >
+          <Box component="aside" aria-label="目前歌曲與播放控制" sx={{
+            width: { lg: 252, xl: 288 }, minWidth: 240, flexShrink: 0,
+            borderRight: 1, borderColor: 'divider', overflow: 'auto',
+          }}>
             <AudioPlayer embedded />
           </Box>
         )}
 
-        {/* 主歌詞區域 */}
-        <Box
-          sx={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            minWidth: 0,
-            minHeight: 0,
-            position: 'relative',
-          }}
-        >
-          {/* 頂部操作列 — 沉浸全螢幕時隱藏 */}
-          {!isMorrorFullscreen && <Box
-            onTouchStart={handleHeaderTouchStart}
-            onTouchMove={handleHeaderTouchMove}
-            onTouchEnd={handleHeaderTouchEnd}
-            sx={{
-              position: 'sticky',
-              top: 0,
-              zIndex: 10,
-              backgroundColor: 'background.paper',
-              borderBottom: 1,
-              borderColor: 'divider',
-              px: 2,
-              pt: isIOSPortrait ? 'max(8px, env(safe-area-inset-top, 8px))' : 0,
-              pb: isIOSPortrait ? 0.5 : (isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1)),
-              flexShrink: 0,
-              touchAction: 'none',
-            }}
-          >
-            {/* 下拉指示器 — 橫向時隱藏節省空間 */}
-            {!isLandscape && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: isIOSPortrait ? 0.5 : 1, mb: 0.5, cursor: 'grab' }}>
-                <Box
-                  sx={{
-                    width: 40,
-                    height: 4,
-                    backgroundColor: dragOffset > 0 ? 'action.active' : 'action.disabled',
-                    borderRadius: 2,
-                    transition: 'background-color 0.2s',
-                  }}
-                />
-              </Box>
-            )}
-
-            {/* 曲目資訊與關閉按鈕 */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          {!isMorrorFullscreen && (
+            <Box sx={{ flexShrink: 0, backgroundColor: 'background.paper', borderBottom: 1, borderColor: 'divider', px: { xs: 1.5, sm: 2.5 }, pb: 1 }}>
               <Box
-                component="img"
-                src={track.thumbnail}
-                alt={track.title}
-                sx={{ width: (isUltrawide || isLandscape || isIOSPortrait) ? 32 : 48, height: (isUltrawide || isLandscape || isIOSPortrait) ? 32 : 48, borderRadius: 1, objectFit: 'cover' }}
-              />
-              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600, fontSize: (isUltrawide || isIOSPortrait) ? '1rem' : '0.875rem' }}>
-                  {track.title}
-                </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: (isUltrawide || isIOSPortrait) ? '0.85rem' : '0.75rem' }}>
+                onTouchStart={handleHeaderTouchStart}
+                onTouchMove={handleHeaderTouchMove}
+                onTouchEnd={handleHeaderTouchEnd}
+                sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 1, touchAction: 'none' }}
+              >
+                <Box sx={{ minWidth: 0, flex: 1, pr: 0.5 }}>
+                  <Typography variant="subtitle1" noWrap title={track.title} sx={{ fontSize: { xs: '0.9375rem', sm: '1.125rem' }, fontWeight: 700, lineHeight: 1.4 }}>
+                    {track.title}
+                  </Typography>
+                  <Typography variant="caption" noWrap component="p" sx={{ fontSize: '0.75rem', color: 'text.secondary', lineHeight: 1.4 }}>
                     {track.channel}
                   </Typography>
-                  {currentLyrics && (
-                    <Chip
-                      label={currentLyrics.source === 'youtube' ? 'YT' :
-                        currentLyrics.source === 'netease' ? '網易' :
-                        currentLyrics.source === 'lrclib' ? 'LRC' :
-                        currentLyrics.source === 'genius' ? 'G' : '?'}
-                    size="small"
-                    sx={{ height: (isUltrawide || isIOSPortrait) ? 20 : 16, fontSize: (isUltrawide || isIOSPortrait) ? '0.75rem' : '0.65rem' }}
-                  />
-                )}
-              </Box>
-            </Box>
-            {viewMode === 'lyrics' && (
-              <>
-                <Tooltip title="搜尋其他歌詞">
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOpenSearch}>
-                    <EditIcon fontSize={isUltrawide ? "medium" : "small"} />
+                </Box>
+                <Tooltip title="歌詞設定">
+                  <IconButton aria-label="歌詞設定" aria-expanded={lyricsSettingsOpen} aria-controls="lyrics-settings"
+                    color={lyricsSettingsOpen ? 'primary' : 'default'} onClick={() => {
+                      if (lyricsSettingsOpen) handleCancelFineTune();
+                      setLyricsSettingsOpen(!lyricsSettingsOpen);
+                    }}>
+                    <TuneIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                {!isLandscape && (
-                  <Tooltip title={isFullscreenLayout ? "退出全螢幕" : "全螢幕歌詞"}>
-                    <IconButton size="small" onClick={() => setIsFullscreenLayout(!isFullscreenLayout)}>
-                      {isFullscreenLayout ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
-                    </IconButton>
-                  </Tooltip>
-                )}
-              </>
-            )}
-            <IconButton onClick={onClose} size={isUltrawide ? "large" : "medium"}>
-              <KeyboardArrowDownIcon />
-            </IconButton>
-          </Box>
-
-          {/* 模式切換 — 沉浸全螢幕時隱藏 */}
-          {(!isFullscreenLayout || isLandscape) && !isMorrorFullscreen && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: isIOSPortrait ? 0.25 : (isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1)) }}>
+                <Tooltip title={`待播清單（${playlist.length} 首）`}>
+                  <IconButton aria-label={`待播清單（${playlist.length} 首）`} aria-expanded={queueOpen}
+                    color={queueOpen ? 'primary' : 'default'} onClick={() => setQueueOpen(!queueOpen)}>
+                    <QueueMusicIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="收起播放器">
+                  <IconButton aria-label="收起播放器" onClick={onClose}><KeyboardArrowDownIcon /></IconButton>
+                </Tooltip>
+              </Box>
               <ToggleButtonGroup
-                value={viewMode}
-                exclusive
-                onChange={(_, newMode) => { if (newMode) { setViewMode(newMode); setIsMorrorFullscreen(false); } }}
-                size={isUltrawide ? "large" : "small"}
-                sx={{
-                  '& .MuiToggleButton-root': {
-                    px: isUltrawide ? 5 : (isIOSPortrait ? 1.2 : 2),
-                    py: isUltrawide ? 1.5 : 0.5,
-                    fontSize: isUltrawide ? '1.15rem' : (isIOSPortrait ? '0.75rem' : 'inherit'),
-                    minHeight: isUltrawide ? 52 : 'auto',
-                  }
+                value={viewMode} exclusive aria-label="播放器顯示模式"
+                onChange={(_, newMode) => { if (newMode) { handleCancelFineTune(); setViewMode(newMode); setIsMorrorFullscreen(false); } }}
+                sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', width: '100%',
+                  '& .MuiToggleButton-root': { minWidth: 0, minHeight: 44, px: 0.5, py: 1, whiteSpace: 'nowrap', fontSize: '0.875rem', gap: 0.5 },
+                  '& .MuiSvgIcon-root': { fontSize: 18, flexShrink: 0 },
                 }}
               >
-                <ToggleButton value="lyrics">
-                  <LyricsIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 24 : (isIOSPortrait ? 14 : 18) }} />
-                  歌詞
-                </ToggleButton>
-                <ToggleButton value="video">
-                  <OndemandVideoIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 24 : (isIOSPortrait ? 14 : 18) }} />
-                  影片
-                  {videoDownloading && (
-                    <CircularProgress size={isIOSPortrait ? 10 : 12} sx={{ ml: 0.5 }} />
-                  )}
-                </ToggleButton>
-                <ToggleButton value="cover">
-                  <AlbumIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 24 : (isIOSPortrait ? 14 : 18) }} />
-                  封面
-                </ToggleButton>
-                <ToggleButton value="morror" disabled={!currentLyrics?.isSynced}>
-                  <AutoAwesomeIcon sx={{ mr: 0.5, fontSize: isUltrawide ? 24 : (isIOSPortrait ? 14 : 18) }} />
-                  沉浸
-                </ToggleButton>
+                <ToggleButton value="lyrics"><LyricsIcon />歌詞</ToggleButton>
+                <ToggleButton value="video" aria-busy={videoDownloading}><OndemandVideoIcon />影片</ToggleButton>
+                <ToggleButton value="cover"><AlbumIcon />封面</ToggleButton>
+                <ToggleButton value="morror" disabled={!currentLyrics?.isSynced}><AutoAwesomeIcon />沉浸</ToggleButton>
               </ToggleButtonGroup>
-            </Box>
-          )}
-
-          {/* 歌詞微調控制（僅在歌詞模式顯示） */}
-          {viewMode === 'lyrics' && currentLyrics?.isSynced && (
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              gap: isUltrawide ? 2 : (isIOSPortrait ? 1 : 0.5), 
-              mt: isIOSPortrait ? 0.25 : (isUltrawide ? 0.25 : (isLandscape ? 0.5 : 1)),
-              mb: isUltrawide ? 0.5 : 0
-            }}>
-              {isFineTuning ? (
-                <>
-                  <Typography variant={isUltrawide ? "body2" : "caption"} color="primary" sx={{ fontWeight: isUltrawide ? 600 : 400 }}>滑動對準:</Typography>
-                  <Chip
-                    label={fineTuneOffset === 0 ? '0s' : `${fineTuneOffset > 0 ? '+' : ''}${fineTuneOffset.toFixed(1)}s`}
-                    size={isUltrawide ? "medium" : "small"}
-                    color="primary"
-                    sx={{
-                      height: isUltrawide ? 44 : 20,
-                      minWidth: isUltrawide ? 100 : 50,
-                      fontSize: isUltrawide ? '1.2rem' : 'inherit'
-                    }}
-                  />
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleConfirmFineTune} color="success"
-                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
-                  >
-                    <CheckIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
-                  </IconButton>
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleCancelFineTune} color="error"
-                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
-                  >
-                    <CloseIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
-                  </IconButton>
-                </>
-              ) : (
-                <>
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetDecrease}
-                    onPointerDown={() => startHold(-0.5)} onPointerUp={stopHold} onPointerLeave={stopHold}
-                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
-                  >
-                    <RemoveIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
-                  </IconButton>
-                  <Chip
-                    label={timeOffset === 0 ? '0s' : `${timeOffset > 0 ? '+' : ''}${timeOffset.toFixed(1)}s`}
-                    size={isUltrawide ? "medium" : "small"}
-                    onClick={handleOffsetReset}
-                    color={timeOffset === 0 ? 'default' : 'primary'}
-                    sx={{
-                      height: isUltrawide ? 44 : 24,
-                      minWidth: isUltrawide ? 100 : 55,
-                      cursor: 'pointer',
-                      fontWeight: 700,
-                      fontSize: isUltrawide ? '1.2rem' : 'inherit'
-                    }}
-                  />
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetIncrease}
-                    onPointerDown={() => startHold(0.5)} onPointerUp={stopHold} onPointerLeave={stopHold}
-                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
-                  >
-                    <AddIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
-                  </IconButton>
-                  {timeOffset !== 0 && (
-                    <IconButton size={isUltrawide ? "large" : "small"} onClick={handleOffsetReset}
-                      sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
-                    >
-                      <RestartAltIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
-                    </IconButton>
-                  )}
-                  <IconButton size={isUltrawide ? "large" : "small"} onClick={handleEnterFineTune} color="primary"
-                    sx={isUltrawide ? { minWidth: 52, minHeight: 52 } : undefined}
-                  >
-                    <TuneIcon sx={{ fontSize: isUltrawide ? 36 : 18 }} />
-                  </IconButton>
-                </>
-              )}
-            </Box>
-          )}
-        </Box>}
-
-        {/* 主內容區域 */}
-        <Box
-          ref={viewMode === 'lyrics' ? lyricsContainerRef : undefined}
-          onScroll={viewMode === 'lyrics' && isFineTuning ? handleFineTuneScroll : undefined}
-          sx={{
-            flex: 1,
-            overflow: 'auto',
-            position: 'relative',
-            minHeight: 0,
-            // 捲軸樣式 - 確保可見
-            '&::-webkit-scrollbar': { width: '6px' },
-            '&::-webkit-scrollbar-track': { backgroundColor: 'transparent' },
-            '&::-webkit-scrollbar-thumb': {
-              backgroundColor: 'rgba(255,255,255,0.3)',
-              borderRadius: '3px',
-              '&:hover': { backgroundColor: 'rgba(255,255,255,0.5)' },
-            },
-            ...(viewMode === 'lyrics' && isFineTuning && {
-              '&::before': {
-                content: '""',
-                position: 'fixed',
-                top: '50%',
-                left: 0,
-                right: 0,
-                height: '2px',
-                backgroundColor: 'primary.main',
-                opacity: 0.8,
-                zIndex: 5,
-                pointerEvents: 'none',
-              },
-            }),
-          }}
-        >
-          {(isFullscreenLayout && !isLandscape) ? renderLyrics() : (
-            <>
-              {viewMode === 'lyrics' && renderLyrics()}
-              {viewMode === 'video' && renderVideo()}
-              {viewMode === 'cover' && renderCover()}
-              {viewMode === 'morror' && currentLyrics?.isSynced && (
-                <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
-                  <MorrorLyrics
-                    lines={currentLyrics.lines}
-                    currentLineIndex={currentLineIndex}
-                    track={track}
-                    timeOffset={timeOffset}
-                    onFullscreenChange={setIsMorrorFullscreen}
-                    translations={translations}
-                    translationError={translationError}
-                    isTranslating={isTranslating}
-                    onRetryTranslation={handleRetryTranslation}
-                  />
-                  {/* 沉浸全螢幕時顯示浮動歌名 */}
-                  {isMorrorFullscreen && (
-                    <Box sx={{
-                      position: 'absolute',
-                      top: 'max(8px, env(safe-area-inset-top, 8px))',
-                      left: 8, zIndex: 4,
-                      display: 'flex', alignItems: 'center', gap: 1,
-                      backgroundColor: 'rgba(0,0,0,0.45)',
-                      borderRadius: 2, px: 1, py: 0.5,
-                      maxWidth: 'calc(100% - 120px)',
-                    }}>
-                      <Box
-                        component="img"
-                        src={track.thumbnail}
-                        alt={track.title}
-                        sx={{ width: 28, height: 28, borderRadius: 0.5, objectFit: 'cover', flexShrink: 0 }}
-                      />
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography noWrap sx={{ color: 'rgba(255,255,255,0.95)', fontSize: '0.78rem', fontWeight: 600, lineHeight: 1.2 }}>
-                          {track.title}
-                        </Typography>
-                        <Typography noWrap sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.65rem', lineHeight: 1.2 }}>
-                          {track.channel}
-                        </Typography>
-                      </Box>
+              {lyricsSettingsOpen && (
+                <Box id="lyrics-settings" sx={{ pt: 1.5, maxHeight: '32dvh', overflowY: 'auto' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {currentLyrics ? `歌詞來源：${currentLyrics.source === 'lrclib' ? 'LRCLIB' : currentLyrics.source === 'netease' ? '網易雲音樂' : currentLyrics.source === 'youtube' ? 'YouTube CC' : currentLyrics.source}` : '找不到合適的歌詞？'}
+                    </Typography>
+                    <Button startIcon={<SearchIcon />} onClick={handleOpenSearch}>搜尋其他歌詞</Button>
+                  </Box>
+                  {currentLyrics?.isSynced && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                      <Typography variant="caption" sx={{ width: '100%', textAlign: 'center', fontSize: '0.75rem', color: 'text.secondary' }}>
+                        {isFineTuning ? '滑動歌詞，將正在唱的那句移到中線。' : '歌詞與聲音不同步時，以 0.5 秒微調。'}
+                      </Typography>
+                      {isFineTuning ? (
+                        <>
+                          <Chip label={`${fineTuneOffset > 0 ? '+' : ''}${fineTuneOffset.toFixed(1)} 秒`} color="primary" />
+                          <Button startIcon={<CheckIcon />} onClick={handleConfirmFineTune}>套用</Button>
+                          <Button onClick={handleCancelFineTune}>取消</Button>
+                        </>
+                      ) : (
+                        <>
+                          <IconButton aria-label="歌詞延後 0.5 秒" onClick={handleOffsetDecrease}><RemoveIcon /></IconButton>
+                          <Button aria-label="重設歌詞時間偏移" onClick={handleOffsetReset} sx={{ minWidth: 72, fontVariantNumeric: 'tabular-nums' }}>
+                            {timeOffset > 0 ? '+' : ''}{timeOffset.toFixed(1)} 秒
+                          </Button>
+                          <IconButton aria-label="歌詞提前 0.5 秒" onClick={handleOffsetIncrease}><AddIcon /></IconButton>
+                          <Button startIcon={<TuneIcon />} onClick={handleEnterFineTune}>滑動對準</Button>
+                        </>
+                      )}
                     </Box>
                   )}
                 </Box>
               )}
-            </>
+            </Box>
+          )}
+
+          <Box
+            ref={viewMode === 'lyrics' ? lyricsContainerRef : undefined}
+            onScroll={viewMode === 'lyrics' && isFineTuning ? handleFineTuneScroll : undefined}
+            aria-label={viewMode === 'lyrics' ? '歌曲歌詞' : undefined}
+            sx={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'auto', overscrollBehavior: 'contain',
+              '&::-webkit-scrollbar': { width: 6 },
+              '&::-webkit-scrollbar-thumb': { backgroundColor: 'action.disabled', borderRadius: 3 },
+              ...(viewMode === 'lyrics' && isFineTuning && { '&::before': {
+                content: '""', position: 'sticky', display: 'block', top: '50%', height: 2,
+                backgroundColor: 'primary.main', opacity: 0.8, zIndex: 5, pointerEvents: 'none',
+              } }),
+            }}
+          >
+            {viewMode === 'lyrics' && renderLyrics()}
+            {viewMode === 'video' && renderVideo()}
+            {viewMode === 'cover' && renderCover()}
+            {viewMode === 'morror' && currentLyrics?.isSynced && (
+              <MorrorLyrics
+                lines={currentLyrics.lines} currentLineIndex={currentLineIndex} track={track} timeOffset={timeOffset}
+                onFullscreenChange={setIsMorrorFullscreen} translations={translations}
+                translationError={translationError} isTranslating={isTranslating} onRetryTranslation={handleRetryTranslation}
+              />
+            )}
+          </Box>
+          {!showLandscapeSidePanel && !isMorrorFullscreen && (
+            <Box sx={{ flexShrink: 0, px: { xs: 2, sm: 3 }, py: 1, borderTop: 1, borderColor: 'divider', backgroundColor: 'background.paper' }}>
+              <PlayerControls isCompact />
+            </Box>
           )}
         </Box>
 
-        {/* 待播清單 - 非全螢幕、非沉浸、非橫向時顯示（橫向用右側面板） */}
-        {!effectiveFullscreen && !isMorrorFullscreen && (
-          <Box
-            sx={{
-              borderTop: 1,
-              borderColor: 'divider',
-              backgroundColor: 'background.paper',
-              maxHeight: '20%',
-              overflow: 'auto',
-              flexShrink: 0,
-              pb: 3,
-            }}
-          >
-            <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block', fontWeight: 600 }}>
-              播放清單 ({playlist.filter(t => t.title && t.title !== '載入中...').length})
-            </Typography>
-            {renderPlaylist()}
+        {showQueueSidebar && queueOpen && !isMorrorFullscreen && (
+          <Box component="aside" aria-label="待播清單" sx={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0, borderLeft: 1, borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+              <Box><Typography fontWeight={700}>待播清單</Typography><Typography variant="caption" color="text.secondary">{playlist.filter(t => t.title && t.title !== '載入中...').length} 首歌曲</Typography></Box>
+              <IconButton aria-label="收起待播清單" onClick={() => setQueueOpen(false)}><CloseIcon /></IconButton>
+            </Box>
+            <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{renderPlaylist()}</Box>
           </Box>
         )}
+      </Drawer>
 
-        {/* 直式裝置：底部迷你控制列（全螢幕模式，沉浸全螢幕時隱藏） */}
-        {isFullscreenLayout && !isLandscape && !isMorrorFullscreen && (
-          <Box
-            sx={{
-              flexShrink: 0,
-              borderTop: 1,
-              borderColor: 'divider',
-              px: 1.5,
-              py: 1,
-              backgroundColor: 'background.paper',
-            }}
-          >
-            <PlayerControls isCompact />
-          </Box>
-        )}
-      </Box>
-
-      {/* 橫式裝置：右側播放清單 — 沉浸全螢幕時隱藏 */}
-      {isLandscape && !isMorrorFullscreen && (
-        <Box
-          sx={{
-            width: isUltrawide ? 440 : (isDesktop ? 380 : 320),
-            flexShrink: 0,
-            borderLeft: 1,
-            borderColor: 'divider',
-            overflow: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            backgroundColor: 'background.paper',
-          }}
-        >
-          <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1.5, display: 'block', fontWeight: 600, borderBottom: 1, borderColor: 'divider' }}>
-            播放清單 ({playlist.filter(t => t.title && t.title !== '載入中...').length})
-          </Typography>
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
-            {renderPlaylist()}
-          </Box>
+      <Drawer anchor="bottom" open={open && queueOpen && !showQueueSidebar && !isMorrorFullscreen} onClose={() => setQueueOpen(false)}
+        PaperProps={{ role: 'dialog', 'aria-modal': true, 'aria-label': '待播清單', sx: {
+          maxHeight: '75dvh', borderRadius: '20px 20px 0 0', pb: 'env(safe-area-inset-bottom, 0px)',
+          width: '100%', maxWidth: 640, mx: 'auto',
+        } }}>
+        <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: 1, borderColor: 'divider' }}>
+          <Box><Typography fontWeight={700}>待播清單</Typography><Typography variant="caption" color="text.secondary">{playlist.filter(t => t.title && t.title !== '載入中...').length} 首歌曲・可拖曳排序</Typography></Box>
+          <IconButton aria-label="關閉待播清單" onClick={() => setQueueOpen(false)}><CloseIcon /></IconButton>
         </Box>
-      )}
-    </Drawer>
+        <Box sx={{ overflow: 'auto', minHeight: 0 }}>{renderPlaylist()}</Box>
+      </Drawer>
+
 
       {/* 歌詞搜尋對話框 */}
-      <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>搜尋歌詞</DialogTitle>
+      <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} maxWidth="sm" fullWidth aria-labelledby="fullscreen-lyrics-search-title">
+        <DialogTitle id="fullscreen-lyrics-search-title">搜尋歌詞</DialogTitle>
         <DialogContent>
+          {searchError && <Alert severity="error" sx={{ mb: 2 }}>{searchError}</Alert>}
           <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2, mt: 1 }}>
             <ToggleButtonGroup
               value={searchSource}
               exclusive
               onChange={handleSourceChange}
-              size="small"
+              size="small" aria-label="歌詞搜尋來源"
+              sx={{ width: '100%', '& .MuiToggleButton-root': { flex: 1, whiteSpace: 'nowrap', minWidth: 0, px: 1 } }}
             >
-              <ToggleButton value="ai">🤖 AI</ToggleButton>
+              <ToggleButton value="ai">AI</ToggleButton>
               <ToggleButton value="lrclib">LRCLIB</ToggleButton>
               <ToggleButton value="netease">網易雲音樂</ToggleButton>
             </ToggleButtonGroup>
@@ -1979,7 +1767,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 disabled={isSearching}
                 startIcon={isSearching ? <CircularProgress size={16} /> : undefined}
               >
-                {isSearching ? '辨識中...' : '🤖 開始 AI 辨識歌詞'}
+                {isSearching ? '辨識中...' : '開始 AI 辨識歌詞'}
               </Button>
             </Box>
           ) : (<>
@@ -1989,17 +1777,24 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             label="輸入歌名或關鍵字"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                event.preventDefault();
+                handleSearch();
+              }
+            }}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton onClick={handleSearch} disabled={isSearching}>
+                  <IconButton aria-label="搜尋歌詞" onClick={handleSearch} disabled={isSearching}>
                     {isSearching ? <CircularProgress size={20} /> : <SearchIcon />}
                   </IconButton>
                 </InputAdornment>
               ),
             }}
           />
+          {isSearching && <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 3 }}><CircularProgress size={20} /><Typography variant="body2">正在搜尋歌詞…</Typography></Box>}
+          {hasSearched && !isSearching && !searchError && searchResults.length === 0 && <Typography role="status" variant="body2" color="text.secondary" sx={{ py: 3 }}>沒有找到歌詞，試試歌名、歌手或其他來源。</Typography>}
           {searchResults.length > 0 && (
             <List sx={{ mt: 2, maxHeight: 300, overflow: 'auto' }}>
               {searchResults.map((result) => (
@@ -2009,7 +1804,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                       primary={result.trackName}
                       secondaryTypographyProps={{ component: 'div' }}
                       secondary={
-                        <Box component="span" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <Box component="span" sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
                           <span>{result.artistName}</span>
                           {result.albumName && <span>· {result.albumName}</span>}
                           {result.duration && <span>· {formatDuration(result.duration)}</span>}

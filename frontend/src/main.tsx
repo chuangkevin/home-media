@@ -1,192 +1,176 @@
-import { useState, useEffect, useMemo } from 'react';
-import ReactDOM from 'react-dom/client';
-import { Provider } from 'react-redux';
-import { ThemeProvider, createTheme, CssBaseline, alpha } from '@mui/material';
-import App from './App';
-import { store } from './store';
-import apiService from './services/api.service';
+import { useState, useEffect, useMemo } from 'react'
+import ReactDOM from 'react-dom/client'
+import { Provider } from 'react-redux'
+import { ThemeProvider, createTheme, CssBaseline, alpha } from '@mui/material'
+import App from './App'
+import { store } from './store'
+import apiService from './services/api.service'
 
-// ============================================================
-// Obsidian Gold — Premium dark music player theme
-// Deep navy backgrounds · Warm amber accents · Cinzel/Syne/Outfit typography
-// ============================================================
+// A quiet listening room: warm amber, readable surfaces, and familiar controls.
+const bodyFont =
+  '"Outfit", -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", sans-serif'
+
 function createPremiumTheme(mode: 'light' | 'dark') {
-  const isDark = mode === 'dark';
-
-  const amber = {
-    main: '#F5A623',
-    light: '#FFC846',
-    dark: '#C97D0A',
-    contrastText: '#000000',
-  };
+  const isDark = mode === 'dark'
+  const primary = isDark
+    ? { main: '#E9B45A', light: '#F2CF92', dark: '#C38A35', contrastText: '#19130A' }
+    : { main: '#87520E', light: '#A66914', dark: '#653904', contrastText: '#FFFCF7' }
+  const foreground = isDark ? '#F5F1E9' : '#252A32'
+  const secondaryText = isDark ? '#AFB8C5' : '#5A6370'
+  const divider = isDark ? '#35404B' : '#D8D3C9'
 
   return createTheme({
+    spacing: 8,
     palette: {
       mode,
-      primary: amber,
+      primary,
       secondary: {
-        main: isDark ? '#40C4FF' : '#0094CC',
-        light: '#82D8FF',
-        dark: '#0094CC',
-        contrastText: '#000000',
+        main: isDark ? '#82C5BA' : '#226B60',
+        contrastText: isDark ? '#0D1117' : '#FFFCF7',
       },
       background: isDark
-        ? { default: '#080B12', paper: '#0F1220' }
-        : { default: '#F2EDE4', paper: '#FFFFFF' },
-      text: isDark
-        ? { primary: '#EEF0FF', secondary: '#7B7D9E' }
-        : { primary: '#1A1A2E', secondary: '#66688A' },
-      divider: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.08)',
+        ? { default: '#0D1117', paper: '#151B23' }
+        : { default: '#F5F1E9', paper: '#FFFCF7' },
+      text: { primary: foreground, secondary: secondaryText },
+      divider,
       action: {
-        hover: alpha(amber.main, 0.08),
-        selected: alpha(amber.main, 0.15),
-        focus: alpha(amber.main, 0.12),
+        active: secondaryText,
+        hover: alpha(primary.main, 0.08),
+        selected: alpha(primary.main, isDark ? 0.14 : 0.1),
+        focus: alpha(primary.main, 0.16),
       },
-      error: { main: '#FF5C5C' },
-      success: { main: '#4ADE80' },
+      error: { main: isDark ? '#FF938F' : '#AA3430' },
+      success: { main: isDark ? '#91D1A6' : '#27663D' },
+      warning: { main: isDark ? '#EDBC69' : '#83510B' },
+      info: { main: isDark ? '#9DBFF0' : '#315F98' },
     },
     typography: {
-      fontFamily: '"Outfit", "Noto Sans TC", "Microsoft JhengHei", -apple-system, sans-serif',
-      h1: { fontFamily: '"Cinzel", serif', letterSpacing: '0.06em' },
-      h2: { fontFamily: '"Cinzel", serif', letterSpacing: '0.05em' },
-      h3: { fontFamily: '"Cinzel", serif', letterSpacing: '0.04em', fontWeight: 700 },
-      h4: { fontFamily: '"Syne", sans-serif', fontWeight: 700, letterSpacing: '0.02em' },
-      h5: { fontFamily: '"Syne", sans-serif', fontWeight: 600, letterSpacing: '0.01em' },
-      h6: { fontFamily: '"Syne", sans-serif', fontWeight: 600, letterSpacing: '0.01em' },
-      subtitle1: { fontFamily: '"Outfit", sans-serif', fontWeight: 500, letterSpacing: '0.01em' },
-      subtitle2: { fontFamily: '"Outfit", sans-serif', fontWeight: 600, letterSpacing: '0.02em' },
-      body1: { fontFamily: '"Outfit", sans-serif', letterSpacing: '0.01em' },
-      body2: { fontFamily: '"Outfit", sans-serif', letterSpacing: '0.01em' },
-      caption: { fontFamily: '"Outfit", sans-serif', letterSpacing: '0.02em' },
-      button: { fontFamily: '"Outfit", sans-serif', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'none' },
+      fontFamily: bodyFont,
+      h1: {
+        fontFamily: '"Cinzel", "PingFang TC", serif',
+        fontWeight: 600,
+        letterSpacing: '0.02em',
+        lineHeight: 1.2,
+      },
+      h2: { fontSize: '2rem', fontWeight: 600, letterSpacing: '-0.02em', lineHeight: 1.25 },
+      h3: { fontSize: '1.75rem', fontWeight: 600, letterSpacing: '-0.02em', lineHeight: 1.3 },
+      h4: { fontSize: '1.5rem', fontWeight: 600, letterSpacing: '-0.01em', lineHeight: 1.35 },
+      h5: { fontSize: '1.25rem', fontWeight: 600, letterSpacing: '-0.01em', lineHeight: 1.4 },
+      h6: { fontSize: '1.125rem', fontWeight: 600, lineHeight: 1.45 },
+      subtitle1: { fontSize: '1rem', fontWeight: 500, lineHeight: 1.6 },
+      subtitle2: { fontSize: '0.875rem', fontWeight: 600, lineHeight: 1.5 },
+      body1: { fontSize: '1rem', lineHeight: 1.65 },
+      body2: { fontSize: '0.875rem', lineHeight: 1.6 },
+      caption: { fontSize: '0.75rem', lineHeight: 1.5 },
+      overline: { fontSize: '0.75rem', fontWeight: 600, lineHeight: 1.5, letterSpacing: '0.06em' },
+      button: { fontSize: '0.875rem', fontWeight: 600, lineHeight: 1.5, textTransform: 'none' },
     },
-    shape: { borderRadius: 12 },
+    shape: { borderRadius: 8 },
     components: {
       MuiCssBaseline: {
         styleOverrides: `
-          :root {
-            --app-dvh: 100vh;
-          }
-          html, body, #root {
-            height: 100%;
-            min-height: 100%;
-            overflow: hidden;
-          }
+          :root { --app-dvh: 100vh; color-scheme: ${mode}; }
+          html, body, #root { height: 100%; min-height: 100%; overflow: hidden; }
           * { box-sizing: border-box; }
+          :focus-visible, .Mui-focusVisible { outline: 2px solid ${primary.main}; outline-offset: 3px; }
+          ::selection { background: ${alpha(primary.main, 0.28)}; }
+          input::placeholder, textarea::placeholder { color: ${secondaryText}; opacity: 1; }
           ::-webkit-scrollbar { width: 6px; height: 6px; }
           ::-webkit-scrollbar-track { background: transparent; }
-          ::-webkit-scrollbar-thumb { background: rgba(245,166,35,0.22); border-radius: 3px; }
-          ::-webkit-scrollbar-thumb:hover { background: rgba(245,166,35,0.42); }
+          ::-webkit-scrollbar-thumb { background: ${alpha(secondaryText, 0.45)}; border-radius: 3px; }
+          ::-webkit-scrollbar-thumb:hover { background: ${secondaryText}; }
           @keyframes pulse-glow {
-            0%, 100% { box-shadow: 0 0 8px rgba(245,166,35,0.3); }
-            50% { box-shadow: 0 0 16px rgba(245,166,35,0.55); }
+            0%, 100% { box-shadow: 0 0 0 1px ${alpha(primary.main, 0.16)}; }
+            50% { box-shadow: 0 0 0 1px ${alpha(primary.main, 0.3)}; }
           }
-          @keyframes eq-bar1 {
-            0%, 100% { height: 4px; } 50% { height: 13px; }
-          }
-          @keyframes eq-bar2 {
-            0%, 100% { height: 9px; } 33% { height: 4px; } 66% { height: 14px; }
-          }
-          @keyframes eq-bar3 {
-            0%, 100% { height: 6px; } 50% { height: 11px; }
+          @keyframes eq-bar1 { 0%, 100% { height: 4px; } 50% { height: 13px; } }
+          @keyframes eq-bar2 { 0%, 100% { height: 9px; } 33% { height: 4px; } 66% { height: 14px; } }
+          @keyframes eq-bar3 { 0%, 100% { height: 6px; } 50% { height: 11px; } }
+          @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+              animation-duration: 0.01ms !important;
+              animation-iteration-count: 1 !important;
+              transition-duration: 0.01ms !important;
+              scroll-behavior: auto !important;
+            }
           }
         `,
       },
       MuiPaper: {
+        defaultProps: { elevation: 0 },
+        styleOverrides: { root: { backgroundImage: 'none' } },
+      },
+      MuiButtonBase: {
         styleOverrides: {
           root: {
-            backgroundImage: 'none',
-            ...(isDark && {
-              backgroundColor: '#0F1220',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
-            }),
+            '&.Mui-focusVisible, &:focus-visible': {
+              outline: `2px solid ${primary.main}`,
+              outlineOffset: 3,
+            },
           },
         },
-        defaultProps: { elevation: 0 },
       },
       MuiCard: {
         styleOverrides: {
           root: {
             backgroundImage: 'none',
-            ...(isDark && {
-              backgroundColor: '#121526',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
-            }),
-            borderRadius: 16,
+            backgroundColor: isDark ? '#19212B' : '#FFFCF7',
+            border: `1px solid ${divider}`,
+            borderRadius: 12,
+            boxShadow: 'none',
             overflow: 'hidden',
-            transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1), box-shadow 0.25s cubic-bezier(0.4,0,0.2,1)',
+            transition: 'border-color 160ms ease, background-color 160ms ease',
           },
         },
+      },
+      MuiCardActionArea: {
+        styleOverrides: { root: { '&.Mui-focusVisible': { outlineOffset: -3 } } },
       },
       MuiSlider: {
         styleOverrides: {
-          root: {
-            color: amber.main,
-            height: 3,
-            padding: '12px 0',
-            '& .MuiSlider-thumb': {
-              width: 12,
-              height: 12,
-              boxShadow: 'none',
-              transition: 'all 0.15s cubic-bezier(.47,1.64,.41,.8)',
-              '&::before': { display: 'none' },
-              '&:hover, &.Mui-focusVisible': {
-                boxShadow: '0 0 0 8px rgba(245,166,35,0.18)',
-                width: 14,
-                height: 14,
-              },
-              '&.Mui-active': { width: 16, height: 16 },
-            },
-            '& .MuiSlider-rail': {
-              opacity: 0.14,
-              backgroundColor: isDark ? '#EEF0FF' : '#1A1A2E',
-            },
-            '& .MuiSlider-track': {
-              background: 'linear-gradient(90deg, #C97D0A 0%, #F5A623 55%, #FFC846 100%)',
-              border: 'none',
-              borderRadius: 2,
-            },
+          root: { height: 4, padding: '20px 0', color: primary.main },
+          thumb: {
+            width: 16,
+            height: 16,
+            boxShadow: 'none',
+            '&::before': { display: 'none' },
+            '&:hover, &.Mui-focusVisible': { boxShadow: `0 0 0 6px ${alpha(primary.main, 0.16)}` },
           },
+          rail: { opacity: 1, backgroundColor: isDark ? '#657181' : '#93999F' },
+          track: { border: 'none' },
         },
       },
       MuiBottomNavigation: {
-        styleOverrides: {
-          root: {
-            backgroundColor: 'transparent',
-            height: 60,
-          },
-        },
+        styleOverrides: { root: { backgroundColor: 'transparent', height: 64 } },
       },
       MuiBottomNavigationAction: {
         styleOverrides: {
           root: {
-            minWidth: 56,
-            color: isDark ? '#4A4C6A' : '#999',
-            paddingTop: '10px',
-            '&.Mui-selected': { color: amber.main },
-            '& .MuiSvgIcon-root': {
-              transition: 'transform 0.2s ease, filter 0.2s ease',
-            },
-            '&.Mui-selected .MuiSvgIcon-root': {
-              transform: 'scale(1.15)',
-              filter: 'drop-shadow(0 0 5px rgba(245,166,35,0.65))',
-            },
-            '& .MuiBottomNavigationAction-label': {
-              fontFamily: '"Outfit", sans-serif',
-              fontSize: '0.68rem',
-              fontWeight: 500,
-              letterSpacing: '0.02em',
-              '&.Mui-selected': { fontSize: '0.68rem', fontWeight: 600 },
-            },
+            minWidth: 64,
+            minHeight: 56,
+            padding: '8px 12px',
+            color: secondaryText,
+            '&.Mui-selected': { color: primary.main },
+            '& .MuiSvgIcon-root': { fontSize: 24 },
+          },
+          label: {
+            fontFamily: bodyFont,
+            fontSize: '0.75rem',
+            fontWeight: 500,
+            lineHeight: 1.5,
+            marginTop: 4,
+            '&.Mui-selected': { fontSize: '0.75rem', fontWeight: 600 },
           },
         },
       },
       MuiIconButton: {
         styleOverrides: {
           root: {
+            minWidth: 44,
+            minHeight: 44,
             borderRadius: 8,
-            transition: 'all 0.18s ease',
-            '&:hover': { backgroundColor: alpha(amber.main, 0.09) },
+            transition: 'color 160ms ease, background-color 160ms ease',
+            '&:hover': { backgroundColor: alpha(primary.main, 0.1) },
           },
         },
       },
@@ -194,131 +178,176 @@ function createPremiumTheme(mode: 'light' | 'dark') {
         styleOverrides: {
           root: {
             '& .MuiOutlinedInput-root': {
-              borderRadius: 28,
-              fontFamily: '"Outfit", sans-serif',
-              fontSize: '1rem', // 確保不小於 16px 防止 iOS 自動縮放
-              ...(isDark && {
-                backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.06)' },
-              }),
-              '& fieldset': {
-                borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.14)',
-                transition: 'border-color 0.2s ease',
-              },
-              '&:hover fieldset': { borderColor: alpha(amber.main, 0.5) },
-              '&.Mui-focused fieldset': { borderColor: amber.main, borderWidth: 1 },
+              borderRadius: 8,
+              fontFamily: bodyFont,
+              fontSize: '1rem',
+              minHeight: 48,
+              backgroundColor: isDark ? '#10161E' : '#FFFCF7',
+              '& fieldset': { borderColor: isDark ? '#697585' : '#808A97' },
+              '&:hover fieldset': { borderColor: secondaryText },
+              '&.Mui-focused fieldset': { borderColor: primary.main, borderWidth: 2 },
             },
-            '& .MuiInputAdornment-root .MuiSvgIcon-root': {
-              color: isDark ? '#7B7D9E' : '#999',
-              transition: 'color 0.2s ease',
-            },
-            '& .MuiOutlinedInput-root.Mui-focused .MuiInputAdornment-root .MuiSvgIcon-root': {
-              color: amber.main,
-            },
+            '& .MuiInputAdornment-root .MuiSvgIcon-root': { color: secondaryText },
           },
         },
       },
       MuiChip: {
         styleOverrides: {
-          root: {
-            borderRadius: 6,
-            fontFamily: '"Outfit", sans-serif',
-            fontWeight: 500,
-            fontSize: '0.7rem',
-            letterSpacing: '0.02em',
-          },
+          root: { borderRadius: 6, fontFamily: bodyFont, fontWeight: 500, fontSize: '0.75rem' },
         },
       },
       MuiListItemButton: {
         styleOverrides: {
           root: {
+            minHeight: 44,
             borderRadius: 8,
-            margin: '1px 4px',
-            '&:hover': { backgroundColor: alpha(amber.main, 0.08) },
+            margin: '2px 4px',
+            '&:hover': { backgroundColor: alpha(primary.main, 0.08) },
             '&.Mui-selected': {
-              backgroundColor: alpha(amber.main, 0.14),
-              '&:hover': { backgroundColor: alpha(amber.main, 0.2) },
+              backgroundColor: alpha(primary.main, 0.14),
+              '&:hover': { backgroundColor: alpha(primary.main, 0.2) },
             },
           },
         },
       },
       MuiButton: {
+        defaultProps: { disableElevation: true },
         styleOverrides: {
           root: {
-            borderRadius: 24,
-            fontFamily: '"Outfit", sans-serif',
-            fontWeight: 600,
-            letterSpacing: '0.04em',
+            minHeight: 44,
+            borderRadius: 8,
+            padding: '10px 16px',
+            fontFamily: bodyFont,
+            whiteSpace: 'nowrap',
           },
           outlined: {
-            borderColor: isDark ? 'rgba(255,255,255,0.15)' : undefined,
-            '&:hover': {
-              borderColor: amber.main,
-              backgroundColor: alpha(amber.main, 0.06),
+            borderColor: isDark ? '#697585' : '#808A97',
+            '&:hover': { borderColor: primary.main, backgroundColor: alpha(primary.main, 0.06) },
+          },
+        },
+      },
+      MuiToggleButton: {
+        styleOverrides: {
+          root: {
+            minHeight: 44,
+            padding: '8px 12px',
+            fontSize: '0.875rem',
+            color: secondaryText,
+            whiteSpace: 'nowrap',
+            wordBreak: 'keep-all',
+            '&.Mui-selected': { color: primary.main, backgroundColor: alpha(primary.main, 0.12) },
+          },
+        },
+      },
+      MuiTab: {
+        styleOverrides: {
+          root: {
+            minHeight: 44,
+            fontSize: '0.875rem',
+            whiteSpace: 'nowrap',
+            textTransform: 'none',
+          },
+        },
+      },
+      MuiDialog: {
+        styleOverrides: {
+          paper: {
+            borderRadius: 16,
+            margin: 24,
+            width: 'calc(100% - 48px)',
+            overflowX: 'hidden',
+            maxHeight: 'calc(var(--app-dvh, 100dvh) - 48px)',
+            '@media (max-width: 599px)': {
+              margin: 12,
+              width: 'calc(100% - 24px)',
+              maxHeight: 'calc(var(--app-dvh, 100dvh) - 24px)',
             },
           },
-        },
-      },
-      MuiDivider: {
-        styleOverrides: {
-          root: {
-            borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)',
+          paperFullScreen: {
+            margin: 0,
+            borderRadius: 0,
+            width: '100%',
+            maxHeight: '100%',
+            '@media (max-width: 599px)': { margin: 0, width: '100%', maxHeight: '100%' },
           },
         },
       },
-      MuiAvatar: {
+      MuiDialogTitle: {
         styleOverrides: {
           root: {
-            border: isDark ? '2px solid rgba(255,255,255,0.08)' : undefined,
+            padding: '24px 24px 16px',
+            fontSize: '1.125rem',
+            lineHeight: 1.5,
+            '@media (max-width: 599px)': { padding: '16px 16px 12px' },
+          },
+        },
+      },
+      MuiDialogContent: {
+        styleOverrides: {
+          root: {
+            padding: '8px 24px 24px',
+            overflowWrap: 'anywhere',
+            '@media (max-width: 599px)': { padding: '8px 16px 16px' },
+          },
+        },
+      },
+      MuiDialogActions: {
+        styleOverrides: {
+          root: {
+            padding: '16px 24px',
+            flexWrap: 'wrap',
+            gap: 8,
+            '& > :not(style) ~ :not(style)': { marginLeft: 0 },
+            '@media (max-width: 599px)': { padding: 16, '& .MuiButton-root': { flexGrow: 1 } },
           },
         },
       },
       MuiAlert: {
-        styleOverrides: {
-          root: {
-            borderRadius: 12,
-            fontFamily: '"Outfit", sans-serif',
-          },
-        },
+        defaultProps: { closeText: '關閉提示' },
+        styleOverrides: { root: { borderRadius: 8, fontFamily: bodyFont, alignItems: 'center' } },
       },
+      MuiTooltip: { styleOverrides: { tooltip: { fontSize: '0.75rem', lineHeight: 1.5 } } },
     },
-  });
+  })
 }
 
 function ThemedApp() {
-  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark')
 
   useEffect(() => {
-    apiService.getSettings().then(settings => {
-      if (settings.theme_mode) {
-        setThemeMode(settings.theme_mode);
-      }
-    }).catch(err => {
-      console.error('Failed to load theme settings:', err);
-    });
+    apiService
+      .getSettings()
+      .then((settings) => {
+        if (settings.theme_mode) {
+          setThemeMode(settings.theme_mode)
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load theme settings:', err)
+      })
 
     const handleThemeChange = (event: CustomEvent) => {
-      setThemeMode(event.detail);
-    };
-    window.addEventListener('themeChanged', handleThemeChange as EventListener);
-    return () => window.removeEventListener('themeChanged', handleThemeChange as EventListener);
-  }, []);
+      setThemeMode(event.detail)
+    }
+    window.addEventListener('themeChanged', handleThemeChange as EventListener)
+    return () => window.removeEventListener('themeChanged', handleThemeChange as EventListener)
+  }, [])
 
-  const theme = useMemo(() => createPremiumTheme(themeMode), [themeMode]);
+  const theme = useMemo(() => createPremiumTheme(themeMode), [themeMode])
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <App />
     </ThemeProvider>
-  );
+  )
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <Provider store={store}>
     <ThemedApp />
   </Provider>
-);
+)
 
 // 註冊 Service Worker
 if ('serviceWorker' in navigator) {
@@ -326,21 +355,21 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker
       .register('/sw.js')
       .then((registration) => {
-        console.log('SW registered:', registration.scope);
+        console.log('SW registered:', registration.scope)
 
         registration.addEventListener('updatefound', () => {
-          const newWorker = registration.installing;
+          const newWorker = registration.installing
           if (newWorker) {
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                console.log('New version available!');
+                console.log('New version available!')
               }
-            });
+            })
           }
-        });
+        })
       })
       .catch((error) => {
-        console.error('SW registration failed:', error);
-      });
-  });
+        console.error('SW registration failed:', error)
+      })
+  })
 }

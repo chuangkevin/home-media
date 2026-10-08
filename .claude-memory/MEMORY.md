@@ -120,3 +120,14 @@
 ## Auto-queue replay seed (2026-04-15)
 - `useAutoQueue()` 的防重複 key 不能只看 `videoId + playlist.length`。`playNow()` 會清掉插入點後方的舊推薦；若使用者之後又從首頁點回同一首歌，純粹靠舊 key 會誤判成「已載過」，導致自動推薦播放清單整段消失。
 - `playerSlice` 需維護一個 per-`playNow` 的 session version（目前為 `autoQueueSeedVersion`），讓 auto-queue key 變成 `session + videoId + playlist.length`，只避免同一次 session 的重複載入，不阻止之後重新以同一首歌建立新推薦佇列。
+
+
+## UI / UX consolidation (2026-10-08)
+- 搜尋使用 `/search?q=`；取消與請求世代由 App 管理，保留播放參數。
+- `addToQueue` 追加實際 playlist 尾端並依 videoId 去重，不能再只改無人消費的 queue。
+- Playlist dialogTarget 與 menuAnchor 分離；播放全部請求離頁 abort，新播放意圖永久使舊回應失效。
+- FullscreenLyrics 延後掛載不得清掉 AudioPlayer 已載好的 lyrics；lazy ErrorBoundary 保留外層播放器及導覽。
+- 主要UI44px、深淺色與reduced motion；320px模式文字單行、待播窄屏抽屜。
+- 1.6.0 本機修改：build與22單元測試通過；lint因既有ESLint設定缺失未通過。Chrome mock首頁／歌詞多尺寸已補驗，ego最終版、真iOS鎖屏／投射／電台與完整a11y仍待驗。詳見 docs/ui-ux-2026-10-08.md；不可宣稱獎項認證。
+
+- 末輪補驗：搜尋同詞失敗重試、清除鍵盤衝突、dialog焦點返回與設定lazy失敗保留音訊已通過；Cast draft／active分離、Radio取消與reconnect意圖guard、playlist seek意圖保護已補22項整合單元測試。Radio舊請求永不回覆後同台retry仍受後端無request ID限制。

@@ -1,5 +1,11 @@
 import { io, Socket } from 'socket.io-client';
 import type { Track } from '../types/track.types';
+import { RadioJoinRequests } from './radio-join-requests';
+
+export type RadioJoinEvent =
+  | { type: 'joined'; requestId: number | undefined; stationId: string }
+  | { type: 'error'; requestId: number | undefined; message: string }
+  | { type: 'disconnected' };
 
 export interface Device {
   id: string;
@@ -114,6 +120,9 @@ type RadioCrossfadeStartCallback = (data: { nextTrack: RadioTrack; crossfadeDura
 
 class SocketService {
   private socket: Socket | null = null;
+  private radioJoinRequests = new RadioJoinRequests();
+  private radioJoinSubscribers = new Set<(event: RadioJoinEvent) => void>();
+  private radioJoinIntentRevision = 0;
   private deviceId: string;
   private deviceName: string;
   private callbacks: {
@@ -195,6 +204,8 @@ class SocketService {
 
     this.socket.on('disconnect', () => {
       console.log('Socket disconnected');
+      this.notifyRadioJoin({ type: 'disconnected' });
+      this.radioJoinRequests.clear();
       this.callbacks.onConnected?.(false);
     });
 
@@ -231,6 +242,11 @@ class SocketService {
 
     this.socket.on('radio:joined', (data: RadioJoinedData) => {
       console.log('Joined radio station:', data);
+      const attempt = this.radioJoinRequests.settle(data.stationId);
+      // A cancelled request has already sent radio:leave. Do not briefly start
+      // its audio or treat its late acknowledgement as a newer join succeeding.
+      if (attempt?.cancelled) return;
+      this.notifyRadioJoin({ type: 'joined', requestId: attempt?.id, stationId: data.stationId });
       this.callbacks.onRadioJoined?.(data);
     });
 
@@ -257,6 +273,10 @@ class SocketService {
 
     this.socket.on('radio:error', (data: { message: string }) => {
       console.error('Radio error:', data);
+      const attempt = this.radioJoinRequests.settle();
+      if (!attempt?.cancelled) {
+        this.notifyRadioJoin({ type: 'error', requestId: attempt?.id, message: data.message });
+      }
       this.callbacks.onRadioError?.(data);
     });
 
@@ -279,6 +299,20 @@ class SocketService {
   // 設定回調
   setCallbacks(callbacks: typeof this.callbacks): void {
     this.callbacks = { ...this.callbacks, ...callbacks };
+  }
+
+  // UI observers must not replace the callbacks that synchronize playback.
+  subscribeRadioJoin(listener: (event: RadioJoinEvent) => void): () => void {
+    this.radioJoinSubscribers.add(listener);
+    return () => { this.radioJoinSubscribers.delete(listener); };
+  }
+
+  private notifyRadioJoin(event: RadioJoinEvent): void {
+    this.radioJoinSubscribers.forEach((listener) => listener(event));
+  }
+
+  cancelRadioJoin(requestId: number): void {
+    if (this.radioJoinRequests.cancel(requestId)) this.leaveRadioStation();
   }
 
   // 裝置註冊
@@ -354,17 +388,27 @@ class SocketService {
   }
 
   // 加入電台
-  joinRadioStation(stationId: string): void {
+  joinRadioStation(stationId: string): number {
+    this.radioJoinIntentRevision += 1;
+    const requestId = this.radioJoinRequests.start(stationId);
     // 保存到 localStorage 用於刷新後恢復
-    localStorage.setItem('radio_listener_data', JSON.stringify({ stationId }));
+    try { localStorage.setItem('radio_listener_data', JSON.stringify({ stationId })); }
+    catch { /* Joining remains available when persistence is unavailable. */ }
     
     this.socket?.emit('radio:join', { stationId });
+    return requestId;
+  }
+
+  // Clear a failed/pending join without leaving an existing host or listener.
+  clearRadioJoinIntent(): void {
+    this.radioJoinIntentRevision += 1;
+    try { localStorage.removeItem('radio_listener_data'); }
+    catch { /* Leaving must not depend on storage access. */ }
   }
 
   // 離開電台
   leaveRadioStation(): void {
-    // 清除 localStorage
-    localStorage.removeItem('radio_listener_data');
+    this.clearRadioJoinIntent();
     
     this.socket?.emit('radio:leave');
   }
@@ -381,8 +425,10 @@ class SocketService {
 
   // 自動重連電台（刷新後恢復）
   private autoReconnectRadio(): void {
+    const intentRevision = this.radioJoinIntentRevision;
     // 延遲 500ms 讓 socket 事件監聽器設置完成
     setTimeout(() => {
+      if (intentRevision !== this.radioJoinIntentRevision) return;
       // 檢查是否是 DJ（有保存的主播資料）
       const hostDataStr = localStorage.getItem('radio_host_data');
       if (hostDataStr) {
@@ -408,6 +454,7 @@ class SocketService {
           this.discoverRadioStations();
           // 延遲一下讓 discover 完成，然後嘗試加入
           setTimeout(() => {
+            if (intentRevision !== this.radioJoinIntentRevision) return;
             this.joinRadioStation(listenerData.stationId);
           }, 500);
         } catch (e) {

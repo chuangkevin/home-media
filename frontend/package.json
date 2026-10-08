@@ -1,6 +1,6 @@
 {
   "name": "home-media-frontend",
-  "version": "1.5.15",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -8,6 +8,7 @@
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "test:unit": "node tests/unit/run-tests.cjs",
     "test:e2e:live": "node -e \"if(!process.env.LIVE_BASE_URL){console.error('Set LIVE_BASE_URL explicitly for live Playwright runs.');process.exit(1)}\" && playwright test"
   },
   "dependencies": {

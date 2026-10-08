@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, CircularProgress, Alert, IconButton, Tooltip, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, List,
-  ListItem, ListItemText, ListItemButton, InputAdornment, ToggleButtonGroup, ToggleButton
+  ListItem, ListItemText, ListItemButton, InputAdornment, ToggleButtonGroup, ToggleButton, useMediaQuery
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -31,6 +31,8 @@ interface LyricsViewProps {
 
 export default function LyricsView({ track, onVisibilityChange }: LyricsViewProps) {
   const dispatch = useDispatch();
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const [showTiming, setShowTiming] = useState(false);
   const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
@@ -47,6 +49,8 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<LyricsSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [isLyricsVisible, setIsLyricsVisible] = useState(true); // 歌詞容器是否可見
   const [searchSource, setSearchSource] = useState<LyricsSource>('lrclib'); // 歌詞來源
@@ -55,6 +59,12 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const [isFineTuning, setIsFineTuning] = useState(false);
   const [fineTuneOffset, setFineTuneOffset] = useState(0); // 微調時的臨時偏移量
   const [isReloadingLyrics, setIsReloadingLyrics] = useState(false);
+
+  useEffect(() => {
+    setIsFineTuning(false);
+    setFineTuneOffset(0);
+    setShowTiming(false);
+  }, [track.videoId]);
 
   // 固定填充高度（容器 maxHeight 500px 的一半）
   const PADDING_HEIGHT = 250;
@@ -214,7 +224,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
       container.scrollTo({
         top: container.scrollTop + scrollOffset,
-        behavior: 'smooth',
+        behavior: reduceMotion ? 'auto' : 'smooth',
       });
     }
   };
@@ -337,6 +347,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
       setSearchOpen(false);
     } catch (error) {
+      setSearchError('重新載入歌詞失敗，請稍後重試。');
       console.error('Reload lyrics failed:', error);
     } finally {
       setIsReloadingLyrics(false);
@@ -345,6 +356,10 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
   // 搜尋歌詞
   const handleSearch = async () => {
+    if (isSearching) return;
+    if (!searchQuery.trim()) return;
+    setSearchError('');
+    setHasSearched(true);
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
@@ -353,6 +368,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       const results = await apiService.searchLyrics(searchQuery, searchSource);
       setSearchResults(results);
     } catch (error) {
+      setSearchError('暫時無法搜尋歌詞，請稍後重試。');
       console.error('Search lyrics failed:', error);
     } finally {
       setIsSearching(false);
@@ -390,6 +406,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         console.log(`✅ 已套用歌詞 (${searchSource}): ${result.trackName} - ${result.artistName} (已同步)`);
       }
     } catch (error) {
+      setSearchError('無法套用這份歌詞，請重試或選擇其他結果。');
       console.error('Apply lyrics failed:', error);
     } finally {
       setIsApplying(false);
@@ -400,12 +417,16 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const handleSourceChange = (_: React.MouseEvent<HTMLElement>, newSource: LyricsSource | null) => {
     if (newSource) {
       setSearchSource(newSource);
+      setHasSearched(false);
+      setSearchError('');
       setSearchResults([]); // 切換時清空結果
     }
   };
 
   // 打開搜尋對話框時，預設填入歌曲名稱
   const handleOpenSearch = () => {
+    setHasSearched(false);
+    setSearchError('');
     // 簡單清理標題：移除 (Official Video) 等後綴
     const cleaned = track.title
       .replace(/\s*[\(\[【《].*?(official|mv|music video|lyric|lyrics|audio|hd|hq|4k|1080p|live).*?[\)\]】》]/gi, '')
@@ -430,7 +451,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     if (isLoading) {
       return (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
+          <CircularProgress aria-label="歌詞載入中" />
         </Box>
       );
     }
@@ -472,6 +493,15 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
               key={index}
               ref={(el: HTMLDivElement | null) => (lineRefs.current[index] = el)}
               onClick={() => currentLyrics.isSynced && handleLyricClick(line.time, index)}
+              role={currentLyrics.isSynced ? 'button' : undefined}
+              tabIndex={currentLyrics.isSynced ? 0 : undefined}
+              aria-label={currentLyrics.isSynced ? `跳至歌詞：${toTraditional(line.text)}` : undefined}
+              aria-current={isActive ? 'true' : undefined}
+              onKeyDown={(event) => {
+                if (currentLyrics.isSynced && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault(); handleLyricClick(line.time, index);
+                }
+              }}
               sx={{
                 py: 1.5,
                 px: 2,
@@ -489,13 +519,14 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
                 variant="h6"
                 sx={{
                   fontWeight: isActive ? 700 : 400,
-                  fontSize: isActive ? '1.5rem' : '1.1rem',
+                  fontSize: { xs: '1.25rem', sm: '1.5rem' },
+                  lineHeight: 1.6,
                   color: isActive
                     ? 'primary.main'
                     : isPassed
                     ? 'text.secondary'
                     : 'text.primary',
-                  opacity: isPassed ? 0.5 : 1,
+                  opacity: 1,
                   transition: 'all 0.3s ease',
                 }}
               >
@@ -515,12 +546,12 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       ref={lyricsViewRef}
       sx={{
         width: '100%',
-        maxWidth: 800,
+        maxWidth: 1100,
         mx: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
+        display: 'grid',
+        gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: '200px minmax(0, 1fr)' },
         alignItems: 'center',
-        gap: 3,
+        gap: 2.5,
       }}
     >
       {/* 封面圖 */}
@@ -530,23 +561,25 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         alt={track.title}
         sx={{
           width: '100%',
-          maxWidth: 400,
-          aspectRatio: '16/9',
+          maxWidth: { xs: 200, md: 200 },
+          mx: 'auto',
+          gridRow: { md: '1 / 3' },
+          aspectRatio: '1',
           borderRadius: 2,
-          boxShadow: 6,
+          boxShadow: 0,
           objectFit: 'cover',
         }}
       />
 
       {/* 曲目資訊 */}
-      <Box sx={{ textAlign: 'center' }}>
-        <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
+      <Box sx={{ textAlign: { xs: 'center', md: 'left' }, minWidth: 0 }}>
+        <Typography variant="h5" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' }, fontWeight: 700, mb: 1, overflowWrap: 'anywhere' }}>
           {track.title}
         </Typography>
         <Typography variant="subtitle1" color="text.secondary">
           {track.channel}
         </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: { xs: 'center', md: 'flex-start' }, flexWrap: 'wrap', gap: 1, mt: 0.5 }}>
           {currentLyrics && (
             <Chip
               label={`${
@@ -561,8 +594,12 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
               variant="outlined"
             />
           )}
+          {currentLyrics?.isSynced && <Button startIcon={<TuneIcon />} aria-expanded={showTiming} onClick={() => {
+            if (showTiming) handleCancelFineTune();
+            setShowTiming(!showTiming);
+          }}>校準歌詞</Button>}
           <Tooltip title="搜尋其他歌詞">
-            <IconButton size="small" onClick={handleOpenSearch}>
+            <IconButton aria-label="搜尋其他歌詞" size="small" onClick={handleOpenSearch}>
               <EditIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -570,8 +607,8 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       </Box>
 
       {/* 歌詞時間微調控制 - 只在同步歌詞時顯示 */}
-      {currentLyrics?.isSynced && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
+      {currentLyrics?.isSynced && showTiming && (
+        <Box sx={{ gridColumn: { md: 2 }, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: { xs: 'center', md: 'flex-start' } }}>
           {isFineTuning ? (
             // 微調模式 UI
             <>
@@ -585,12 +622,12 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
                 sx={{ minWidth: 70 }}
               />
               <Tooltip title="確認套用">
-                <IconButton size="small" onClick={handleConfirmFineTune} color="success">
+                <IconButton aria-label="套用歌詞校準" size="small" onClick={handleConfirmFineTune} color="success">
                   <CheckIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
               <Tooltip title="取消">
-                <IconButton size="small" onClick={handleCancelFineTune} color="error">
+                <IconButton aria-label="取消歌詞校準" size="small" onClick={handleCancelFineTune} color="error">
                   <CloseIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -602,7 +639,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
                 時間微調:
               </Typography>
               <Tooltip title="歌詞延後 0.1 秒">
-                <IconButton size="small" onClick={handleOffsetDecrease}>
+                <IconButton aria-label="歌詞延後 0.1 秒" size="small" onClick={handleOffsetDecrease}>
                   <RemoveIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -613,19 +650,19 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
                 sx={{ minWidth: 60 }}
               />
               <Tooltip title="歌詞提前 0.1 秒">
-                <IconButton size="small" onClick={handleOffsetIncrease}>
+                <IconButton aria-label="歌詞提前 0.1 秒" size="small" onClick={handleOffsetIncrease}>
                   <AddIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
               {timeOffset !== 0 && (
                 <Tooltip title="重置">
-                  <IconButton size="small" onClick={handleOffsetReset}>
+                  <IconButton aria-label="重設歌詞時間偏移" size="small" onClick={handleOffsetReset}>
                     <RestartAltIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
               )}
               <Tooltip title="滑動微調模式">
-                <IconButton size="small" onClick={handleEnterFineTune} color="primary">
+                <IconButton aria-label="滑動對準歌詞" size="small" onClick={handleEnterFineTune} color="primary">
                   <TuneIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -642,8 +679,11 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         onScroll={isFineTuning ? handleFineTuneScroll : undefined}
         sx={{
           width: '100%',
-          height: '100%',
+          height: 'min(60dvh, 640px)',
+          minHeight: 320,
+          gridColumn: '1 / -1',
           overflow: 'auto',
+          overscrollBehavior: 'contain',
           backgroundColor: 'background.default',
           position: 'relative',
           // 微調模式下顯示中心指示線
@@ -679,9 +719,10 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       </Paper>
 
       {/* 歌詞搜尋對話框 */}
-      <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>搜尋歌詞</DialogTitle>
+      <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} maxWidth="sm" fullWidth aria-labelledby="inline-lyrics-search-title">
+        <DialogTitle id="inline-lyrics-search-title">搜尋歌詞</DialogTitle>
         <DialogContent>
+          {searchError && <Alert severity="error" sx={{ mb: 2 }}>{searchError}</Alert>}
           {/* 平台選擇器 */}
           <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2, mt: 1 }}>
             <ToggleButtonGroup
@@ -704,17 +745,24 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
             label="輸入歌名或關鍵字"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+                event.preventDefault();
+                handleSearch();
+              }
+            }}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton onClick={handleSearch} disabled={isSearching}>
+                  <IconButton aria-label="搜尋歌詞" onClick={handleSearch} disabled={isSearching}>
                     {isSearching ? <CircularProgress size={20} /> : <SearchIcon />}
                   </IconButton>
                 </InputAdornment>
               ),
             }}
           />
+          {isSearching && <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 3 }}><CircularProgress size={20} /><Typography variant="body2">正在搜尋歌詞…</Typography></Box>}
+          {hasSearched && !isSearching && !searchError && searchResults.length === 0 && <Typography role="status" variant="body2" color="text.secondary" sx={{ py: 3 }}>沒有找到歌詞，試試歌名、歌手或其他來源。</Typography>}
           {searchResults.length > 0 && (
             <List sx={{ mt: 2, maxHeight: 300, overflow: 'auto' }}>
               {searchResults.map((result) => (
@@ -726,7 +774,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
                     <ListItemText
                       primary={result.trackName}
                       secondary={
-                        <Box component="span" sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <Box component="span" sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
                           <span>{result.artistName}</span>
                           {result.albumName && <span>· {result.albumName}</span>}
                           {result.duration && <span>· {formatDuration(result.duration)}</span>}
@@ -741,13 +789,13 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
               ))}
             </List>
           )}
-          {searchResults.length === 0 && !isSearching && searchQuery && (
+          {!hasSearched && searchResults.length === 0 && !isSearching && searchQuery && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
               點擊搜尋按鈕或按 Enter 搜尋
             </Typography>
           )}
         </DialogContent>
-        <DialogActions sx={{ justifyContent: 'space-between' }}>
+        <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
           <Button
             onClick={handleReloadOriginalLyrics}
             disabled={isReloadingLyrics}

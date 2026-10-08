@@ -6,14 +6,16 @@
  * Desktop: show action icons directly (no swipe needed)
  */
 import { useRef, useState, useCallback } from 'react';
-import { Box, Typography, Slide, IconButton } from '@mui/material';
+import { Box, Typography, IconButton, Menu, MenuItem, ListItemIcon } from '@mui/material';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import BlockIcon from '@mui/icons-material/Block';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 
 interface SwipeablePlaylistItemProps {
   children: React.ReactNode;
+  trackTitle: string;
   onSwipeRight: () => void; // toggle favorite
   onRemove: () => void;
   onBlock: () => void;
@@ -25,6 +27,7 @@ const SWIPE_THRESHOLD = 80;
 
 export default function SwipeablePlaylistItem({
   children,
+  trackTitle,
   onSwipeRight,
   onRemove,
   onBlock,
@@ -36,6 +39,7 @@ export default function SwipeablePlaylistItem({
   const [offsetX, setOffsetX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
   const [showActions, setShowActions] = useState(false);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const directionLockRef = useRef<'none' | 'horizontal' | 'vertical'>('none');
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -87,49 +91,7 @@ export default function SwipeablePlaylistItem({
     directionLockRef.current = 'none';
   }, [isDesktop, isSwiping, offsetX, onSwipeRight]);
 
-  // Desktop: render children with inline action buttons
-  if (isDesktop) {
-    return (
-      <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          {children}
-        </Box>
-        <Box sx={{
-          display: 'flex', alignItems: 'center', gap: 0.25,
-          pr: 0.5, flexShrink: 0,
-        }}>
-          <IconButton
-            size="small"
-            onClick={(e) => { e.stopPropagation(); onSwipeRight(); }}
-            title={isFavorited ? '取消收藏' : '收藏'}
-            sx={{ p: 0.5 }}
-          >
-            {isFavorited
-              ? <FavoriteIcon sx={{ fontSize: 18, color: 'error.main' }} />
-              : <FavoriteBorderIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
-          </IconButton>
-          <IconButton
-            size="small"
-            onClick={(e) => { e.stopPropagation(); onRemove(); }}
-            title="移除"
-            sx={{ p: 0.5 }}
-          >
-            <DeleteOutlineIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-          </IconButton>
-          <IconButton
-            size="small"
-            onClick={(e) => { e.stopPropagation(); onBlock(); }}
-            title="封鎖"
-            sx={{ p: 0.5 }}
-          >
-            <BlockIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-          </IconButton>
-        </Box>
-      </Box>
-    );
-  }
-
-  // Mobile: swipe gesture
+  // Keep swipe gestures, with the same visible, keyboard-accessible menu on every device.
   return (
     <Box sx={{ position: 'relative', overflow: 'hidden' }}>
       {/* Background indicators */}
@@ -174,54 +136,37 @@ export default function SwipeablePlaylistItem({
           zIndex: 1,
           backgroundColor: 'background.paper',
           touchAction: 'pan-y', // 允許垂直滾動，攔截水平滑動
+          display: 'flex',
+          alignItems: 'center',
+          '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
         }}
       >
-        {children}
+        <Box sx={{ flex: 1, minWidth: 0 }}>{children}</Box>
+        <IconButton
+          ref={moreButtonRef}
+          aria-label={`更多操作：${trackTitle}`}
+          aria-haspopup="menu"
+          aria-expanded={showActions}
+          onClick={(event) => { event.stopPropagation(); setShowActions(true); }}
+          sx={{ width: 44, height: 44, flexShrink: 0, mr: 0.5 }}
+        >
+          <MoreHorizIcon />
+        </IconButton>
       </Box>
 
-      {/* Action menu after left swipe */}
-      {showActions && (
-        <Slide direction="left" in={showActions} mountOnEnter unmountOnExit>
-          <Box sx={{
-            position: 'absolute', right: 0, top: 0, bottom: 0,
-            display: 'flex', alignItems: 'center', gap: 0, zIndex: 2,
-            backgroundColor: 'background.paper',
-          }}>
-            <Box
-              onClick={() => { onRemove(); setShowActions(false); }}
-              sx={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center',
-                px: 2, py: 1, cursor: 'pointer',
-                '&:hover': { backgroundColor: 'action.hover' },
-              }}
-            >
-              <DeleteOutlineIcon sx={{ color: 'warning.main', fontSize: 20 }} />
-              <Typography variant="caption" sx={{ fontSize: '0.65rem' }}>移除</Typography>
-            </Box>
-            <Box
-              onClick={() => { onBlock(); setShowActions(false); }}
-              sx={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center',
-                px: 2, py: 1, cursor: 'pointer',
-                '&:hover': { backgroundColor: 'action.hover' },
-              }}
-            >
-              <BlockIcon sx={{ color: 'error.main', fontSize: 20 }} />
-              <Typography variant="caption" sx={{ fontSize: '0.65rem' }}>封鎖</Typography>
-            </Box>
-            <Box
-              onClick={() => setShowActions(false)}
-              sx={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center',
-                px: 1.5, py: 1, cursor: 'pointer',
-                '&:hover': { backgroundColor: 'action.hover' },
-              }}
-            >
-              <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>取消</Typography>
-            </Box>
-          </Box>
-        </Slide>
-      )}
+      <Menu anchorEl={moreButtonRef.current} open={showActions} onClose={() => setShowActions(false)}
+        MenuListProps={{ 'aria-label': '歌曲操作' }} sx={{ '& .MuiMenuItem-root': { minHeight: 44 } }}>
+        <MenuItem onClick={() => { onSwipeRight(); setShowActions(false); }}>
+          <ListItemIcon>{isFavorited ? <FavoriteIcon color="error" /> : <FavoriteBorderIcon />}</ListItemIcon>
+          {isFavorited ? '取消收藏' : '收藏歌曲'}
+        </MenuItem>
+        <MenuItem onClick={() => { setShowActions(false); onRemove(); }}>
+          <ListItemIcon><DeleteOutlineIcon /></ListItemIcon>從待播移除
+        </MenuItem>
+        <MenuItem onClick={() => { setShowActions(false); onBlock(); }}>
+          <ListItemIcon><BlockIcon /></ListItemIcon>不再推薦這首歌
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { Box, Typography, IconButton, Chip, CircularProgress } from '@mui/material';
+import { Box, Typography, IconButton, Chip, CircularProgress, useMediaQuery } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
@@ -300,6 +300,7 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
 }
 
 export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange, translations = [], translationError = false, isTranslating = false, onRetryTranslation }: MorrorLyricsProps) {
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [accentColor, setAccentColor] = useState(DEFAULT_COLOR);
   const [effect, setEffect] = useState<LyricsEffect>(() => {
     const saved = localStorage.getItem('morror-effect');
@@ -322,7 +323,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
     const el = document.querySelector('audio') as HTMLAudioElement | null;
     if (el) setAudioEl(el);
   }, []);
-  const { subscribe } = useAudioAnalyser(audioEl, { fftSize: 256, enabled: true });
+  const { subscribe } = useAudioAnalyser(audioEl, { fftSize: 256, enabled: !reduceMotion });
 
   // Save effect choice
   useEffect(() => {
@@ -380,6 +381,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
   const renderCurrentLine = () => {
     if (!currentLine) return '\u00A0';
     const text = toTraditional(currentLine.text);
+    if (reduceMotion) return text;
 
     // Per-character effects
     if (effect === 'karaoke' || effect === 'scale' || effect === 'typewriter' || effect === 'wave') {
@@ -407,27 +409,27 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
   };
 
   // 字幕風格：白字黑邊，任何背景都可讀
-  const textColorDim = 'rgba(255,255,255,0.5)';
-  const textColorMid = 'rgba(255,255,255,0.7)';
+  const textColorDim = 'rgba(255,255,255,0.72)';
+  const textColorMid = 'rgba(255,255,255,0.82)';
   // 粗黑色描邊（2px）+ 陰影 = 任何背景都清晰可讀
   const textStroke = '-2px -2px 0 rgba(0,0,0,0.8), 2px -2px 0 rgba(0,0,0,0.8), -2px 2px 0 rgba(0,0,0,0.8), 2px 2px 0 rgba(0,0,0,0.8), 0 -2px 0 rgba(0,0,0,0.8), 0 2px 0 rgba(0,0,0,0.8), -2px 0 0 rgba(0,0,0,0.8), 2px 0 0 rgba(0,0,0,0.8)';
   const textShadowStrong = `${textStroke}, 0 3px 12px rgba(0,0,0,0.9)`;
   const textShadowLight = `${textStroke}, 0 1px 6px rgba(0,0,0,0.6)`;
 
   // Focus effect: blur prev/next more
-  const isFocusMode = effect === 'focus';
+  const isFocusMode = effect === 'focus' && !reduceMotion;
 
   return (
     <Box ref={containerRef} sx={{
       position: 'relative',
       width: '100%', height: '100%',
-      overflow: 'hidden',
-      backgroundColor: '#000', display: 'flex', flexDirection: 'column',
+      overflow: 'auto',
+      backgroundColor: '#000', color: '#fff', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
     }}>
       {/* Background: blurred thumbnail */}
       {track.thumbnail && (
-        <Box component="img" src={track.thumbnail} sx={{
+        <Box component="img" alt="" src={track.thumbnail} sx={{
           position: 'absolute', top: '-10%', left: '-10%', width: '120%', height: '120%',
           objectFit: 'cover', filter: 'blur(30px) saturate(1.4)', opacity: 0.55, pointerEvents: 'none',
         }} />
@@ -437,7 +439,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
       <Box sx={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', pointerEvents: 'none' }} />
 
       {/* Audio-reactive visualizer canvas */}
-      <AudioVisualizerCanvas accentColor={accentColor} subscribe={subscribe} />
+      {!reduceMotion && <AudioVisualizerCanvas accentColor={accentColor} subscribe={subscribe} />}
 
       {/* Controls overlay - top right (safe area aware for iPhone notch) */}
       <Box sx={{
@@ -447,17 +449,17 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
         display: 'flex', alignItems: 'center',
         backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 2, px: 0.5, py: 0.25,
       }}>
-        <IconButton size="small" onClick={() => cycleEffect(-1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
+        <IconButton aria-label="上一個歌詞效果" size="small" disabled={reduceMotion} onClick={() => cycleEffect(-1)} sx={{ color: '#fff', p: 0.5 }}>
           <NavigateBeforeIcon fontSize="small" />
         </IconButton>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', minWidth: 56, textAlign: 'center', fontSize: '0.7rem' }}>
-          {EFFECT_LABELS[effect]}
+        <Typography variant="caption" sx={{ color: '#fff', minWidth: 72, textAlign: 'center', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+          {reduceMotion ? '減少動態' : EFFECT_LABELS[effect]}
         </Typography>
-        <IconButton size="small" onClick={() => cycleEffect(1)} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
+        <IconButton aria-label="下一個歌詞效果" size="small" disabled={reduceMotion} onClick={() => cycleEffect(1)} sx={{ color: '#fff', p: 0.5 }}>
           <NavigateNextIcon fontSize="small" />
         </IconButton>
         <Box sx={{ width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.2)', mx: 0.5 }} />
-        <IconButton size="small" onClick={toggleFullscreen} sx={{ color: 'rgba(255,255,255,0.7)', p: 0.5 }}>
+        <IconButton aria-label={isFullscreen ? '退出沉浸全螢幕' : '展開沉浸全螢幕'} size="small" onClick={toggleFullscreen} sx={{ color: '#fff', p: 0.5 }}>
           {isFullscreen ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
         </IconButton>
       </Box>
@@ -466,7 +468,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
       <Box sx={{
         position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        gap: { xs: 3, sm: 4, md: 5 }, px: { xs: 3, sm: 5, md: 8 },
+        gap: { xs: 2.5, sm: 4, md: 5 }, px: { xs: 2.5, sm: 4, md: 5 }, pt: 10, pb: 3,
         maxWidth: 900, width: '100%', textAlign: 'center',
         '--lyrics-dim-color': textColorDim,
       } as any}>
@@ -483,11 +485,12 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
 
         {/* Current line */}
         <Box key={animKey} sx={{
-          fontSize: { xs: '1.8rem', sm: '2.4rem', md: '3rem' },
+          fontSize: 'clamp(1.5rem, 3.5vw, 2.75rem)',
+          overflowWrap: 'anywhere',
           fontWeight: 700, lineHeight: 1.3,
           minHeight: { xs: '2.5rem', sm: '3.2rem' },
           textShadow: textShadowStrong,
-          filter: isFocusMode ? 'none' : `drop-shadow(0 0 20px ${accentColor}40)`,
+          filter: 'none',
           transition: 'filter 0.5s ease',
           ...(isFocusMode && {
             color: accentColor,
@@ -500,7 +503,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
           {currentLineIndex >= 0 && translations[currentLineIndex] && (
             <Typography sx={{
               fontSize: { xs: '1.3rem', sm: '1.5rem', md: '1.7rem' },
-              color: `${accentColor}CC`,
+              color: 'rgba(255,255,255,0.88)',
               fontWeight: 400, fontStyle: 'italic',
               mt: 0.5, lineHeight: 1.3,
               textShadow: textShadowLight,

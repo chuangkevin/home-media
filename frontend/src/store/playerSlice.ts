@@ -120,7 +120,11 @@ const playerSlice = createSlice({
       state.queue = action.payload;
     },
     addToQueue(state, action: PayloadAction<Track>) {
-      state.queue.push(action.payload);
+      // The visible queue and next/previous controls both read playlist.
+      // Adding a track must not replace the current or pending playback.
+      if (!state.playlist.some(track => track.videoId === action.payload.videoId)) {
+        state.playlist.push({ ...action.payload, id: action.payload.videoId });
+      }
     },
     removeFromQueue(state, action: PayloadAction<string>) {
       state.queue = state.queue.filter(track => track.id !== action.payload);

@@ -1,52 +1,45 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { useSelector, useDispatch } from 'react-redux'
 import {
   Box,
   Card,
-  CardContent,
-  CardMedia,
   CardActionArea,
   Typography,
   IconButton,
-  Grid,
   Chip,
-  CircularProgress,
-  alpha,
-  useMediaQuery,
   Menu,
   MenuItem,
   Snackbar,
   Button,
   Tabs,
   Tab,
-} from '@mui/material';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import AddIcon from '@mui/icons-material/Add';
-import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
-import CloudIcon from '@mui/icons-material/Cloud';
-import StorageIcon from '@mui/icons-material/Storage';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import BlockIcon from '@mui/icons-material/Block';
-import FavoriteIcon from '@mui/icons-material/Favorite';
-import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
-import MusicNoteIcon from '@mui/icons-material/MusicNote';
-import PersonIcon from '@mui/icons-material/Person';
-import QueueMusicIcon from '@mui/icons-material/QueueMusic';
-import type { Track } from '../../types/track.types';
-import { formatDuration, formatNumber, formatUploadedAt } from '../../utils/formatTime';
-import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu';
-import apiService from '../../services/api.service';
-import { RootState, AppDispatch } from '../../store';
-import { blockItem, unblockItem } from '../../store/blockSlice';
-import { toggleFavorite } from '../../store/favoritesSlice';
+  Alert,
+} from '@mui/material'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import AddIcon from '@mui/icons-material/Add'
+import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import BlockIcon from '@mui/icons-material/Block'
+import FavoriteIcon from '@mui/icons-material/Favorite'
+import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder'
+import MusicNoteIcon from '@mui/icons-material/MusicNote'
+import PersonIcon from '@mui/icons-material/Person'
+import type { Track } from '../../types/track.types'
+import { formatDuration } from '../../utils/formatTime'
+import AddToPlaylistMenu from '../Playlist/AddToPlaylistMenu'
+import apiService from '../../services/api.service'
+import { RootState, AppDispatch } from '../../store'
+import { blockItem, unblockItem } from '../../store/blockSlice'
+import { toggleFavorite } from '../../store/favoritesSlice'
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 12
+const actionSize = { width: 44, height: 44, flexShrink: 0 }
 
 interface SearchResultsProps {
-  results: Track[];
-  onPlay: (track: Track) => void;
-  onAddToQueue?: (track: Track) => void;
-  currentTrackId?: string;
+  results: Track[]
+  onPlay: (track: Track) => void
+  onAddToQueue?: (track: Track) => void
+  currentTrackId?: string
 }
 
 export default function SearchResults({
@@ -55,451 +48,460 @@ export default function SearchResults({
   onAddToQueue,
   currentTrackId,
 }: SearchResultsProps) {
-  const dispatch = useDispatch<AppDispatch>();
-  const { items: blockedItems } = useSelector((state: RootState) => state.block);
-  const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
-  const isUltrawide = useMediaQuery('(min-width: 1200px) and (max-height: 800px)'); // 針對 1920*720 平板
-  const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)');
-  const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null);
-  const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
-  const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({});
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [activeTab, setActiveTab] = useState(0); // 0=全部, 1=歌曲, 2=頻道, 3=播放清單
-  const loadMoreRef = useRef<HTMLDivElement>(null);
-
-  // Block context menu
-  const [blockMenuAnchor, setBlockMenuAnchor] = useState<HTMLElement | null>(null);
-  const [blockMenuTrack, setBlockMenuTrack] = useState<Track | null>(null);
-  // Snackbar for undo
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; blockedId: number | null }>({
-    open: false, message: '', blockedId: null,
-  });
-
-  const isBlocked = (videoId: string, channel: string) => {
-    return blockedItems.some(b =>
-      (b.type === 'song' && b.video_id === videoId) ||
-      (b.type === 'channel' && b.channel_name === channel)
-    );
-  };
-
-  const handleOpenBlockMenu = (event: React.MouseEvent<HTMLElement>, track: Track) => {
-    event.stopPropagation();
-    setBlockMenuAnchor(event.currentTarget);
-    setBlockMenuTrack(track);
-  };
-
-  const handleCloseBlockMenu = () => {
-    setBlockMenuAnchor(null);
-    setBlockMenuTrack(null);
-  };
-
-  const handleBlockSong = async () => {
-    if (!blockMenuTrack) return;
-    handleCloseBlockMenu();
-    const result = await dispatch(blockItem({
-      type: 'song',
-      videoId: blockMenuTrack.videoId,
-      title: blockMenuTrack.title,
-      thumbnail: blockMenuTrack.thumbnail,
-    })).unwrap();
-    setSnackbar({ open: true, message: `已封鎖「${blockMenuTrack.title}」`, blockedId: result.newId });
-  };
-
-  const handleBlockChannel = async () => {
-    if (!blockMenuTrack) return;
-    handleCloseBlockMenu();
-    const result = await dispatch(blockItem({
-      type: 'channel',
-      channelName: blockMenuTrack.channel,
-      title: blockMenuTrack.channel,
-      thumbnail: blockMenuTrack.thumbnail,
-    })).unwrap();
-    setSnackbar({ open: true, message: `已封鎖頻道「${blockMenuTrack.channel}」`, blockedId: result.newId });
-  };
-
-  const handleUndoBlock = () => {
-    if (snackbar.blockedId) {
-      dispatch(unblockItem(snackbar.blockedId));
-    }
-    setSnackbar({ open: false, message: '', blockedId: null });
-  };
-
-  // Reset visible count and active tab when results change
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-    setActiveTab(0); // Reset to "全部" when results change
-  }, [results]);
-
-  // 當搜尋結果變更時，檢查伺服器端快取狀態（只查可見的）
-  useEffect(() => {
-    if (results.length === 0) return;
-    const visible = results.slice(0, visibleCount);
-    const unchecked = visible.filter(r => !(r.videoId in cacheStatus));
-    if (unchecked.length === 0) return;
-
-    const videoIds = unchecked.map(r => r.videoId);
-    apiService.getCacheStatusBatch(videoIds)
-      .then(status => {
-        const newCached: Record<string, boolean> = {};
-        for (const [videoId, s] of Object.entries(status)) {
-          newCached[videoId] = s.cached;
-        }
-        setCacheStatus(prev => ({ ...prev, ...newCached }));
-      })
-      .catch(() => {});
-  }, [results, visibleCount]);
-
-  // Infinite scroll: observe sentinel element
-  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
-    if (entries[0].isIntersecting) {
-      setVisibleCount(prev => Math.min(prev + PAGE_SIZE, results.length));
-    }
-  }, [results.length]);
+  const dispatch = useDispatch<AppDispatch>()
+  const blockedItems = useSelector((state: RootState) => state.block.items)
+  const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds)
+  const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLElement | null>(null)
+  const [selectedTrack, setSelectedTrack] = useState<Track | null>(null)
+  const [pendingFavorites, setPendingFavorites] = useState<Set<string>>(new Set())
+  const [cacheStatus, setCacheStatus] = useState<Record<string, boolean>>({})
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [activeTab, setActiveTab] = useState(0)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+  const [blockMenuAnchor, setBlockMenuAnchor] = useState<HTMLElement | null>(null)
+  const [blockMenuTrack, setBlockMenuTrack] = useState<Track | null>(null)
+  const [snackbar, setSnackbar] = useState<{
+    message: string
+    blockedId?: number
+    severity: 'success' | 'error'
+  } | null>(null)
+  const visibleResults = results.slice(0, visibleCount)
+  const hasMore = visibleCount < results.length
 
   useEffect(() => {
-    const observer = new IntersectionObserver(handleObserver, { rootMargin: '400px' });
-    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
-    return () => observer.disconnect();
-  }, [handleObserver]);
+    setVisibleCount(PAGE_SIZE)
+    setActiveTab(0)
+  }, [results])
 
-  const handleOpenPlaylistMenu = (event: React.MouseEvent<HTMLElement>, track: Track) => {
-    event.stopPropagation();
-    setPlaylistMenuAnchor(event.currentTarget);
-    setSelectedTrack(track);
-  };
-
-  const handleClosePlaylistMenu = () => {
-    setPlaylistMenuAnchor(null);
-    setSelectedTrack(null);
-  };
-
-  const handleAddToQueue = (event: React.MouseEvent, track: Track) => {
-    event.stopPropagation();
-    onAddToQueue?.(track);
-  };
-
-  // Filter results based on active tab
-  const filteredResults = useMemo(() => {
-    if (!results || results.length === 0) return [];
-    switch (activeTab) {
-      case 1: // 歌曲: duration < 600s (10 min)
-        return results.filter(t => (t.duration || 0) < 600);
-      case 2: // 頻道: group by channel — return all, rendered differently
-        return results;
-      case 3: // 播放清單: placeholder — show all for now
-        return results;
-      default: // 全部
-        return results;
+  useEffect(() => {
+    let active = true
+    const unchecked = results
+      .slice(0, visibleCount)
+      .filter((track) => !(track.videoId in cacheStatus))
+    if (unchecked.length) {
+      apiService
+        .getCacheStatusBatch(unchecked.map((track) => track.videoId))
+        .then((status) => {
+          if (!active) return
+          const cached: Record<string, boolean> = {}
+          for (const [videoId, value] of Object.entries(status)) cached[videoId] = value.cached
+          setCacheStatus((prev) => ({ ...prev, ...cached }))
+        })
+        .catch(() => {
+          /* Cache availability is optional metadata. */
+        })
     }
-  }, [results, activeTab]);
+    return () => {
+      active = false
+    }
+  }, [results, visibleCount])
 
-  // Group by channel for the 頻道 tab
+  useEffect(() => {
+    const node = loadMoreRef.current
+    if (!node || !hasMore) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting)
+          setVisibleCount((count) => Math.min(count + PAGE_SIZE, results.length))
+      },
+      { rootMargin: '200px' }
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [hasMore, results.length, visibleCount, activeTab])
+
   const channelGroups = useMemo(() => {
-    if (activeTab !== 2 || !results) return {};
-    const groups: Record<string, typeof results> = {};
-    results.forEach(t => {
-      const ch = t.channel || '未知頻道';
-      if (!groups[ch]) groups[ch] = [];
-      groups[ch].push(t);
-    });
-    return groups;
-  }, [results, activeTab]);
+    const groups: Record<string, Track[]> = {}
+    results.slice(0, visibleCount).forEach((track) => {
+      const channel = track.channel || '未知頻道'
+      ;(groups[channel] ||= []).push(track)
+    })
+    return groups
+  }, [results, visibleCount])
 
-  if (results.length === 0) {
-    return (
-      <Box sx={{ textAlign: 'center', py: 8 }}>
-        <Typography variant="h6" color="text.secondary">
-          沒有找到結果
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          試試其他關鍵字
-        </Typography>
-      </Box>
-    );
+  const closeBlockMenu = () => {
+    setBlockMenuAnchor(null)
+    setBlockMenuTrack(null)
+  }
+  const handleBlock = async (type: 'song' | 'channel') => {
+    const track = blockMenuTrack
+    if (!track) return
+    closeBlockMenu()
+    try {
+      const result = await dispatch(
+        blockItem(
+          type === 'song'
+            ? { type, videoId: track.videoId, title: track.title, thumbnail: track.thumbnail }
+            : { type, channelName: track.channel, title: track.channel, thumbnail: track.thumbnail }
+        )
+      ).unwrap()
+      setSnackbar({
+        message: type === 'song' ? `已封鎖「${track.title}」` : `已封鎖頻道「${track.channel}」`,
+        blockedId: result.newId,
+        severity: 'success',
+      })
+    } catch {
+      setSnackbar({ message: '封鎖失敗，請再試一次。', severity: 'error' })
+    }
+  }
+  const handleUndoBlock = async () => {
+    if (!snackbar?.blockedId) return
+    try {
+      await dispatch(unblockItem(snackbar.blockedId)).unwrap()
+      setSnackbar({ message: '已復原封鎖', severity: 'success' })
+    } catch {
+      setSnackbar({ message: '復原失敗，請至設定中的封鎖管理重試。', severity: 'error' })
+    }
   }
 
-  const visibleResults = filteredResults.slice(0, visibleCount);
-  const hasMore = visibleCount < filteredResults.length;
-
-  // Render a single track card (reused in both normal and channel views)
-  const renderTrackCard = (track: Track) => {
-    const blocked = isBlocked(track.videoId, track.channel);
+  const renderTrack = (track: Track) => {
+    const blocked = blockedItems.some(
+      (item) =>
+        (item.type === 'song' && item.video_id === track.videoId) ||
+        (item.type === 'channel' && item.channel_name === track.channel)
+    )
+    const isCurrent = currentTrackId === track.videoId
+    const isFavorite = !!favoriteIds[track.videoId]
     return (
       <Card
-        key={track.id}
+        key={track.videoId}
+        component="article"
         sx={{
           display: 'flex',
-          flexDirection: 'column',
-          height: '100%',
-          position: 'relative',
-          transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1), box-shadow 0.28s cubic-bezier(0.4,0,0.2,1)',
-          ...(!isDesktop && {
-            '&:hover': {
-              transform: 'translateY(-6px)',
-              boxShadow: '0 14px 44px rgba(0,0,0,0.42), 0 0 0 1px rgba(245,166,35,0.14)',
-            },
-          }),
-          ...(currentTrackId === track.videoId && {
-            border: '2px solid rgba(245,166,35,0.75) !important',
-            boxShadow: '0 0 0 2px rgba(245,166,35,0.75), 0 8px 32px rgba(0,0,0,0.45)',
-          }),
-          ...(blocked && {
-            opacity: 0.4,
-          }),
+          flexDirection: { xs: 'column', md: 'row' },
+          minWidth: 0,
+          border: 1,
+          borderColor: isCurrent ? 'primary.main' : 'divider',
+          boxShadow: 'none',
+          bgcolor: isCurrent ? 'action.selected' : 'background.paper',
+          overflow: 'hidden',
         }}
       >
-        {/* 封鎖標記 */}
-        {blocked && (
-          <Box sx={{
-            position: 'absolute', top: 8, right: 8, zIndex: 2,
-            bgcolor: 'error.main', borderRadius: '50%', width: 28, height: 28,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <BlockIcon sx={{ color: 'white', fontSize: 18 }} />
-          </Box>
-        )}
-        <CardActionArea onClick={() => onPlay(track)} sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
-          <Box sx={{ position: 'relative' }}>
-            <CardMedia
+        <CardActionArea
+          onClick={() => onPlay(track)}
+          aria-label={`播放 ${track.title}`}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            flex: 1,
+            minWidth: 0,
+            p: { xs: 1.5, sm: 2 },
+            gap: { xs: 1.5, sm: 2 },
+          }}
+        >
+          <Box
+            sx={{
+              position: 'relative',
+              width: { xs: 64, sm: 72 },
+              height: { xs: 64, sm: 72 },
+              flexShrink: 0,
+              borderRadius: 1,
+              overflow: 'hidden',
+              bgcolor: 'action.hover',
+            }}
+          >
+            <Box
               component="img"
-              height={isUltrawide ? "240" : "180"}
-              image={track.thumbnail}
-              alt={track.title}
-              sx={{ objectFit: 'cover' }}
+              src={track.thumbnail}
+              alt=""
+              loading="lazy"
+              sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
-            <Chip
-              icon={cacheStatus[track.videoId] ? <StorageIcon sx={{ fontSize: isUltrawide ? 18 : 14 }} /> : <CloudIcon sx={{ fontSize: isUltrawide ? 18 : 14 }} />}
-              label={cacheStatus[track.videoId] ? '快取' : '網路'}
-              size={isUltrawide ? "medium" : "small"}
+            <Box
               sx={{
                 position: 'absolute',
-                top: 12,
-                left: 12,
-                backgroundColor: cacheStatus[track.videoId] ? 'rgba(46, 125, 50, 0.9)' : 'rgba(25, 118, 210, 0.9)',
-                color: 'white',
-                fontSize: isUltrawide ? '0.9rem' : '0.75rem',
-                '& .MuiChip-icon': { color: 'white' },
+                bottom: 4,
+                right: 4,
+                width: 24,
+                height: 24,
+                display: 'grid',
+                placeItems: 'center',
+                borderRadius: '50%',
+                bgcolor: 'primary.main',
+                color: 'primary.contrastText',
               }}
-            />
-            <Chip
-              label={formatDuration(track.duration)}
-              size={isUltrawide ? "medium" : "small"}
-              sx={{
-                position: 'absolute',
-                bottom: 12,
-                right: 12,
-                backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                fontSize: isUltrawide ? '0.9rem' : '0.75rem',
-              }}
-            />
+            >
+              <PlayArrowIcon sx={{ fontSize: 18 }} />
+            </Box>
           </Box>
-
-          <CardContent sx={{ flexGrow: 1, pb: 1, px: isUltrawide ? 3 : 2, pt: isUltrawide ? 2 : 1 }}>
+          <Box sx={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
             <Typography
-              variant={isUltrawide ? "h6" : "subtitle1"}
-              component="div"
+              component="h3"
               sx={{
-                fontWeight: 700,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                fontSize: { xs: 14, sm: 16 },
+                lineHeight: 1.5,
+                fontWeight: 600,
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: 'vertical',
-                mb: 1,
-                lineHeight: 1.3,
+                overflow: 'hidden',
+                overflowWrap: 'anywhere',
               }}
             >
               {track.title}
             </Typography>
-
-            <Typography variant={isUltrawide ? "subtitle1" : "body2"} color="text.secondary" sx={{ mb: 1.5 }}>
-              {track.channel}
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              noWrap
+              sx={{ mt: 0.25, fontSize: 13 }}
+            >
+              {track.channel || '未知頻道'}
             </Typography>
-
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'center' }}>
-              {track.views !== undefined && (
-                <Typography variant={isUltrawide ? "body2" : "caption"} color="text.secondary">
-                  {formatNumber(track.views)} 次觀看
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+              <Typography
+                component="span"
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}
+              >
+                {formatDuration(track.duration)}
+              </Typography>
+              {isCurrent && (
+                <Typography
+                  component="span"
+                  variant="caption"
+                  color="primary.main"
+                  sx={{ fontSize: 12, fontWeight: 600 }}
+                >
+                  正在播放
                 </Typography>
               )}
-
-              {track.uploadedAt && (
+              {cacheStatus[track.videoId] && (
                 <Typography
-                  variant={isUltrawide ? "body2" : "caption"}
-                  sx={{
-                    color: 'primary.main',
-                    fontWeight: 600,
-                    backgroundColor: (t) => alpha(t.palette.primary.main, 0.1),
-                    px: 1,
-                    py: 0.25,
-                    borderRadius: 1,
-                    fontSize: isUltrawide ? '0.9rem' : 'inherit'
-                  }}
+                  component="span"
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontSize: 12 }}
                 >
-                  📅 {formatUploadedAt(track.uploadedAt)}
+                  已快取
                 </Typography>
+              )}
+              {blocked && (
+                <Chip
+                  icon={<BlockIcon />}
+                  label="已封鎖推薦"
+                  size="small"
+                  sx={{ height: 24, fontSize: 12 }}
+                />
               )}
             </Box>
-          </CardContent>
+          </Box>
         </CardActionArea>
-
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', p: isUltrawide ? 2 : 1, pt: 0 }}>
-          <IconButton
-            color="primary"
-            onClick={() => onPlay(track)}
-            sx={{
-              flexGrow: 1,
-              borderRadius: 2,
-              py: isUltrawide ? 1.5 : 1,
-              backgroundColor: (t) => alpha(t.palette.primary.main, 0.08),
-              '&:hover': { backgroundColor: (t) => alpha(t.palette.primary.main, 0.18) },
-              transition: 'all 0.18s ease',
-            }}
-          >
-            <PlayArrowIcon sx={{ fontSize: isUltrawide ? 32 : 24 }} />
-          </IconButton>
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: { xs: 'flex-end', md: 'center' },
+            alignItems: 'center',
+            px: { xs: 1, sm: 1.5 },
+            py: { xs: 0.5, md: 1 },
+            gap: 0.5,
+            borderTop: { xs: 1, md: 0 },
+            borderColor: 'divider',
+            flexShrink: 0,
+          }}
+        >
           {onAddToQueue && (
             <IconButton
-              color="default"
-              onClick={(e) => handleAddToQueue(e, track)}
-              title="加入佇列"
-              size={isUltrawide ? "large" : "medium"}
+              sx={actionSize}
+              aria-label={`將 ${track.title} 加入待播`}
+              title="加入待播"
+              onClick={() => onAddToQueue(track)}
             >
-              <AddIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />
+              <AddIcon />
             </IconButton>
           )}
           <IconButton
-            color="default"
-            onClick={(e) => handleOpenPlaylistMenu(e, track)}
+            sx={actionSize}
+            aria-label={`將 ${track.title} 加入播放清單`}
             title="加入播放清單"
-            size={isUltrawide ? "large" : "medium"}
-          >
-            <PlaylistAddIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />
-          </IconButton>
-          <IconButton
-            color="default"
-            onClick={(e) => {
-              e.stopPropagation();
-              dispatch(toggleFavorite({
-                videoId: track.videoId,
-                title: track.title,
-                channel: track.channel,
-                thumbnail: track.thumbnail,
-                duration: track.duration,
-              }));
+            onClick={(event) => {
+              setPlaylistMenuAnchor(event.currentTarget)
+              setSelectedTrack(track)
             }}
-            title={favoriteIds[track.videoId] ? '取消收藏' : '收藏'}
-            size={isUltrawide ? "large" : "medium"}
           >
-            {favoriteIds[track.videoId]
-              ? <FavoriteIcon sx={{ fontSize: isUltrawide ? 28 : 24, color: 'error.main' }} />
-              : <FavoriteBorderIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />}
+            <PlaylistAddIcon />
           </IconButton>
           <IconButton
-            color="default"
-            onClick={(e) => handleOpenBlockMenu(e, track)}
-            title="更多選項"
-            size={isUltrawide ? "large" : "medium"}
+            sx={actionSize}
+            aria-label={`${isFavorite ? '取消收藏' : '收藏'} ${track.title}`}
+            aria-pressed={isFavorite}
+            disabled={pendingFavorites.has(track.videoId)}
+            title={isFavorite ? '取消收藏' : '收藏'}
+            onClick={async () => {
+              if (pendingFavorites.has(track.videoId)) return
+              setPendingFavorites((previous) => new Set(previous).add(track.videoId))
+              try {
+                await dispatch(
+                  toggleFavorite({
+                    videoId: track.videoId,
+                    title: track.title,
+                    channel: track.channel,
+                    thumbnail: track.thumbnail,
+                    duration: track.duration,
+                  })
+                ).unwrap()
+              } catch {
+                setSnackbar({ message: '收藏更新失敗，請再試一次。', severity: 'error' })
+              } finally {
+                setPendingFavorites((previous) => {
+                  const next = new Set(previous)
+                  next.delete(track.videoId)
+                  return next
+                })
+              }
+            }}
           >
-            <MoreVertIcon sx={{ fontSize: isUltrawide ? 28 : 24 }} />
+            {isFavorite ? <FavoriteIcon color="error" /> : <FavoriteBorderIcon />}
+          </IconButton>
+          <IconButton
+            sx={actionSize}
+            aria-label={`${track.title} 的更多選項`}
+            aria-haspopup="menu"
+            title="更多選項"
+            onClick={(event) => {
+              setBlockMenuAnchor(event.currentTarget)
+              setBlockMenuTrack(track)
+            }}
+          >
+            <MoreVertIcon />
           </IconButton>
         </Box>
       </Card>
-    );
-  };
+    )
+  }
+
+  if (!results.length)
+    return (
+      <Box sx={{ py: 6, px: 2, textAlign: 'center' }}>
+        <MusicNoteIcon sx={{ color: 'text.secondary', fontSize: 32, mb: 1.5 }} />
+        <Typography component="h2" sx={{ fontSize: 22, fontWeight: 600 }}>
+          沒有找到結果
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          試試歌曲名稱、歌手，或較短的關鍵字。
+        </Typography>
+      </Box>
+    )
 
   return (
-    <>
-      <Typography variant={isUltrawide ? "h6" : "body2"} color="text.secondary" sx={{ mb: 1, fontWeight: isUltrawide ? 600 : 400 }}>
-        找到 {results.length} 筆結果
-      </Typography>
-
-      {/* Category tabs */}
+    <Box sx={{ minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
+        <Typography component="h2" sx={{ fontSize: { xs: 22, sm: 24 }, fontWeight: 600 }}>
+          搜尋結果
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          {results.length} 首曲目
+        </Typography>
+      </Box>
       <Tabs
         value={activeTab}
-        onChange={(_, v) => setActiveTab(v)}
+        onChange={(_, value) => setActiveTab(value)}
         variant="scrollable"
         scrollButtons="auto"
-        sx={{ mb: 1, minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0.5, fontSize: '0.8rem' } }}
+        aria-label="搜尋結果顯示方式"
+        sx={{
+          mb: 2,
+          minHeight: 48,
+          borderBottom: 1,
+          borderColor: 'divider',
+          '& .MuiTab-root': { minHeight: 48, fontSize: 14 },
+        }}
       >
-        <Tab label="全部" />
-        <Tab icon={<MusicNoteIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="歌曲" />
-        <Tab icon={<PersonIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="頻道" />
-        <Tab icon={<QueueMusicIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="播放清單" />
+        <Tab
+          id="search-tracks-tab"
+          aria-controls="search-results-panel"
+          icon={<MusicNoteIcon fontSize="small" />}
+          iconPosition="start"
+          label="曲目"
+        />
+        <Tab
+          id="search-channels-tab"
+          aria-controls="search-results-panel"
+          icon={<PersonIcon fontSize="small" />}
+          iconPosition="start"
+          label="依頻道"
+        />
       </Tabs>
-
-      {activeTab === 2 ? (
-        // Channel grouped view
-        <Box>
-          {Object.entries(channelGroups).map(([channel, tracks]) => (
-            <Box key={channel} sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, px: 1 }}>
-                {channel} ({tracks.length})
-              </Typography>
-              <Grid container spacing={isUltrawide ? 3 : 2}>
-                {tracks.slice(0, 3).map(track => (
-                  <Grid item xs={12} sm={6} md={4} lg={isUltrawide ? 4 : 3} key={track.id}>
-                    {renderTrackCard(track)}
-                  </Grid>
-                ))}
-              </Grid>
-            </Box>
-          ))}
-        </Box>
-      ) : (
-        // Normal grid view
-        <Grid container spacing={isUltrawide ? 3 : 2}>
-          {visibleResults.map((track) => (
-            <Grid item xs={12} sm={6} md={4} lg={isUltrawide ? 4 : 3} key={track.id}>
-              {renderTrackCard(track)}
-            </Grid>
-          ))}
-        </Grid>
-      )}
-
-      {/* Infinite scroll sentinel (only for non-channel tabs) */}
-      {activeTab !== 2 && hasMore && (
-        <Box ref={loadMoreRef} sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          <CircularProgress size={28} />
+      <Box
+        id="search-results-panel"
+        role="tabpanel"
+        aria-labelledby={activeTab === 0 ? 'search-tracks-tab' : 'search-channels-tab'}
+        sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}
+      >
+        {activeTab === 0
+          ? visibleResults.map(renderTrack)
+          : Object.entries(channelGroups).map(([channel, tracks]) => (
+              <Box component="section" key={channel} sx={{ mb: 1.5, minWidth: 0 }}>
+                <Typography
+                  component="h3"
+                  sx={{ fontSize: 18, fontWeight: 600, mb: 1.5, overflowWrap: 'anywhere' }}
+                >
+                  {channel}
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {tracks.map(renderTrack)}
+                </Box>
+              </Box>
+            ))}
+      </Box>
+      {hasMore && (
+        <Box ref={loadMoreRef} sx={{ textAlign: 'center', py: 3 }}>
+          <Button
+            variant="outlined"
+            sx={{ minHeight: 44 }}
+            onClick={() => setVisibleCount((count) => Math.min(count + PAGE_SIZE, results.length))}
+          >
+            顯示更多曲目
+          </Button>
         </Box>
       )}
-
       {selectedTrack && (
         <AddToPlaylistMenu
           anchorEl={playlistMenuAnchor}
           open={Boolean(playlistMenuAnchor)}
           track={selectedTrack}
-          onClose={handleClosePlaylistMenu}
+          onClose={() => {
+            setPlaylistMenuAnchor(null)
+            setSelectedTrack(null)
+          }}
         />
       )}
-
-      {/* 封鎖選單 */}
-      <Menu
-        anchorEl={blockMenuAnchor}
-        open={Boolean(blockMenuAnchor)}
-        onClose={handleCloseBlockMenu}
-      >
-        <MenuItem onClick={handleBlockSong}>
-          <BlockIcon sx={{ mr: 1, fontSize: 20 }} /> 封鎖這首歌
+      <Menu anchorEl={blockMenuAnchor} open={Boolean(blockMenuAnchor)} onClose={closeBlockMenu}>
+        <MenuItem onClick={() => handleBlock('song')} sx={{ minHeight: 48 }}>
+          <BlockIcon sx={{ mr: 1.5, fontSize: 20 }} />
+          封鎖這首歌的推薦
         </MenuItem>
-        <MenuItem onClick={handleBlockChannel}>
-          <BlockIcon sx={{ mr: 1, fontSize: 20 }} /> 封鎖此頻道
+        <MenuItem onClick={() => handleBlock('channel')} sx={{ minHeight: 48 }}>
+          <BlockIcon sx={{ mr: 1.5, fontSize: 20 }} />
+          封鎖此頻道的推薦
         </MenuItem>
       </Menu>
-
-      {/* 封鎖反悔 Snackbar */}
       <Snackbar
-        open={snackbar.open}
-        autoHideDuration={5000}
-        onClose={() => setSnackbar({ open: false, message: '', blockedId: null })}
-        message={snackbar.message}
-        action={
-          <Button color="warning" size="small" onClick={handleUndoBlock}>
-            復原
-          </Button>
-        }
-      />
-    </>
-  );
+        open={!!snackbar}
+        autoHideDuration={snackbar?.severity === 'error' ? null : 5000}
+        onClose={() => setSnackbar(null)}
+      >
+        <Alert
+          severity={snackbar?.severity || 'success'}
+          onClose={() => setSnackbar(null)}
+          sx={{
+            alignItems: 'center',
+            maxWidth: '100%',
+            '& .MuiAlert-message': { overflowWrap: 'anywhere' },
+          }}
+          action={
+            snackbar?.blockedId ? (
+              <Button color="inherit" sx={{ minHeight: 44 }} onClick={handleUndoBlock}>
+                復原
+              </Button>
+            ) : undefined
+          }
+        >
+          {snackbar?.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  )
 }

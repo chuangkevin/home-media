@@ -1,4 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import axios from 'axios';
 import type { Track } from '../types/track.types';
 import apiService, { Playlist, PlaylistWithTracks } from '../services/api.service';
 
@@ -29,7 +30,9 @@ export const fetchPlaylists = createAsyncThunk(
 export const fetchPlaylist = createAsyncThunk(
   'playlists/fetchOne',
   async (playlistId: string) => {
-    return await apiService.getPlaylist(playlistId);
+    const playlist = await apiService.getPlaylist(playlistId);
+    if (!playlist) throw new Error('找不到這個播放清單，請重新載入。');
+    return playlist;
   }
 );
 
@@ -58,9 +61,16 @@ export const deletePlaylist = createAsyncThunk(
 
 export const addTrackToPlaylist = createAsyncThunk(
   'playlists/addTrack',
-  async ({ playlistId, track }: { playlistId: string; track: Track }) => {
-    await apiService.addTrackToPlaylist(playlistId, track);
-    return { playlistId, track };
+  async ({ playlistId, track }: { playlistId: string; track: Track }, { rejectWithValue }) => {
+    try {
+      await apiService.addTrackToPlaylist(playlistId, track);
+      return { playlistId, track };
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        return rejectWithValue('already-added');
+      }
+      throw error;
+    }
   }
 );
 
@@ -104,7 +114,7 @@ const playlistSlice = createSlice({
       })
       .addCase(fetchPlaylists.rejected, (state, action) => {
         state.isLoading = false;
-        state.error = action.error.message || 'Failed to fetch playlists';
+        state.error = action.error.message || '播放清單載入失敗';
       })
       // fetchPlaylist
       .addCase(fetchPlaylist.pending, (state) => {
@@ -117,7 +127,7 @@ const playlistSlice = createSlice({
       })
       .addCase(fetchPlaylist.rejected, (state, action) => {
         state.isLoading = false;
-        state.error = action.error.message || 'Failed to fetch playlist';
+        state.error = action.error.message || '播放清單載入失敗';
       })
       // createPlaylist
       .addCase(createPlaylist.pending, (state) => {
@@ -130,7 +140,7 @@ const playlistSlice = createSlice({
       })
       .addCase(createPlaylist.rejected, (state, action) => {
         state.isCreating = false;
-        state.error = action.error.message || 'Failed to create playlist';
+        state.error = action.error.message || '播放清單建立失敗';
       })
       // updatePlaylist
       .addCase(updatePlaylist.fulfilled, (state, action) => {

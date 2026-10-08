@@ -436,10 +436,10 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           width: '100%',
           maxWidth: 800,
           mx: 'auto',
-          aspectRatio: '16/9',
+          minHeight: { xs: 360, sm: 420 },
           borderRadius: 2,
-          overflow: 'hidden',
-          boxShadow: 3,
+          overflow: 'auto',
+          boxShadow: 0,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -447,11 +447,11 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
           bgcolor: 'grey.900',
           color: 'white',
           gap: 2,
-          p: 3,
+          p: { xs: 2.5, sm: 4 },
         }}
       >
         {error === '行動裝置需要手動點擊播放' ? (
-          <PlayCircleOutlineIcon sx={{ fontSize: 80, opacity: 0.7, cursor: 'pointer' }} onClick={handleTapToPlay} />
+          <PlayCircleOutlineIcon sx={{ fontSize: 64, opacity: 0.85 }} />
         ) : (
           <MusicVideoIcon sx={{ fontSize: 64, opacity: 0.5 }} />
         )}
@@ -466,7 +466,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
         )}
         {error === '行動裝置需要手動點擊播放' ? (
           <Typography variant="body2" color="grey.400" textAlign="center">
-            行動瀏覽器限制自動播放，請點擊上方圖示開始播放
+            行動瀏覽器限制自動播放，請按「點擊播放」開始。
           </Typography>
         ) : (
           <Typography variant="body2" color="grey.400" textAlign="center">
@@ -532,7 +532,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
     >
       {loading && (
         <Box sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'white', zIndex: 1 }}>
-          <CircularProgress color="inherit" />
+          <CircularProgress color="inherit" aria-label="影片載入中" />
         </Box>
       )}
       <div
