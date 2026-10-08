@@ -26,6 +26,7 @@ import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, 
 import { seekTo, setPendingTrack, setIsPlaying, reorderPlaylist, removeFromPlaylist, playNext } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
+import { shouldUseCachedVideo, transitionCachedVideoFallback } from '../../services/cached-video-fallback';
 import {
   claimVideoCachePolling,
   hasVideoCachePollingExpired,
@@ -98,6 +99,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const lastHardSeekAtRef = useRef(0);
   const activeTrackVideoIdRef = useRef(track.videoId);
   activeTrackVideoIdRef.current = track.videoId;
+  const isOpenRef = useRef(open);
+  isOpenRef.current = open;
 
   // 顯示模式
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
@@ -133,6 +136,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 影片快取狀態
   const [videoCached, setVideoCached] = useState(false);
   const [videoCachedForId, setVideoCachedForId] = useState<string | null>(null);
+  const [cachedVideoFallbackForId, setCachedVideoFallbackForId] = useState<string | null>(null);
   const [videoDownloading, setVideoDownloading] = useState(false);
   const [videoDownloadProgress, setVideoDownloadProgress] = useState('');
   const [videoDownloadError, setVideoDownloadError] = useState('');
@@ -268,14 +272,21 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 影片快取：Drawer 開啟就開始下載（不限影片 tab），但輪詢是輕量 API call 不影響 iOS PWA
   const videoPollingVideoIdRef = useRef<string | null>(null);
-  const showCachedVideo = videoCached && videoCachedForId === track.videoId;
   const videoId = track?.videoId;
+  const showCachedVideo = shouldUseCachedVideo(videoCached, videoCachedForId, videoId, cachedVideoFallbackForId);
+  const hasCachedVideoPlaybackError = cachedVideoFallbackForId === videoId;
   const handleRetryVideoDownload = useCallback(() => {
+    // A retry is explicit: try the cached source once more, then fall back again
+    // if the same file still cannot be decoded. Never auto-loop on media errors.
+    setCachedVideoFallbackForId(current => transitionCachedVideoFallback(current, {
+      type: 'cache-retry',
+      videoId,
+    }));
     setVideoDownloadError('');
     setVideoDownloadProgress('正在檢查影片快取…');
     setVideoDownloading(true);
     setVideoDownloadRetryVersion(version => version + 1);
-  }, []);
+  }, [videoId]);
 
   useEffect(() => {
     if (!open || !videoId) return;
@@ -424,6 +435,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   useEffect(() => {
     setVideoCached(false);
     setVideoCachedForId(null);
+    setCachedVideoFallbackForId(current => transitionCachedVideoFallback(current, { type: 'track-change' }));
     setVideoDownloading(false);
     setVideoDownloadProgress('');
     setVideoDownloadError('');
@@ -456,7 +468,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 初始化或銷毀 YouTube 播放器
   useEffect(() => {
-    if (!open || viewMode !== 'video' || !videoContainerRef.current) {
+    if (!open || viewMode !== 'video' || showCachedVideo || !videoContainerRef.current) {
       // 銷毀播放器
       if (playerRef.current && playerRef.current.destroy) {
         playerRef.current.destroy();
@@ -563,7 +575,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       }
       setVideoReady(false);
     };
-  }, [open, viewMode, track.videoId]);
+  }, [open, viewMode, showCachedVideo, track.videoId]);
 
   // 同步 iframe 位置到 audio element（audio 是唯一音源，iframe 跟隨）
   useEffect(() => {
@@ -642,7 +654,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       }
     };
 
-    if (!open || viewMode !== 'video' || !videoCached || !cachedVideoRef.current) {
+    if (!open || viewMode !== 'video' || !showCachedVideo || !cachedVideoRef.current) {
       clearSyncTimers();
       if (cachedVideoRef.current) {
         cachedVideoRef.current.playbackRate = 1;
@@ -719,7 +731,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         cachedVideoRef.current.playbackRate = 1;
       }
     };
-  }, [open, viewMode, videoCached, track.videoId]);
+  }, [open, viewMode, showCachedVideo, track.videoId]);
 
   // iOS/PWA 背景時關閉可視影片層，讓 audio 持續播放並降低整頁被回收的機率。
   const recoveryLockRef = useRef(false);
@@ -1322,41 +1334,44 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const renderVideo = () => {
     const currentLineText = currentLyrics?.lines?.[currentLineIndex]?.text || '';
     const currentLineTranslation = translations[currentLineIndex] || '';
+    const videoStatusError = videoDownloadError || (hasCachedVideoPlaybackError ? '快取影片無法播放' : '');
 
     return (
       <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
-        {!showCachedVideo && (videoDownloading || videoDownloadError) && (
+        {!showCachedVideo && (videoDownloading || videoStatusError) && (
           <Box
-            role={videoDownloadError ? 'alert' : 'status'}
-            aria-live={videoDownloadError ? 'assertive' : 'polite'}
+            role={videoStatusError ? 'alert' : 'status'}
+            aria-live={videoStatusError ? 'assertive' : 'polite'}
             sx={{
               position: 'absolute', top: { xs: 8, sm: 16 }, left: '50%', transform: 'translateX(-50%)',
               zIndex: 12, display: 'flex', alignItems: 'center', gap: 1, width: 'max-content',
               maxWidth: 'calc(100% - 24px)', minHeight: 44, px: 1.5, py: 0.75,
               color: 'common.white', bgcolor: 'rgba(0, 0, 0, 0.78)', borderRadius: 2,
-              boxShadow: 2, pointerEvents: videoDownloadError ? 'auto' : 'none',
+              boxShadow: 2, pointerEvents: videoStatusError ? 'auto' : 'none',
             }}
           >
             {videoDownloading && <CircularProgress size={18} color="inherit" aria-label="影片快取進度" />}
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
-                {videoDownloadError ? '影片快取失敗' : '影片快取中'}
+                {hasCachedVideoPlaybackError ? '快取影片無法播放' : videoDownloadError ? '影片快取失敗' : '影片快取中'}
               </Typography>
               <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255,255,255,0.82)', lineHeight: 1.3 }}>
-                {videoDownloadError
-                  ? `${videoDownloadError}。${videoReady ? 'YouTube 備援影片仍可播放' : 'YouTube 備援影片載入中，不影響音訊控制'}`
-                  : (videoReady ? 'YouTube 備援影片仍可播放' : 'YouTube 備援影片載入中，不影響音訊控制')}
+                {hasCachedVideoPlaybackError
+                  ? `${videoReady ? '已切換至 YouTube 備援影片' : 'YouTube 備援影片載入中'}，不影響音訊控制`
+                  : videoDownloadError
+                    ? `${videoDownloadError}。${videoReady ? 'YouTube 備援影片仍可播放' : 'YouTube 備援影片載入中，不影響音訊控制'}`
+                    : (videoReady ? 'YouTube 備援影片仍可播放' : 'YouTube 備援影片載入中，不影響音訊控制')}
                 {videoDownloading && videoDownloadProgress && (
                   <Box component="span" aria-hidden="true"> · {videoDownloadProgress}</Box>
                 )}
               </Typography>
             </Box>
-            {videoDownloadError && (
+            {videoStatusError && !videoDownloading && (
               <Button
                 color="inherit"
                 variant="outlined"
                 onClick={handleRetryVideoDownload}
-                aria-label="重試影片快取"
+                aria-label={hasCachedVideoPlaybackError ? '重試快取影片' : '重試影片快取'}
                 sx={{ minWidth: 72, minHeight: 44, whiteSpace: 'nowrap' }}
               >
                 重試
@@ -1384,6 +1399,25 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 videoEl.currentTime = audioEl.currentTime;
                 console.log(`🎬 cached video 同步到 audio: ${audioEl.currentTime.toFixed(1)}s`);
               }
+            }}
+            onError={(event) => {
+              const videoId = track.videoId;
+              // Ignore an event delivered after close or after this element was
+              // replaced by another track's cached video.
+              if (
+                cachedVideoRef.current !== event.currentTarget ||
+                !isOpenRef.current ||
+                activeTrackVideoIdRef.current !== videoId
+              ) return;
+
+              setCachedVideoFallbackForId(current => transitionCachedVideoFallback(current, {
+                type: 'cache-error',
+                error: {
+                  videoId,
+                  activeVideoId: activeTrackVideoIdRef.current,
+                  isOpen: isOpenRef.current,
+                },
+              }));
             }}
             onSeeking={(e) => {
               const videoEl = e.target as HTMLVideoElement;

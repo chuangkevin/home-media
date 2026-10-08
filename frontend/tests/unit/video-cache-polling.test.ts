@@ -83,9 +83,9 @@ test('cache status stays visible over ready iframe and exposes an accessible ret
   const renderEnd = source.indexOf('{/* 字幕疊加層', renderStart)
   const render = source.slice(renderStart, renderEnd)
   const statusConditionStart = render.indexOf(
-    '{!showCachedVideo && (videoDownloading || videoDownloadError)'
+    '{!showCachedVideo && (videoDownloading || videoStatusError)'
   )
-  const statusStart = render.indexOf("role={videoDownloadError ? 'alert' : 'status'}")
+  const statusStart = render.indexOf("role={videoStatusError ? 'alert' : 'status'}")
   const cachedVideoStart = render.indexOf('{showCachedVideo &&', statusStart)
 
   assert.notEqual(renderStart, -1, 'expected video render function')
@@ -97,7 +97,7 @@ test('cache status stays visible over ready iframe and exposes an accessible ret
   assert.notEqual(statusStart, -1, 'expected an accessible cache status region')
   assert.notEqual(cachedVideoStart, -1, 'expected a cached-video ready branch')
   const status = render.slice(statusConditionStart, cachedVideoStart)
-  assert.match(status, /aria-live=\{videoDownloadError \? 'assertive' : 'polite'\}/)
+  assert.match(status, /aria-live=\{videoStatusError \? 'assertive' : 'polite'\}/)
   assert.match(status, /aria-hidden="true"/)
   assert.match(status, /重試影片快取/)
   assert.match(status, /minHeight: 44/)
