@@ -140,6 +140,22 @@ jobs:
           echo "❌ Health check failed after 120 seconds"
           exit 1
 
+      - name: Bounded private HTTP diagnostics (not an audibility test)
+        timeout-minutes: 2
+        env:
+          DEPLOY_SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          # Reuse established SSH/known_hosts; no new login, port, ACL, or credential.
+          # Remote stderr is suppressed to avoid leaking paths or connection details.
+          if ! timeout --signal=TERM 30s ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_SERVER_IP" \
+            'docker exec -i home-media-backend node -' \
+            < scripts/post-deploy-diagnostic.cjs 2>/dev/null; then
+            echo '{"stage":"diagnostic","category":"transport_or_probe_failed_no_retry"}'
+          fi
+
       - name: Deployment Summary
         if: always()
         run: |
@@ -157,3 +173,4 @@ jobs:
         if: failure()
         run: |
           echo "❌ Deployment failed! Please check the logs above." >> $GITHUB_STEP_SUMMARY
+
