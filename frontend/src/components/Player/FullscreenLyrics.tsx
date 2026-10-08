@@ -1,3 +1,4 @@
+import { getActivePlaybackAudio } from '../../services/active-audio';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box, Typography, Drawer, CircularProgress, Alert, IconButton, Tooltip, Chip,
@@ -496,7 +497,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
       if (window.YT && window.YT.Player) {
         // 建立 player 前取得 live audio 時間，用 start 參數讓 YouTube 從正確位置開始 buffer
-        const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+        const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
         const startTime = Math.floor(audioEl?.currentTime || currentTime);
         console.log(`🎬 建立 YouTube player, start=${startTime}s`);
 
@@ -515,14 +516,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               setVideoReady(true);
               event.target.mute();
               // 再次精確同步（start 只精確到秒）
-              const liveTime = (document.querySelector('audio') as HTMLAudioElement | null)?.currentTime || currentTime;
+              const liveTime = (getActivePlaybackAudio() as HTMLAudioElement | null)?.currentTime || currentTime;
               event.target.seekTo(liveTime, true);
               event.target.playVideo();
               console.log(`🎬 onReady: seekTo ${liveTime.toFixed(1)}s (start was ${startTime}s)`);
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
-              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
               const audioTime = audioEl?.currentTime || 0;
 
               if (event.data === 1) {
@@ -593,7 +594,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     // 首次同步：立即修正
     if (playerRef.current?.seekTo) {
-      const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+      const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
       const audioTime = audioEl?.currentTime || 0;
       if (audioTime > 0) {
         playerRef.current.seekTo(audioTime, true);
@@ -605,7 +606,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     videoTimeSyncRef.current = setInterval(() => {
       if (playerRef.current && playerRef.current.getCurrentTime && playerRef.current.seekTo) {
         const videoTime = playerRef.current.getCurrentTime();
-        const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+        const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
         const audioTime = audioEl?.currentTime || 0;
         const drift = Math.abs(videoTime - audioTime);
         syncAttempts++;
@@ -669,7 +670,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
     const syncOnce = () => {
       const videoEl = cachedVideoRef.current;
-      const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+      const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
       if (!videoEl || !audioEl) return;
       if (videoEl.readyState < 2 || audioEl.readyState < 2 || videoEl.seeking || audioEl.seeking) return;
 
@@ -744,7 +745,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   useEffect(() => {
     const handleVisibilityChange = () => {
       const videoEl = cachedVideoRef.current;
-      const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+      const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
       if (!videoEl || viewMode !== 'video') return;
 
       if (document.hidden) {
@@ -766,7 +767,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         // 延遲播放 — 等影片 buffer 好再開始，避免解鎖瞬間卡頓
         setTimeout(() => {
           const ve = cachedVideoRef.current;
-          const ae = document.querySelector('audio') as HTMLAudioElement | null;
+          const ae = getActivePlaybackAudio() as HTMLAudioElement | null;
           if (ve && ae && !ae.paused) {
             try { seekFollowingVideo(ve, ae.currentTime); } catch {}
             ve.play().catch(() => {});
@@ -842,7 +843,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     let rafId: number;
 
     const tick = () => {
-      const audio = document.querySelector('audio') as HTMLAudioElement;
+      const audio = getActivePlaybackAudio() as HTMLAudioElement;
       if (audio) {
         const adjustedTime = audio.currentTime + timeOffset;
         let newLineIndex = -1;
@@ -931,7 +932,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 微調模式
   const handleEnterFineTune = () => {
     // 記錄進入微調時的播放時間（之後不變，避免滾動時 offset 跳動）
-    const audio = document.querySelector('audio') as HTMLAudioElement | null;
+    const audio = getActivePlaybackAudio() as HTMLAudioElement | null;
     fineTuneStartTimeRef.current = audio?.currentTime || currentTime;
     setFineTuneOffset(timeOffset);
     setIsFineTuning(true);
@@ -1403,7 +1404,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 cachedVideoRef.current !== videoEl || !isOpenRef.current ||
                 viewModeRef.current !== 'video' || activeTrackVideoIdRef.current !== track.videoId
               ) return;
-              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
               if (audioEl && !videoEl.dataset.synced) {
                 videoEl.dataset.synced = '1';
                 seekFollowingVideo(videoEl, audioEl.currentTime);

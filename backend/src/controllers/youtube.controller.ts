@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { spawn } from 'child_process';
 import { pipeline } from 'stream';
 import { createAudioCacheWriter } from '../services/audio-cache-writer';
+import { streamProgressiveAudio } from '../services/audio-progressive-response';
+import { streamLiveAudio } from '../services/audio-live-response';
+import type { AudioProgressiveSpool } from '../services/audio-progressive-spool';
 import youtubeService from '../services/youtube.service';
 import audioCacheService from '../services/audio-cache.service';
 import downloadManager from '../services/download-manager.service';
@@ -15,6 +18,8 @@ export class YouTubeController {
    * a failed owner is replaced by at most one new producer at a time.
    */
   private inFlightStreams: Map<string, Promise<void>> = new Map();
+  private inFlightSpools: Map<string, AudioProgressiveSpool> = new Map();
+  private activeStreamOwners = 0;
 
   /**
    * GET /api/search?q=query&limit=20
@@ -158,6 +163,11 @@ export class YouTubeController {
 
       // Check for in-flight yt-dlp process for this videoId
       while (this.inFlightStreams.has(videoId)) {
+        const spool = this.inFlightSpools.get(videoId);
+        if (spool) {
+          await streamProgressiveAudio(req, res, spool);
+          return;
+        }
         console.log(`⏳ [Stream] In-flight yt-dlp already running for ${videoId}, waiting for completion`);
         try {
           await this.inFlightStreams.get(videoId);
@@ -171,6 +181,12 @@ export class YouTubeController {
         } catch {}
         // If still no cache, fall through to new stream
         console.log(`⚠️ [Stream] In-flight completed but no cache for ${videoId}, starting new stream`);
+      }
+
+      if (this.activeStreamOwners >= 4) {
+        res.setHeader('Retry-After', '2');
+        res.status(503).json({ error: 'Audio stream capacity is busy', retryable: true });
+        return;
       }
 
       // Playback is the highest priority path. Do not wait for low-priority
@@ -188,10 +204,16 @@ export class YouTubeController {
         resolveInFlight = resolve;
       });
       this.inFlightStreams.set(videoId, inFlightPromise);
+      this.activeStreamOwners++;
+      let ownerReleased = false;
 
       // Only this owner can clear its slot. Hold it through remux/publication;
       // releasing on HTTP close lets later requests race the unfinished writer.
       const cleanupInFlight = () => {
+        if (!ownerReleased) {
+          ownerReleased = true;
+          this.activeStreamOwners--;
+        }
         if (this.inFlightStreams.get(videoId) === inFlightPromise) {
           this.inFlightStreams.delete(videoId);
         }
@@ -233,15 +255,22 @@ export class YouTubeController {
     let hasData = false;
     let stderrOutput = '';
     // Live playback starts before cache finalization/remux.
-    const cacheWriter = !req.headers.range && !audioCacheService.has(videoId)
+    // This extractor always emits the complete body from byte zero and answers
+    // unknown-length Range requests with honest 200. Even Safari's initial
+    // bytes=0-1 probe can share this one writer with the following media request.
+    const cacheWriter = !audioCacheService.has(videoId)
       ? createAudioCacheWriter(ytdlp, audioCacheService.getCachePath(videoId),
         (file, signal) => audioCacheService.remuxIfNeeded(file, signal),
         { keepStreamingOnError: true })
       : null;
     let producerDone = false;
     let cacheDone = !cacheWriter;
+    if (cacheWriter?.spool) this.inFlightSpools.set(videoId, cacheWriter.spool);
     const finishOwnership = () => {
-      if (producerDone && cacheDone) onCacheWriteComplete?.();
+      if (producerDone && cacheDone) {
+        if (this.inFlightSpools.get(videoId) === cacheWriter?.spool) this.inFlightSpools.delete(videoId);
+        onCacheWriteComplete?.();
+      }
     };
     if (cacheWriter) {
       void cacheWriter.completion.then(() => { cacheDone = true; finishOwnership(); });
@@ -250,44 +279,17 @@ export class YouTubeController {
     ytdlp.stderr.on('data', (chunk: Buffer) => {
       stderrOutput = (stderrOutput + chunk.toString()).slice(-500);
     });
-    ytdlp.stdout.on('data', (chunk: Buffer) => {
-      hasData = true;
-      if (res.destroyed || res.writableEnded) return;
-      if (!res.headersSent) {
-        res.status(200);
-        res.setHeader('Content-Type', 'audio/mp4');
-        res.setHeader('Transfer-Encoding', 'chunked');
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-        res.setHeader('Cache-Control', 'no-cache');
-      }
-      res.write(chunk);
-    });
-    ytdlp.stdout.on('end', () => {
-      if (hasData && !res.writableEnded && !res.destroyed) res.end();
-    });
-    const streamError = () => {
-      if (res.destroyed || res.writableEnded) return;
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to stream audio' });
-      } else res.end();
-    };
-    ytdlp.stdout.on('error', streamError);
-    ytdlp.on('error', streamError);
+    ytdlp.stdout.on('data', () => { hasData = true; });
+    streamLiveAudio(req, res, ytdlp);
     ytdlp.on('close', code => {
       if (code !== 0 || !hasData) {
         logger.error(`yt-dlp stream failed for ${videoId} (code ${code}): ${stderrOutput}`);
-        streamError();
       }
     });
     res.on('close', () => {
       // A completed HTTP response may still be remuxing. Do not cancel it.
       if (res.writableEnded) return;
-      if (!cacheWriter || !hasData) {
-        if (cacheWriter) cacheWriter.cancel();
-        else ytdlp.kill('SIGKILL');
-      }
+      if (!cacheWriter) ytdlp.kill('SIGKILL');
     });
   }
 

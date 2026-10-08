@@ -20,7 +20,14 @@ function load(relative, mocks = {}, extra = {}) {
   const module = { exports };
   vm.runInNewContext(code, { exports, module, Buffer, process, AbortController,
     setTimeout, clearTimeout, console: { log() {}, error() {}, warn() {} },
-    require(name) { return Object.hasOwn(mocks, name) ? mocks[name] : require(name); }, ...extra,
+    require(name) {
+      if (Object.hasOwn(mocks, name)) return mocks[name];
+      if (name.startsWith('.')) {
+        const local = path.resolve(path.dirname(filename), name) + '.ts';
+        if (fs.existsSync(local)) return load(path.relative(path.join(__dirname, '../src'), local), mocks, extra);
+      }
+      return require(name);
+    }, ...extra,
   }, { filename });
   return module.exports;
 }
@@ -184,7 +191,7 @@ function controllerFixture() {
   }).default;
   const starts = [];
   subject.streamWithYtDlp = (_req, _res, _id, complete) => starts.push({ complete });
-  const request = () => ({ params: { videoId: 'Iy2VkSFxhRk' }, headers: {} });
+  const request = () => Object.assign(new EventEmitter(), { params: { videoId: 'Iy2VkSFxhRk' }, headers: {} });
   return { subject, starts, request };
 }
 
@@ -221,7 +228,7 @@ test('optional cache failure retains live stream owner until producer closes', a
     '../services/audio-cache-writer': { createAudioCacheWriter() { return { completion: cacheDone.promise, cancel() {} }; } },
     child_process: { spawn() { const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => {}; children.push(child); return child; } },
   }).default;
-  const request = () => ({ params: { videoId: 'Iy2VkSFxhRk' }, headers: {} });
+  const request = () => Object.assign(new EventEmitter(), { params: { videoId: 'Iy2VkSFxhRk' }, headers: {} });
   const response = () => { const r = new EventEmitter(); r.status = () => r; r.json = () => { r.writableEnded = true; }; return r; };
   await subject.streamAudio(request(), response());
   cacheDone.resolve(null); await tick();

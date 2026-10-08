@@ -1,3 +1,4 @@
+import { getActivePlaybackAudio } from '../../services/active-audio';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, CircularProgress, Alert, IconButton, Tooltip, Chip,
@@ -141,7 +142,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     const tick = () => {
       if (!running) return;
 
-      const audio = document.querySelector('audio');
+      const audio = getActivePlaybackAudio();
       if (audio) {
         // 直接從 audio 元素讀取 currentTime，避免 Redux 延遲
         const adjustedTime = audio.currentTime + timeOffset;

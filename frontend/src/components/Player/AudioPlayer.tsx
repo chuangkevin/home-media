@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector, useStore } from 'react-redux';
 import { Box, Card, CardContent, Typography, CardMedia, CircularProgress, IconButton, Snackbar, ButtonBase, Alert, Button } from '@mui/material';
 import LyricsIcon from '@mui/icons-material/Lyrics';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
@@ -12,6 +12,8 @@ import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyri
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import { AudioLoadError, createPlaybackLoadAttempt, readOptionalCache, waitForAudioReady } from '../../services/playback-load';
+import { handoffAudioToCache } from '../../services/audio-cache-handoff';
+import { setActivePlaybackAudio, clearActivePlaybackAudio } from '../../services/active-audio';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { useAutoQueue } from '../../hooks/useAutoQueue';
 import { usePlaybackPersistence } from '../../hooks/usePlaybackPersistence';
@@ -31,8 +33,34 @@ interface AudioPlayerProps {
 
 export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPlayerProps) {
   const dispatch = useDispatch<AppDispatch>();
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const secondaryAudioRef = useRef<HTMLAudioElement>(null);
+  const reduxStore = useStore();
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const secondaryAudioRef = useRef<HTMLAudioElement | null>(null);
+  const firstAudioNodeRef = useRef<HTMLAudioElement | null>(null);
+  const secondAudioNodeRef = useRef<HTMLAudioElement | null>(null);
+  const [audioOwnerVersion, setAudioOwnerVersion] = useState(0);
+  const bindFirstAudio = useCallback((node: HTMLAudioElement | null) => {
+    const previous = firstAudioNodeRef.current;
+    firstAudioNodeRef.current = node;
+    if (node && !audioRef.current) {
+      audioRef.current = node;
+      setActivePlaybackAudio(node);
+    } else if (!node) {
+      clearActivePlaybackAudio(previous);
+      if (audioRef.current === previous) audioRef.current = null;
+      if (secondaryAudioRef.current === previous) secondaryAudioRef.current = null;
+    }
+  }, []);
+  const bindSecondAudio = useCallback((node: HTMLAudioElement | null) => {
+    const previous = secondAudioNodeRef.current;
+    secondAudioNodeRef.current = node;
+    if (node && !secondaryAudioRef.current) secondaryAudioRef.current = node;
+    else if (!node) {
+      clearActivePlaybackAudio(previous);
+      if (audioRef.current === previous) audioRef.current = null;
+      if (secondaryAudioRef.current === previous) secondaryAudioRef.current = null;
+    }
+  }, []);
   const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const { isHost } = useSelector((state: RootState) => state.radio);
   const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
@@ -714,30 +742,60 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           const blob = await audioCacheService.get(bgVideoId);
           if (!blob || !isCurrentRequest() || backgroundController.signal.aborted || currentVideoIdRef.current !== bgVideoId) return;
 
-          const audio = audioRef.current;
-          if (!audio) return;
-          const curTime = audio.currentTime;
-          const wasPlaying = !audio.paused;
+          const primary = audioRef.current;
+          if (!primary || continuousModeRef.current) return;
+          const lease = crossfadeRef.current?.claimSecondaryForCache();
+          if (!lease) return;
+          const originalSource = primary.src;
+          const handoff = new AbortController();
+          const cancelHandoff = () => handoff.abort();
+          backgroundController.signal.addEventListener('abort', cancelHandoff, { once: true });
+          lease.signal.addEventListener('abort', cancelHandoff, { once: true });
+          if (backgroundController.signal.aborted || lease.signal.aborted) handoff.abort();
           const blobUrl = URL.createObjectURL(blob);
-
-          const preventEnded = (e: Event) => { e.stopImmediatePropagation(); };
-          audio.addEventListener('ended', preventEnded, { capture: true });
-          audio.addEventListener('error', preventEnded, { capture: true });
-
-          audio.src = blobUrl;
-          audio.load();
-          await new Promise<void>(r => { audio.addEventListener('canplay', () => r(), { once: true }); setTimeout(r, 5000); });
-
-          audio.removeEventListener('ended', preventEnded, { capture: true });
-          audio.removeEventListener('error', preventEnded, { capture: true });
-
-          if (!isCurrentRequest() || backgroundController.signal.aborted || currentVideoIdRef.current !== bgVideoId) { URL.revokeObjectURL(blobUrl); return; }
-          if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
-          currentBlobUrlRef.current = blobUrl;
-          try { audio.currentTime = curTime; } catch {}
-          if (wasPlaying) audio.play().catch(() => {});
-          setIsCached(true);
-          setCacheToast(true);
+          let committed = false;
+          const ownsCurrentAudio = () => {
+            const player = (reduxStore.getState() as RootState).player;
+            return isCurrentRequest() && !backgroundController.signal.aborted &&
+              currentVideoIdRef.current === bgVideoId && player.currentTrack?.videoId === bgVideoId &&
+              !player.pendingTrack && !continuousModeRef.current &&
+              audioRef.current === primary && primary.src === originalSource && lease.isCurrent();
+          };
+          try {
+            committed = await handoffAudioToCache({
+              primary, candidate: lease.audio, url: blobUrl, signal: handoff.signal,
+              isCurrent: ownsCurrentAudio,
+              getIntent: () => {
+                const player = (reduxStore.getState() as RootState).player;
+                return { playing: player.isPlaying, volume: player.volume, muted: primary.muted, playbackRate: primary.playbackRate || 1 };
+              },
+              beforeCandidatePlay: () => suppressPauseSync(6000),
+              commit: () => {
+                if (!ownsCurrentAudio()) throw new Error('Cache audio owner changed');
+                const oldBlobUrl = currentBlobUrlRef.current;
+                audioRef.current = lease.audio;
+                secondaryAudioRef.current = primary;
+                setActivePlaybackAudio(lease.audio);
+                currentBlobUrlRef.current = blobUrl;
+                setAudioOwnerVersion(version => version + 1);
+                setIsCached(true);
+                setCacheToast(true);
+                if (oldBlobUrl) URL.revokeObjectURL(oldBlobUrl);
+              },
+            });
+            if (committed) {
+              primary.removeAttribute('src');
+              primary.load();
+              primary.muted = false;
+              primary.volume = 0;
+              primary.playbackRate = 1;
+            }
+          } finally {
+            backgroundController.signal.removeEventListener('abort', cancelHandoff);
+            lease.signal.removeEventListener('abort', cancelHandoff);
+            lease.release();
+            if (!committed) URL.revokeObjectURL(blobUrl);
+          }
         })(); }, 2000);
 
         // Source assignment is not media readiness. Success is logged only after await ready.
@@ -983,7 +1041,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         audioRef.current.removeEventListener('canplay', playWhenReadyHandler);
       }
     };
-  }, [displayMode, isPlaying, isLoadingTrack, dispatch]);
+  }, [displayMode, isPlaying, isLoadingTrack, dispatch, audioOwnerVersion]);
 
   // 當音量改變時（crossfade 進行中不直接設定 volume，由 crossfade engine 處理）
   useEffect(() => {
@@ -991,7 +1049,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     if (audioRef.current && !crossfade.crossfadeActiveRef.current) {
       audioRef.current.volume = volume;
     }
-  }, [volume]);
+  }, [volume, audioOwnerVersion]);
 
   // 當需要 seek 時（所有模式，audio element 是唯一音源）
   useEffect(() => {
@@ -1009,7 +1067,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       audioRef.current.currentTime = seekTarget;
       dispatch(clearSeekTarget());
     }
-  }, [seekTarget, displayMode, isLoadingTrack, continuousMode, continuousSessionId, dispatch]);
+  }, [seekTarget, displayMode, isLoadingTrack, continuousMode, continuousSessionId, dispatch, audioOwnerVersion]);
 
   // 定期檢查快取狀態（串流播放中，背景下載完成後更新 tag）
   useEffect(() => {
@@ -1132,6 +1190,11 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }
 
     let effectActive = true;
+    const ownsAudio = () => effectActive && audioRef.current === audio
+      && currentVideoIdRef.current === currentTrack.videoId;
+    const shouldResumeAudio = () => ownsAudio()
+      && (reduxStore.getState() as RootState).player.isPlaying
+      && !(reduxStore.getState() as RootState).player.pendingTrack;
     let stalledTimeout: ReturnType<typeof setTimeout> | null = null;
     let endFallbackTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastTimeUpdate = Date.now();
@@ -1158,7 +1221,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       audioEl.play().catch((err) => {
         console.warn('⚠️ [Quick Start] play() failed:', err.name);
         // audio element 已暖機，play 失敗罕見；但若發生，3s 後 fallback 重試
-        setTimeout(() => { if (audioEl.paused) audioEl.play().catch(() => {}); }, 3000);
+        setTimeout(() => { if (shouldResumeAudio() && audioEl === audioRef.current && audioEl.paused) audioEl.play().catch(() => {}); }, 3000);
       });
 
       // 同步清理 refs（必須在 return true 之前，避免 timeupdate 重複觸發）
@@ -1244,7 +1307,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         if (!endFallbackTimeout && currentTrack?.duration) {
           const remainingMs = (currentTrack.duration - audio.currentTime + 3) * 1000;
           endFallbackTimeout = setTimeout(() => {
-            if (!wasCompletedRef.current) {
+            if (ownsAudio() && !wasCompletedRef.current) {
               console.log('⏰ iOS fallback: timeupdate 未觸發結尾偵測，強制跳下一首');
               if (!quickStartNextTrack(audio)) {
                 wasCompletedRef.current = true;
@@ -1432,6 +1495,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       const videoId = currentVideoIdRef.current;
       const requestVersion = pendingRequestVersionRef.current;
       const canRetry = () => effectActive
+        && audioRef.current === audio
         && pendingAudioOwnerRef.current === null
         && pendingRequestVersionRef.current === requestVersion
         && currentVideoIdRef.current === videoId;
@@ -1469,7 +1533,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       const freshUrl = `${apiService.getStreamUrl(videoId)}?_retry=${streamRetryCount}&_t=${Date.now()}`;
       audio.src = freshUrl;
       audio.load();
-      audio.play().catch(() => {});
+      if (shouldResumeAudio()) audio.play().catch(() => {});
     };
 
     // 手機端特殊處理：偵測假播放（進度在跑但沒聲音）
@@ -1481,7 +1545,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       maybeFallbackToAudioOnly('stalled');
       if (stalledTimeout) clearTimeout(stalledTimeout);
       stalledTimeout = setTimeout(() => {
-        if (audio.paused === false && audio.currentTime === lastCurrentTime) {
+        if (shouldResumeAudio() && audio.paused === false && audio.currentTime === lastCurrentTime) {
           stalledRetryCount++;
           console.log(`🔄 嘗試重新載入音訊 (${stalledRetryCount}/${MAX_STALLED_RETRIES})...`);
           const currentSrc = audio.src;
@@ -1499,7 +1563,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       maybeFallbackToAudioOnly('waiting');
       // 设置超时自动恢复播放，防止卡住
       setTimeout(() => {
-        if (audio && !audio.paused && audio.readyState >= 2 && isPlaying) {
+        if (shouldResumeAudio() && !audio.paused && audio.readyState >= 2) {
           console.log('🔄 Waiting 超时，尝试恢复播放...');
           audio.play().catch(err => console.error('恢复播放失败:', err));
         }
@@ -1509,7 +1573,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const handleSeeked = () => {
       console.log('✅ Seeked 完成');
       // Seek 完成后，如果应该在播放状态，确保继续播放
-      if (isPlaying && audio.paused && audio.readyState >= 2) {
+      if (shouldResumeAudio() && audio.paused && audio.readyState >= 2) {
         console.log('🔄 Seek 后恢复播放...');
         audio.play().catch(() => {
           // 瀏覽器 autoplay 限制 — 使用者需要點一下播放按鈕
@@ -1549,7 +1613,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }, 3000); // 3 秒檢查一次，iOS 鎖屏仍能運行
 
     const checkFakePlayback = setInterval(() => {
-      if (document.hidden) return; // Skip fake playback detection when backgrounded
+      if (document.hidden || !shouldResumeAudio()) return; // Ignore stale owners and paused intent
       if (!audio.paused && isPlaying) {
         const timeSinceUpdate = Date.now() - lastTimeUpdate;
         // 如果超過 4 秒沒有時間更新，可能是假播放
@@ -1571,6 +1635,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               pauseInternally(audio, 500);
               return new Promise<void>((resolve) => {
                 setTimeout(() => {
+                  if (!shouldResumeAudio()) { resolve(); return; }
                   audio.play().then(resolve).catch(() => resolve());
                 }, 200);
               });
@@ -1589,6 +1654,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
           const strategyIndex = Math.min(fakePlaybackRetryCount - 1, recoveryStrategies.length - 1);
           recoveryStrategies[strategyIndex]().catch((err) => {
+            if (!shouldResumeAudio()) return;
             console.error('恢復失敗:', err);
             if (fakePlaybackRetryCount >= MAX_FAKE_PLAYBACK_RETRIES) {
               console.error('❌ 已達最大重試次數，停止播放');
@@ -1612,6 +1678,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
 
     const handlePause = () => {
+      if (!audio.paused) return;
       if (Date.now() < pauseSyncSuppressedUntilRef.current) return;
       if (audio.ended) return;
 
@@ -1623,15 +1690,19 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       dispatch(setIsPlaying(false));
     };
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('durationchange', handleDurationChange);
-    audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('error', handleError);
-    audio.addEventListener('stalled', handleStalled);
-    audio.addEventListener('waiting', handleWaiting);
-    audio.addEventListener('playing', handlePlaying);
-    audio.addEventListener('pause', handlePause);
-    audio.addEventListener('seeked', handleSeeked);
+    const ownedHandlers = [
+      ['timeupdate', handleTimeUpdate], ['durationchange', handleDurationChange],
+      ['ended', handleEnded], ['error', handleError], ['stalled', handleStalled],
+      ['waiting', handleWaiting], ['playing', handlePlaying], ['pause', handlePause],
+      ['seeked', handleSeeked],
+    ] as const;
+    const subscriptions = ownedHandlers.map(([event, handler]) => {
+      const ownedHandler = (event: Event) => {
+        if (effectActive && audioRef.current === audio) void handler(event);
+      };
+      audio.addEventListener(event, ownedHandler);
+      return () => audio.removeEventListener(event, ownedHandler);
+    });
 
     // iOS 鎖屏恢復：頁面回到前台時自動恢復播放 + 檢查是否已超過歌曲結尾
     const handleVisibilityChange = () => {
@@ -1677,17 +1748,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       clearInterval(checkFakePlayback);
       clearInterval(iosBackgroundCheckInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('durationchange', handleDurationChange);
-      audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('error', handleError);
-      audio.removeEventListener('stalled', handleStalled);
-      audio.removeEventListener('waiting', handleWaiting);
-      audio.removeEventListener('playing', handlePlaying);
-      audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('seeked', handleSeeked);
+      subscriptions.forEach(unsubscribe => unsubscribe());
     };
-  }, [currentTrack, displayMode, isPlaying, dispatch]);
+  }, [currentTrack, displayMode, isPlaying, dispatch, audioOwnerVersion]);
 
   // Media Session API - 支援手機鎖屏播放控制與背景播放
   useEffect(() => {
@@ -1718,13 +1781,16 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     // 設定播放控制按鈕回調
     navigator.mediaSession.setActionHandler('play', () => {
+      const owner = audioRef.current;
+      const videoId = currentVideoIdRef.current;
       dispatch(setIsPlaying(true));
-      audioRef.current?.play().catch((err) => {
+      owner?.play().catch((err) => {
+        if (audioRef.current !== owner || currentVideoIdRef.current !== videoId) return;
         if (err?.name === 'NotAllowedError') {
           dispatch(setIsPlaying(false));
         } else {
           setTimeout(() => {
-            audioRef.current?.play().catch(() => {});
+            if (audioRef.current === owner && currentVideoIdRef.current === videoId && (reduxStore.getState() as RootState).player.isPlaying) owner.play().catch(() => {});
           }, 500);
         }
       });
@@ -1875,14 +1941,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     </Alert>
   ) : null;
 
+  // The physical pair stays mounted while the UI changes from empty to loading
+  // to playing. Only their logical primary/secondary ownership may change.
+  const audioElements = !embedded && (<>
+    <audio ref={bindFirstAudio} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
+    <audio ref={bindSecondAudio} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
+  </>);
+
   // 沒有 currentTrack 也沒有 pendingTrack 時，仍需渲染隱藏的 audio 元素
   // 以便 pendingTrack 可以使用它來載入音訊
   if (!currentTrack && !pendingTrack) {
     if (embedded) return null;
     return (<>
+      {audioElements}
       {playbackErrorNotice}
-      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
-      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
     </>);
   }
 
@@ -1892,9 +1964,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   if (!displayTrack) {
     if (embedded) return null;
     return (<>
+      {audioElements}
       {playbackErrorNotice}
-      <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
-      <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline style={{ display: 'none' }} />
     </>);
   }
 
@@ -1917,7 +1988,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   };
 
   return (
-    <Card
+    <>{audioElements}<Card
       sx={{
         ...(!embedded && {
           flexShrink: 0, // 不被壓縮
@@ -1986,14 +2057,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         </CardContent>
       )}
 
-      {/* 隱藏的 audio 元素 - 放在 CardContent 外面確保不受條件渲染影響 */}
-      {/* embedded 模式不渲染 audio 元素，避免多音訊同時播放 */}
-      {!embedded && (<>
-        <audio ref={audioRef} preload="auto" crossOrigin="anonymous" playsInline />
-        {/* 🔊 Secondary audio element for crossfade */}
-        <audio ref={secondaryAudioRef} preload="auto" crossOrigin="anonymous" playsInline />
-      </>)}
-
       {/* 加入播放清單選單 */}
       {currentTrack && (
         <AddToPlaylistMenu
@@ -2038,6 +2101,6 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
         sx={{ top: 'max(8px, env(safe-area-inset-top, 8px)) !important' }}
       />
-    </Card>
+    </Card></>
   );
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import audioCacheService from '../../src/services/audio-cache.service'
+import { audioCacheDatabase } from './helpers/fake-audio-cache-db'
 
 interface CacheEntry {
   videoId: string
@@ -29,22 +30,7 @@ test('audio-cache writes preserve replacements, evict only as needed, and skip o
     ['middle', { videoId: 'middle', blob: new Blob(['b']), timestamp: 2, size: 1 }],
     ['newest', { videoId: 'newest', blob: new Blob(['c']), timestamp: 3, size: 1 }],
   ])
-  const objectStore = {
-    getAll: () => createRequest([...entries.values()]),
-    put: (entry: CacheEntry) => {
-      entries.set(entry.videoId, entry)
-      return createRequest(entry.videoId)
-    },
-    delete: (videoId: string) => {
-      entries.delete(videoId)
-      return createRequest(videoId)
-    },
-  }
-  const database = {
-    version: 1,
-    objectStoreNames: { contains: () => true },
-    transaction: () => ({ objectStore: () => objectStore }),
-  }
+  const { db: database } = audioCacheDatabase(entries)
 
   const indexedDbDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
   const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window')

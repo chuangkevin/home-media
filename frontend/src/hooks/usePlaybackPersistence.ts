@@ -1,3 +1,4 @@
+import { getActivePlaybackAudio } from '../services/active-audio';
 import { useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
@@ -23,7 +24,7 @@ export function usePlaybackPersistence(): void {
     if (playlist.length === 0) return;
 
     // Read currentTime from the real audio element for accuracy; fall back to Redux value
-    const audioEl = document.querySelector('audio');
+    const audioEl = getActivePlaybackAudio();
     const accurateCurrentTime = audioEl && audioEl.currentTime > 0 ? audioEl.currentTime : currentTime;
 
     playbackStateService.save({

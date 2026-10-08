@@ -52,6 +52,9 @@ export function useCrossfade({
   const incomingTrackRef = useRef<Track | null>(null);
   const warmedUpRef = useRef(false);
   const crossfadeEnabledRef = useRef(getCrossfadeEnabled());
+  const secondaryLeaseRef = useRef<AbortController | null>(null);
+  const secondaryLoadVersionRef = useRef(0);
+  const secondaryLoadingRef = useRef(false);
 
   // Track volume ref for use in crossfade animation
   const volumeRef = useRef(volume);
@@ -84,12 +87,13 @@ export function useCrossfade({
       crossfadeEnabledRef.current &&
       (isHost || isListener) &&
       displayMode !== 'video'
+      && !secondaryLeaseRef.current
     );
   }, [isHost, isListener, displayMode]);
 
   /** Warm up secondary audio element on first user interaction */
   const warmUpSecondary = useCallback(() => {
-    if (warmedUpRef.current || !secondaryAudioRef.current) return;
+    if (warmedUpRef.current || secondaryLeaseRef.current || !secondaryAudioRef.current) return;
 
     const audio = secondaryAudioRef.current;
     // Play a tiny silent audio to unlock autoplay
@@ -97,8 +101,10 @@ export function useCrossfade({
     audio.src = silentDataUri;
     audio.volume = 0;
     audio.play().then(() => {
-      audio.pause();
-      audio.src = '';
+      if (secondaryAudioRef.current === audio && audio.src === silentDataUri) {
+        audio.pause();
+        audio.src = '';
+      }
       warmedUpRef.current = true;
       console.log('🔊 [Crossfade] Secondary audio element warmed up');
     }).catch(() => {
@@ -116,7 +122,9 @@ export function useCrossfade({
   /** Preload next track onto secondary audio element */
   const preloadNextTrack = useCallback(async (nextTrack: Track): Promise<boolean> => {
     const secondary = secondaryAudioRef.current;
-    if (!secondary) return false;
+    if (!secondary || secondaryLeaseRef.current) return false;
+    const loadVersion = ++secondaryLoadVersionRef.current;
+    secondaryLoadingRef.current = true;
 
     const videoId = nextTrack.videoId;
     preloadedVideoIdRef.current = videoId;
@@ -125,6 +133,7 @@ export function useCrossfade({
     try {
       // Try IndexedDB cache first
       const cached = await audioCacheService.get(videoId);
+      if (loadVersion !== secondaryLoadVersionRef.current || secondaryAudioRef.current !== secondary || secondaryLeaseRef.current) return false;
       if (cached) {
         const blobUrl = URL.createObjectURL(cached);
         if (secondaryBlobUrlRef.current) {
@@ -146,6 +155,8 @@ export function useCrossfade({
     } catch (err) {
       console.warn('🔊 [Crossfade] Preload failed:', err);
       return false;
+    } finally {
+      if (loadVersion === secondaryLoadVersionRef.current) secondaryLoadingRef.current = false;
     }
   }, [secondaryAudioRef]);
 
@@ -162,6 +173,7 @@ export function useCrossfade({
       console.warn('🔊 [Crossfade] Cannot start: missing elements or track');
       return null;
     }
+    if (secondaryLeaseRef.current) return null;
 
     if (crossfadeActiveRef.current) {
       console.warn('🔊 [Crossfade] Already in progress, skipping');
@@ -179,6 +191,10 @@ export function useCrossfade({
 
     crossfadeActiveRef.current = true;
     crossfadeStartTimeRef.current = Date.now() - alreadyElapsed;
+
+    // Apply the current owner's mute/rate, never inherit a failed cache lease.
+    secondary.muted = primary.muted;
+    secondary.playbackRate = primary.playbackRate;
 
     // Set initial volumes
     const userVolume = volumeRef.current;
@@ -258,6 +274,10 @@ export function useCrossfade({
 
   /** Cancel crossfade (e.g., DJ skips during crossfade) */
   const cancelCrossfade = useCallback(() => {
+    secondaryLoadVersionRef.current++;
+    secondaryLoadingRef.current = false;
+    secondaryLeaseRef.current?.abort();
+    secondaryLeaseRef.current = null;
     if (crossfadeTimerRef.current) {
       clearInterval(crossfadeTimerRef.current);
       crossfadeTimerRef.current = null;
@@ -267,6 +287,9 @@ export function useCrossfade({
     if (secondary) {
       secondary.pause();
       secondary.src = '';
+      secondary.muted = false;
+      secondary.volume = 0;
+      secondary.playbackRate = 1;
     }
 
     if (secondaryBlobUrlRef.current) {
@@ -331,6 +354,10 @@ export function useCrossfade({
     crossfadeDuration: number,
     elapsedMs: number,
   ) => {
+    secondaryLeaseRef.current?.abort();
+    secondaryLeaseRef.current = null;
+    secondaryLoadVersionRef.current++;
+    secondaryLoadingRef.current = false;
     // Cancel any ongoing crossfade
     if (crossfadeActiveRef.current) {
       cancelCrossfade();
@@ -378,6 +405,10 @@ export function useCrossfade({
 
   /** Reset preload state when track changes */
   const resetPreload = useCallback(() => {
+    secondaryLoadVersionRef.current++;
+    secondaryLoadingRef.current = false;
+    secondaryLeaseRef.current?.abort();
+    secondaryLeaseRef.current = null;
     preloadedRef.current = false;
     preloadedVideoIdRef.current = null;
     incomingTrackRef.current = null;
@@ -386,6 +417,24 @@ export function useCrossfade({
       secondaryBlobUrlRef.current = null;
     }
   }, []);
+
+  // Never steal a secondary that is already preparing or playing the next song.
+  const claimSecondaryForCache = useCallback(() => {
+    const audio = secondaryAudioRef.current;
+    if (!audio || crossfadeActiveRef.current || preloadedRef.current || secondaryLoadingRef.current || secondaryLeaseRef.current) return null;
+    const controller = new AbortController();
+    secondaryLoadVersionRef.current++;
+    secondaryLeaseRef.current = controller;
+    return {
+      audio,
+      signal: controller.signal,
+      isCurrent: () => secondaryLeaseRef.current === controller && secondaryAudioRef.current === audio && !controller.signal.aborted,
+      release: () => {
+        if (secondaryLeaseRef.current === controller) secondaryLeaseRef.current = null;
+        controller.abort();
+      },
+    };
+  }, [secondaryAudioRef]);
 
   /** Get the secondary blob URL (for cleanup by AudioPlayer after swap) */
   const getSecondaryBlobUrl = useCallback(() => secondaryBlobUrlRef.current, []);
@@ -398,6 +447,8 @@ export function useCrossfade({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      secondaryLeaseRef.current?.abort();
+      secondaryLeaseRef.current = null;
       if (crossfadeTimerRef.current) {
         clearInterval(crossfadeTimerRef.current);
       }
@@ -426,6 +477,7 @@ export function useCrossfade({
     preloadNextTrack,
     getSecondaryBlobUrl,
     clearSecondaryBlobUrl,
+    claimSecondaryForCache,
 
     // Constants
     CROSSFADE_DURATION,

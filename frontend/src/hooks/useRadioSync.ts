@@ -1,3 +1,4 @@
+import { getActivePlaybackAudio } from '../services/active-audio';
 import { useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store';
@@ -174,7 +175,7 @@ export function useRadioSync() {
 
     timeSyncIntervalRef.current = setInterval(() => {
       // 使用 audioElement 獲取實時時間，避免 stale closure
-      const audioElement = document.querySelector('audio');
+      const audioElement = getActivePlaybackAudio();
       const realTime = audioElement?.currentTime || 0;
       socketService.radioTimeSync(realTime);
       console.log('📻 [Host] Time sync:', realTime.toFixed(1));

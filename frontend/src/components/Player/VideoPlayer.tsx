@@ -1,3 +1,4 @@
+import { getActivePlaybackAudio } from '../../services/active-audio';
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Box, Typography, Button, Link, CircularProgress } from '@mui/material';
@@ -61,7 +62,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
   const isSeekingRef = useRef(false);
   // 從 audio element 讀取實際播放位置（比 Redux currentTime 更準確）
   const getAudioTime = () => {
-    const audio = document.querySelector('audio') as HTMLAudioElement | null;
+    const audio = getActivePlaybackAudio() as HTMLAudioElement | null;
     return audio?.currentTime || currentTime;
   };
   // initialTimeRef removed — onReady 直接用 getAudioTime()
@@ -204,7 +205,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
             },
             onStateChange: (event: any) => {
               if (!isMounted) return;
-              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
               const audioTime = audioEl?.currentTime || 0;
 
               if (event.data === 1) {
@@ -402,7 +403,7 @@ export default function VideoPlayer({ track }: VideoPlayerProps) {
               event.target.playVideo();
             },
             onStateChange: (event: any) => {
-              const audioEl = document.querySelector('audio') as HTMLAudioElement | null;
+              const audioEl = getActivePlaybackAudio() as HTMLAudioElement | null;
               const audioTime = audioEl?.currentTime || 0;
               if (event.data === 1) {
                 const videoTime = event.target.getCurrentTime();

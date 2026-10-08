@@ -20,6 +20,7 @@ function transport(t: any) {
   );
   t.mock.method(audioCacheService, "set", async (videoId: string) => {
     cacheWrites.push(videoId);
+    return true;
   });
   return { requests, cacheWrites };
 }

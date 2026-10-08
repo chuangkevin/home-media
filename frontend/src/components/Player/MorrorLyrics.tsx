@@ -1,3 +1,4 @@
+import { getActivePlaybackAudio, subscribeActivePlaybackAudio } from '../../services/active-audio';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { Box, Typography, IconButton, Chip, CircularProgress, useMediaQuery } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
@@ -320,8 +321,9 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
   // Get audio element for Web Audio API analyser
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null);
   useEffect(() => {
-    const el = document.querySelector('audio') as HTMLAudioElement | null;
-    if (el) setAudioEl(el);
+    const updateAudio = () => setAudioEl(getActivePlaybackAudio());
+    updateAudio();
+    return subscribeActivePlaybackAudio(updateAudio);
   }, []);
   const { subscribe } = useAudioAnalyser(audioEl, { fftSize: 256, enabled: !reduceMotion });
 

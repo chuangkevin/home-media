@@ -1,4 +1,5 @@
 import { fetchOptionalCacheSettings } from './playback-load';
+import { readAudioCacheBody } from './audio-cache-body';
 
 /**
  * 音訊快取服務
@@ -234,39 +235,53 @@ class AudioCacheService {
   /**
    * 儲存音訊到快取
    */
-  async set(videoId: string, blob: Blob, metadata?: CachedAudioMetadata): Promise<void> {
+  async set(
+    videoId: string, blob: Blob, metadata?: CachedAudioMetadata, signal?: AbortSignal
+  ): Promise<boolean> {
     await this.init();
-    if (!this.db) return;
+    if (signal?.aborted) throw new DOMException('Audio cache cancelled', 'AbortError');
+    if (!this.db) return false;
+    if (blob.size > this.MAX_CACHE_SIZE || this.MAX_ENTRIES < 1) return false;
 
     const cached: CachedAudio = {
-      videoId,
-      blob,
-      timestamp: Date.now(),
-      size: blob.size,
-      metadata,
+      videoId, blob, timestamp: Date.now(), size: blob.size, metadata,
     };
-
-    // 檢查快取大小限制。Oversized items are simply not cached; playback can
-    // continue through its existing streaming path.
-    const withinLimits = await this.enforceLimit(blob.size, videoId);
-    if (!withinLimits) return;
-
+    // The read, necessary evictions and replacement share one serialized IDB
+    // transaction. Quota failure/abort rolls back evictions as well as the put.
+    // Resolve only after commit, when the one-shot handoff can actually read it.
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([this.storeName], 'readwrite');
       const store = transaction.objectStore(this.storeName);
-      const request = store.put(cached);
-
-      request.onsuccess = () => {
-        const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
-        console.log(`💾 Cached audio: ${videoId} (size: ${sizeMB}MB)`);
-        // 發送自定義事件通知快取狀態變更
+      const onAbort = () => transaction.abort();
+      const cleanup = () => signal?.removeEventListener('abort', onAbort);
+      transaction.oncomplete = () => {
+        cleanup();
         window.dispatchEvent(new CustomEvent('audio-cache-updated', { detail: { videoId } }));
-        resolve();
+        resolve(true);
       };
-
-      request.onerror = () => {
-        console.error('Failed to cache audio:', request.error);
-        reject(request.error);
+      transaction.onabort = () => {
+        cleanup();
+        reject(signal?.aborted
+          ? new DOMException('Audio cache cancelled', 'AbortError')
+          : transaction.error || new Error('Audio cache transaction aborted'));
+      };
+      transaction.onerror = () => { /* IDB abort reports the authoritative outcome. */ };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      const request = store.getAll();
+      request.onsuccess = () => {
+        if (signal?.aborted) { transaction.abort(); return; }
+        const entries = (request.result as CachedAudio[])
+          .filter(item => item.videoId !== videoId)
+          .sort((a, b) => a.timestamp - b.timestamp);
+        let size = entries.reduce((total, item) => total + item.size, 0);
+        let count = entries.length;
+        for (const item of entries) {
+          if (size + blob.size <= this.MAX_CACHE_SIZE && count + 1 <= this.MAX_ENTRIES) break;
+          store.delete(item.videoId);
+          size -= item.size;
+          count--;
+        }
+        store.put(cached);
       };
     });
   }
@@ -324,64 +339,6 @@ class AudioCacheService {
   async getTotalSize(): Promise<number> {
     const all = await this.getAll();
     return all.reduce((total, item) => total + item.size, 0);
-  }
-
-  /**
-   * 強制執行快取限制（數量和大小）
-   * 如果超過限制，刪除最舊的項目
-   */
-  private async enforceLimit(newSize: number, replacingVideoId: string): Promise<boolean> {
-    if (newSize > this.MAX_CACHE_SIZE || this.MAX_ENTRIES < 1) {
-      console.warn('Skipping audio cache write because the item exceeds the configured cache limit');
-      return false;
-    }
-
-    const all = await this.getAll();
-    const candidates = all.filter(item => item.videoId !== replacingVideoId);
-    const totalSize = candidates.reduce((total, item) => total + item.size, 0);
-    const entryCount = candidates.length;
-
-    // 檢查是否需要清理（數量超過 200 或空間超過 2GB）
-    const needsSizeCleanup = totalSize + newSize > this.MAX_CACHE_SIZE;
-    const needsCountCleanup = entryCount + 1 > this.MAX_ENTRIES;
-
-    if (!needsSizeCleanup && !needsCountCleanup) {
-      return true;
-    }
-
-    console.log(`⚠️ Cache limit exceeded (${entryCount} entries, ${(totalSize / 1024 / 1024).toFixed(2)}MB), cleaning old entries...`);
-
-    // 按時間排序（最舊的在前）
-    candidates.sort((a, b) => a.timestamp - b.timestamp);
-
-    let freedSize = 0;
-    let deletedCount = 0;
-
-    // 刪除最舊的項目直到符合限制
-    for (const item of candidates) {
-      await this.delete(item.videoId);
-      freedSize += item.size;
-      deletedCount++;
-
-      // 計算刪除後的狀態
-      const remainingCount = entryCount - deletedCount;
-      const remainingSize = totalSize - freedSize;
-
-      // 檢查是否已經符合限制
-      const sizeOk = remainingSize + newSize <= this.MAX_CACHE_SIZE;
-      const countOk = remainingCount < this.MAX_ENTRIES;
-
-      if (sizeOk && countOk) {
-        break;
-      }
-    }
-
-    const freedMB = (freedSize / 1024 / 1024).toFixed(2);
-    console.log(`✅ Freed ${freedMB}MB by removing ${deletedCount} old entries`);
-
-    const remainingCount = entryCount - deletedCount;
-    const remainingSize = totalSize - freedSize;
-    return remainingCount + 1 <= this.MAX_ENTRIES && remainingSize + newSize <= this.MAX_CACHE_SIZE;
   }
 
   /**
@@ -586,7 +543,7 @@ class AudioCacheService {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const blob = await response.blob();
+        const blob = await readAudioCacheBody(response, controller.signal);
         if (controller.signal.aborted) throw abortError();
         const downloadTime = ((Date.now() - startTime) / 1000).toFixed(2);
         const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
@@ -598,10 +555,9 @@ class AudioCacheService {
           throw new Error(`Downloaded empty audio for ${videoId}`);
         }
 
-        // 儲存到 IndexedDB 快取（非同步，用於離線/快速重播）
-        this.set(videoId, blob, metadata).catch(err => {
-          console.error(`Failed to cache in IndexedDB ${videoId}:`, err);
-        });
+        const published = await this.set(videoId, blob, metadata, controller.signal);
+        if (controller.signal.aborted) throw abortError();
+        if (!published) throw new Error('Audio cache publication unavailable or exceeds storage limit');
 
         // 返回伺服器 stream URL（支持 Range request）而不是 Blob URL
         // 伺服器端快取會在下次請求時自動使用
