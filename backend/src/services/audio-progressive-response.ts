@@ -87,7 +87,7 @@ export function audioStreamMimeType(prefix: Buffer): string {
  * Only a published final cache uses the normal complete-file Range path. */
 export async function streamProgressiveAudio(
   req: Request, res: Response, spool: AudioProgressiveSpool,
-  options: { firstByteTimeoutMs?: number; lifetimeMs?: number; drainTimeoutMs?: number } = {},
+  options: { firstByteTimeoutMs?: number; lifetimeMs?: number; drainTimeoutMs?: number; beforeFirstWrite?: () => void } = {},
 ): Promise<void> {
   let releaseBudget = () => {};
   let reader: AudioSpoolReader | undefined;
@@ -122,6 +122,7 @@ export async function streamProgressiveAudio(
         // Never overwrite a view that is still owned by the HTTP writer.
         const chunk = Buffer.from(buffer.subarray(0, count));
         if (!res.headersSent) {
+          options.beforeFirstWrite?.();
           res.status(200);
           res.setHeader('Content-Type', audioStreamMimeType(chunk));
           res.setHeader('Transfer-Encoding', 'chunked');

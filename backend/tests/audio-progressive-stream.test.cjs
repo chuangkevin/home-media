@@ -38,9 +38,11 @@ class Response extends Writable {
 const request = (videoId='fixture1234',range) => {const req=new EventEmitter();req.params={videoId};req.headers=range?{range}:{};return req;};
 async function until(check) {const end=Date.now()+2000;while(!check()){if(Date.now()>end)throw new Error('fixture condition timed out');await tick();}}
 function fixture(t,options={}) {
+  const timingClock={time:0};
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'audio-spool-'));const children=[];const jobs=[];const entered=deferred(),release=deferred();
   const cachePath=id=>path.join(dir,id+'.m4a');
   const mocks={
+    perf_hooks:{performance:{now:()=>timingClock.time}},
     '../utils/logger':{info(){},warn(){},error(){}},
     '../services/youtube.service':{async validateVideoId(){return true},getYtDlpPath(){return 'mock'},getYtDlpBaseArgs(){return []}},
     '../services/audio-cache.service':{has:id=>fs.existsSync(cachePath(id)),getCachePath:cachePath,getCacheDir:()=>dir,getFileSize:id=>fs.statSync(cachePath(id)).size,createReadStream:(id,options)=>fs.createReadStream(cachePath(id),options),async remuxIfNeeded(file){entered.resolve();if(options.remuxBlocked)await release.promise;if(options.replaceOnRemux){fs.writeFileSync(file+'.new',Buffer.from('0000ftypM4A final-cache'));fs.renameSync(file+'.new',file)}}},
@@ -56,7 +58,7 @@ function fixture(t,options={}) {
   const subject=load('controllers/youtube.controller.ts').default;
   function writer(id='direct') {const p=new EventEmitter();p.stdout=new PassThrough();p.kills=[];p.kill=s=>{p.kills.push(s);queueMicrotask(()=>p.emit('close',null));return true};const job=create(p,cachePath(id),async()=>{});jobs.push(job);return{p,job};}
   t.after(async()=>{release.resolve();for(const j of jobs){j.cancel();await j.completion;}for(const p of children){p.stdout.end();p.emit('close',1);}await tick();fs.rmSync(dir,{recursive:true,force:true});});
-  return{dir,children,subject,writer,response,cachePath,entered,release,manager:options.realManager?load('services/download-manager.service.ts').default:null};
+  return{dir,children,subject,writer,response,cachePath,entered,release,timingClock,manager:options.realManager?load('services/download-manager.service.ts').default:null};
 }
 test('same-song reader and Safari byte probe share one producer and stream before remux publication',async t=>{
  const f=fixture(t,{remuxBlocked:true,replaceOnRemux:true});const first=new Response();
@@ -244,4 +246,39 @@ test('explicit play cache intent arriving during foreground retirement waits for
 test('a retained foreground extraction failure returns failed cache intent without automatic retries',async t=>{
  const f=fixture(t,{realManager:true});const res=new Response();await f.subject.streamAudio(request(),res);const caching=f.manager.playNow('fixture1234');
  f.children[0].stdout.end();f.children[0].emit('close',1);assert.equal(await caching,null);await tick();assert.equal(f.children.length,1);
+});
+
+test('first-byte phases separate live producer wait from a shared reader wait without remux or admission queue',async t=>{
+ const f=fixture(t,{remuxBlocked:true});const first=new Response();await f.subject.streamAudio(request(),first);
+ assert.equal(f.children.length,1,'cold route starts producer immediately, not after metadata fetch or a queue');
+ assert.equal(first.headers['Server-Timing'],undefined,'diagnostics cannot send headers early and fake a faster first byte');
+ f.timingClock.time=300;const second=new Response();const reading=f.subject.streamAudio(request(),second);
+ f.timingClock.time=1500;f.children[0].stderr.write(Buffer.from('[youtube] Downloading webpage\n'));
+ f.timingClock.time=4000;f.children[0].stderr.write(Buffer.from('[youtube] Downloading ios player API JSON\n'));
+ f.timingClock.time=9350;f.children[0].stderr.write(Buffer.from('[download] Destination: -\n'));
+ f.timingClock.time=10400;f.children[0].stdout.write(prefix);await until(()=>first.chunks.length>0&&second.chunks.length>0);
+ assert.match(first.headers['Server-Timing'],/audio;desc="live"/);assert.match(first.headers['Server-Timing'],/producer_output;dur=10400.0/);
+ assert.match(first.headers['Server-Timing'],/admission;dur=0.0/);assert.match(first.headers['Server-Timing'],/media_wait;dur=1050.0/);
+ assert.match(second.headers['Server-Timing'],/audio;desc="shared"/);assert.match(second.headers['Server-Timing'],/route_to_bytes;dur=10100.0/);
+ assert.match(second.headers['Server-Timing'],/producer_output;dur=10400.0/);assert.equal(f.children.length,1);
+ assert.equal(fs.existsSync(f.cachePath('fixture1234')),false);f.children[0].stdout.end();f.children[0].emit('close',0);await reading;f.release.resolve();await until(()=>f.subject.inFlightStreams.size===0);assert.equal(f.subject.inFlightTimings.size,0);
+});
+test('timing diagnostics are bounded numeric phases and never reveal child stderr or secrets',()=>{
+ const load=modules();const Timing=load('services/audio-stream-timing.ts').AudioStreamTiming;let now=0;const trace=new Timing(()=>now);
+ trace.mark('validated');trace.mark('lookup');trace.mark('admitted');trace.mark('spawned');now=120;
+ trace.observeStderr(Buffer.from('[youtube] Downloading webpage https://example.invalid/private?token=SECRET cookie=/private/cookie\n'));
+ now=300;trace.mark('producer_data');const header=trace.header('live');assert.match(header,/yt_page;dur=120.0/);assert.doesNotMatch(header,/SECRET|cookie|private|https/);assert.ok(header.length<500);
+});
+
+
+test('timing composition retains cancelled-owner close gate and attributes retirement wait to admission',async t=>{
+ const f=fixture(t,{holdClose:true});
+ for(let i=0;i<4;i++){const res=new Response();await f.subject.streamAudio(request('phaseold00'+i),res);res.destroy();await tick();}
+ const res=new Response();const pending=f.subject.streamAudio(request('phaselatest'),res);await until(()=>f.subject.waitingStreamAdmissions===1);
+ assert.equal(res.headers['Server-Timing'],undefined);assert.equal(f.children.length,4);
+ f.timingClock.time=120;f.children.slice(0,4).forEach(p=>p.emit('close',1));await pending;
+ assert.equal(f.children.length,5);await until(()=>f.subject.activeStreamOwners===1);assert.equal(res.headers['Server-Timing'],undefined);
+ f.timingClock.time=750;f.children[4].stdout.end(prefix);f.children[4].emit('close',0);await until(()=>res.writableEnded);
+ assert.match(res.headers['Server-Timing'],/admission;dur=120.0/);assert.match(res.headers['Server-Timing'],/producer_output;dur=630.0/);
+ await until(()=>f.subject.activeStreamOwners===0);assert.equal(f.subject.inFlightTimings.size,0);
 });

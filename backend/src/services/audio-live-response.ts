@@ -7,7 +7,7 @@ import { audioStreamMimeType } from './audio-progressive-response';
  * locally plus one 64KiB HTTP write, then disconnect only that stalled reader. */
 export function streamLiveAudio(
   req: Request, res: Response, proc: ChildProcessWithoutNullStreams,
-  options: { maxQueuedBytes?: number; drainTimeoutMs?: number; firstByteTimeoutMs?: number } = {},
+  options: { maxQueuedBytes?: number; drainTimeoutMs?: number; firstByteTimeoutMs?: number; beforeFirstWrite?: () => void } = {},
 ): void {
   const maxQueuedBytes = options.maxQueuedBytes ?? 256 * 1024;
   const queue: Buffer[] = [];
@@ -48,6 +48,7 @@ export function streamLiveAudio(
       const chunk = queue.shift()!;
       queuedBytes -= chunk.length;
       if (!res.headersSent) {
+        options.beforeFirstWrite?.();
         res.status(200);
         res.setHeader('Content-Type', audioStreamMimeType(chunk));
         res.setHeader('Transfer-Encoding', 'chunked');

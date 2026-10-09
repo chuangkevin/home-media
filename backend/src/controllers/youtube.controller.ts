@@ -4,6 +4,7 @@ import { pipeline } from 'stream';
 import { createAudioCacheWriter } from '../services/audio-cache-writer';
 import { streamProgressiveAudio } from '../services/audio-progressive-response';
 import { streamLiveAudio } from '../services/audio-live-response';
+import { AudioStreamTiming } from '../services/audio-stream-timing';
 import type { AudioProgressiveSpool } from '../services/audio-progressive-spool';
 import { AudioStreamOwner, audioStreamOwners, waitForAudioOwners, waitForAudioRetirement } from '../services/audio-stream-owner';
 import youtubeService from '../services/youtube.service';
@@ -21,6 +22,7 @@ export class YouTubeController {
   private inFlightStreams: Map<string, Promise<void>> = new Map();
   private inFlightSpools: Map<string, AudioProgressiveSpool> = new Map();
   private activeStreamOwners = 0;
+  private inFlightTimings: Map<string, AudioStreamTiming> = new Map();
   private waitingStreamAdmissions = 0;
   private inFlightOwners = audioStreamOwners;
 
@@ -143,13 +145,19 @@ export class YouTubeController {
    */
   async streamAudio(req: Request, res: Response): Promise<void> {
     const { videoId } = req.params;
+    const timing = new AudioStreamTiming();
     try {
-      if (!videoId || !(await youtubeService.validateVideoId(videoId))) {
+      const valid = videoId && await youtubeService.validateVideoId(videoId);
+      timing.mark('validated');
+      if (!valid) {
         res.status(400).json({ error: 'Invalid video ID' });
         return;
       }
       while (!req.aborted && !res.destroyed && !res.writableEnded) {
-        if (audioCacheService.has(videoId)) {
+        const cached = audioCacheService.has(videoId);
+        timing.mark('lookup');
+        if (cached) {
+          res.setHeader('Server-Timing', timing.header('cache'));
           this.streamFromCache(req, res, videoId);
           return;
         }
@@ -158,14 +166,21 @@ export class YouTubeController {
           const release = existing.acquireHTTP(req, res);
           if (!release) {
             if (!await this.waitForRetiredOwner(req, res, existing)) {
-              if (!req.aborted && !res.destroyed) this.streamBusy(res);
+              if (!req.aborted && !res.destroyed) this.streamBusy(res, timing);
               return;
             }
             continue;
           }
           const spool = this.inFlightSpools.get(videoId);
           try {
-            if (spool) { await streamProgressiveAudio(req, res, spool); return; }
+            if (spool) {
+              timing.mark('admitted');
+              const producer = this.inFlightTimings.get(videoId);
+              await streamProgressiveAudio(req, res, spool, {
+                beforeFirstWrite: () => res.setHeader('Server-Timing', timing.header('shared', producer)),
+              });
+              return;
+            }
             // Legacy/no-spool owner still holds its path through cleanup.
             await waitForAudioOwners(req, res, [existing], 3000);
           } finally { release(); }
@@ -174,10 +189,16 @@ export class YouTubeController {
         // An explicit manager preload already owns this path. Its live spool
         // serves first bytes directly; never abort a still-owned cache producer.
         const background = downloadManager.getProgressiveJob?.(videoId);
-        if (background) { await streamProgressiveAudio(req, res, background.spool); return; }
+        if (background) {
+          timing.mark('admitted');
+          await streamProgressiveAudio(req, res, background.spool, {
+            beforeFirstWrite: () => res.setHeader('Server-Timing', timing.header('shared')),
+          });
+          return;
+        }
         if (this.activeStreamOwners >= 4) {
           if (!await this.waitForStreamCapacity(req, res)) {
-            if (!req.aborted && !res.destroyed) this.streamBusy(res);
+            if (!req.aborted && !res.destroyed) this.streamBusy(res, timing);
             return;
           }
           continue; // Recheck path/cache atomically before claiming a slot.
@@ -185,7 +206,7 @@ export class YouTubeController {
         const retiringDownload = downloadManager.abortForVideoId(videoId);
         if (retiringDownload) {
           if (!await this.waitForDownloadRetirement(req, res, retiringDownload)) {
-            if (!req.aborted && !res.destroyed) this.streamBusy(res);
+            if (!req.aborted && !res.destroyed) this.streamBusy(res, timing);
             return;
           }
           if (req.aborted || res.destroyed) return;
@@ -198,6 +219,8 @@ export class YouTubeController {
         if (!release) return;
         this.inFlightStreams.set(videoId, completion);
         this.inFlightOwners.set(videoId, owner);
+        this.inFlightTimings.set(videoId, timing);
+        timing.mark('admitted');
         this.activeStreamOwners++;
         let released = false;
         const cleanup = () => {
@@ -205,11 +228,14 @@ export class YouTubeController {
           released = true;
           this.activeStreamOwners--;
           if (this.inFlightStreams.get(videoId) === completion) this.inFlightStreams.delete(videoId);
-          if (this.inFlightOwners.get(videoId) === owner) this.inFlightOwners.delete(videoId);
+          if (this.inFlightOwners.get(videoId) === owner) {
+            this.inFlightOwners.delete(videoId);
+            this.inFlightTimings.delete(videoId);
+          }
           resolveInFlight();
           owner.finish();
         };
-        try { this.streamWithYtDlp(req, res, videoId, cleanup, owner); }
+        try { this.streamWithYtDlp(req, res, videoId, cleanup, owner, timing); }
         catch (error) { cleanup(); throw error; }
         return;
       }
@@ -219,7 +245,9 @@ export class YouTubeController {
     }
   }
 
-  private streamBusy(res: Response): void {
+  private streamBusy(res: Response, timing?: AudioStreamTiming): void {
+    timing?.mark('admitted');
+    if (timing) res.setHeader('Server-Timing', timing.header('busy'));
     res.setHeader('Retry-After', '2');
     res.status(503).json({ error: 'Audio stream capacity is busy', retryable: true });
   }
@@ -261,7 +289,7 @@ export class YouTubeController {
   /**
    * 使用 yt-dlp 直接串流音訊到客戶端，同時寫入快取
    */
-  private streamWithYtDlp(req: Request, res: Response, videoId: string, onCacheWriteComplete?: () => void, owner?: AudioStreamOwner): void {
+  private streamWithYtDlp(req: Request, res: Response, videoId: string, onCacheWriteComplete?: () => void, owner?: AudioStreamOwner, timing?: AudioStreamTiming): void {
     const ytdlpPath = youtubeService.getYtDlpPath();
     const baseArgs = youtubeService.getYtDlpBaseArgs();
 
@@ -273,6 +301,7 @@ export class YouTubeController {
     ];
 
     console.log(`🚀 [Stream] Spawning yt-dlp for: ${videoId}`);
+    timing?.mark('spawned');
     const ytdlp = spawn(ytdlpPath, args, { timeout: 300000, killSignal: 'SIGKILL' });
     let hasData = false;
     let stderrOutput = '';
@@ -301,10 +330,15 @@ export class YouTubeController {
     if (!cacheWriter) owner?.cacheCompleted();
     ytdlp.once('close', () => { producerDone = true; owner?.childClosed(); finishOwnership(); });
     ytdlp.stderr.on('data', (chunk: Buffer) => {
+      timing?.observeStderr(chunk);
       stderrOutput = (stderrOutput + chunk.toString()).slice(-500);
     });
-    ytdlp.stdout.on('data', () => { hasData = true; });
-    streamLiveAudio(req, res, ytdlp);
+    ytdlp.stdout.on('data', (chunk: Buffer) => {
+      if (chunk.length > 0) { hasData = true; timing?.mark('producer_data'); }
+    });
+    streamLiveAudio(req, res, ytdlp, {
+      beforeFirstWrite: () => { if (timing) res.setHeader('Server-Timing', timing.header('live')); },
+    });
     ytdlp.on('close', code => {
       if (code !== 0 || !hasData) {
         logger.error(`yt-dlp stream failed for ${videoId} (code ${code}): ${stderrOutput}`);
