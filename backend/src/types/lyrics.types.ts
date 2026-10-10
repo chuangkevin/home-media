@@ -11,6 +11,14 @@ export interface Lyrics {
   language?: string;
   lrclibId?: number; // 使用者選擇的 LRCLIB 歌詞 ID
   timeOffset?: number; // 使用者設定的時間偏移（秒）
+  provenance?: {
+    selection: 'automatic' | 'user';
+    evidence: 'metadata' | 'user-selection' | 'publisher-caption';
+    sourceId?: number;
+    title?: string;
+    artist?: string;
+    duration?: number;
+  }; // Metadata evidence does not verify audio alignment. Legacy entries have none.
 }
 
 export interface CachedLyrics {

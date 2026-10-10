@@ -1,4 +1,6 @@
 import * as fs from 'fs';
+import { parseFile } from 'music-metadata';
+import { isLyricsWithinAudioDuration } from './lyrics-audio-duration';
 import { GoogleGenAI } from '@google/genai';
 import { getDatabase } from '../config/database';
 import audioCacheService from './audio-cache.service';
@@ -23,10 +25,27 @@ interface AILyricsResult {
  * AI 歌詞辨識服務
  * 用 Gemini 2.5 Flash 聽音訊檔案，生成帶時間戳的歌詞 + 翻譯
  */
+async function readCachedAudioDuration(videoId: string): Promise<number | undefined> {
+  try {
+    const path = audioCacheService.getCachePath?.(videoId);
+    if (!path || !fs.existsSync(path)) return undefined;
+    const metadata = await parseFile(path, { duration: true });
+    const duration = metadata.format.duration;
+    return duration && Number.isFinite(duration) && duration > 0 ? duration : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function generateAILyrics(videoId: string): Promise<AILyricsResult | null> {
   // Permanent results remain usable even when the provider or audio is gone.
   const cached = getCachedAILyrics(videoId);
   if (cached) {
+    const duration = await readCachedAudioDuration(videoId);
+    if (duration && !isLyricsWithinAudioDuration(cached.lines, duration)) {
+      logger.warn(`AI lyrics timeline does not fit cached audio: ${videoId}`);
+      return null; // retain permanent evidence, never present impossible timings
+    }
     cacheAITranslation(videoId, cached);
     return cached;
   }
@@ -44,6 +63,11 @@ export async function generateAILyrics(videoId: string): Promise<AILyricsResult 
   }
 
   const audioPath = audioCacheService.getCachePath(videoId);
+  const audioDuration = await readCachedAudioDuration(videoId);
+  if (!audioDuration) {
+    logger.warn(`Cannot validate audio duration for AI lyrics: ${videoId}`);
+    return null;
+  }
   const audioBuffer = fs.readFileSync(audioPath);
   const audioBase64 = audioBuffer.toString('base64');
   const audioSize = audioBuffer.length;
@@ -57,6 +81,7 @@ export async function generateAILyrics(videoId: string): Promise<AILyricsResult 
   console.log(`🎤 [AI Lyrics] Analyzing audio: ${videoId} (${(audioSize / 1024 / 1024).toFixed(1)}MB)`);
 
   const prompt = `You are a professional lyrics transcriber. Listen to this audio and transcribe the lyrics with accurate timestamps.
+The decoded audio duration is ${audioDuration.toFixed(3)} seconds. Never output a timestamp beyond its actual ending; do not invent or repeat content not heard.
 
 Output format - MUST be valid JSON:
 {
@@ -140,6 +165,10 @@ Rules:
           .map((l: any) => ({ time: l.time, text: l.text.trim() }));
       }
 
+      if (!isLyricsWithinAudioDuration(result.lines, audioDuration)) {
+        logger.warn(`AI generated impossible lyric timestamps: ${videoId}`);
+        return null;
+      }
       console.log(`✅ [AI Lyrics] Generated ${result.lines.length} lines (${result.language}) for ${videoId}`);
 
       // 快取結果

@@ -11,6 +11,20 @@ export interface Lyrics {
   language?: string;
   lrclibId?: number; // 使用者選擇的 LRCLIB 歌詞 ID
   timeOffset?: number; // 使用者設定的時間偏移（秒）
+  provenance?: {
+    selection: 'automatic' | 'user';
+    evidence: 'metadata' | 'user-selection' | 'publisher-caption';
+    sourceId?: number;
+    title?: string;
+    artist?: string;
+    duration?: number;
+  };
+  matchContext?: {
+    policy: 'metadata-v1';
+    title: string;
+    artist: string;
+    duration: number;
+  }; // Permanent reuse of the exact server-validated request, not proof from videoId alone.
 }
 
 // 歌詞搜尋結果（通用格式，適用於 LRCLIB 和 NetEase）

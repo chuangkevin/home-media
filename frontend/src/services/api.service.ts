@@ -145,7 +145,7 @@ class ApiService {
   /**
    * 獲取歌詞（支援取消過時請求）
    */
-  async getLyrics(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
+  async getLyrics(videoId: string, title: string, artist?: string, duration?: number): Promise<Lyrics | null> {
     // 取消之前的歌詞請求（避免請求堆積）
     if (this.lyricsAbortController) {
       this.lyricsAbortController.abort();
@@ -154,7 +154,7 @@ class ApiService {
 
     try {
       const response = await this.api.get<{ videoId: string; lyrics: Lyrics }>(`/lyrics/${videoId}`, {
-        params: { title, artist },
+        params: { title, artist, duration: duration && duration > 0 ? duration : undefined },
         timeout: 90000, // 歌詞獲取需要較長時間（嘗試多個來源：YouTube CC、網易雲、LRCLIB、Genius）
         signal: this.lyricsAbortController.signal,
       });

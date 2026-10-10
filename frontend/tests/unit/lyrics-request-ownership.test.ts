@@ -131,7 +131,7 @@ test('actual Socket lyrics source handler rechecks ownership after IndexedDB wri
 test('actual AudioPlayer confirmed-song effect loads radio/crossfade changes and ignores stale completions', async () => {
   reset();
   const response = deferred<any>();
-  const effect = actualCallback('src/components/Player/AudioPlayer.tsx', call => call.expression.getText() === 'useEffect' && call.arguments[0]?.getText().includes('loadLyricsWithPreferences(track)'), {
+  const effect = actualCallback('src/components/Player/AudioPlayer.tsx', call => call.expression.getText() === 'useEffect' && call.arguments[0]?.getText().includes('loadLyricsWithPreferences(track'), {
     embedded: false, currentTrack: fixtureTrack('fixture-A'), reduxStore: store, dispatch: store.dispatch,
     setCurrentLyrics, setTrackLyricsStatus, loadLyricsWithPreferences: () => response.promise,
     skipSegmentsRef: { current: [] }, lyricsCacheService: { set: async () => {} },
@@ -143,7 +143,7 @@ test('actual AudioPlayer confirmed-song effect loads radio/crossfade changes and
   store.dispatch(confirmPendingTrack()); cleanup();
   assert.equal(store.getState().lyrics.currentLyrics, null);
   const nextResponse = deferred<any>();
-  const next = actualCallback('src/components/Player/AudioPlayer.tsx', call => call.expression.getText() === 'useEffect' && call.arguments[0]?.getText().includes('loadLyricsWithPreferences(track)'), {
+  const next = actualCallback('src/components/Player/AudioPlayer.tsx', call => call.expression.getText() === 'useEffect' && call.arguments[0]?.getText().includes('loadLyricsWithPreferences(track'), {
     embedded: false, currentTrack: fixtureTrack('fixture-B'), reduxStore: store, dispatch: store.dispatch,
     setCurrentLyrics, setTrackLyricsStatus, loadLyricsWithPreferences: () => nextResponse.promise,
     skipSegmentsRef: { current: [] }, lyricsCacheService: { set: async () => {} },
@@ -151,4 +151,20 @@ test('actual AudioPlayer confirmed-song effect loads radio/crossfade changes and
   const nextCleanup = next(); store.dispatch(setCurrentTrack(fixtureTrack('fixture-C')));
   nextResponse.resolve(fixtureLyrics('fixture-B')); await flush(); nextCleanup();
   assert.equal(store.getState().lyrics.currentLyrics, null); assert.equal(store.getState().lyrics.isLoading, true);
+});
+
+
+test('confirmed lyrics retain source timestamps instead of adding a guessed intro offset', async () => {
+  reset();
+  const source = fixtureLyrics('fixture-A');
+  const cached: any[] = [];
+  const effect = actualCallback('src/components/Player/AudioPlayer.tsx', call => call.expression.getText() === 'useEffect' && call.arguments[0]?.getText().includes('loadLyricsWithPreferences(track'), {
+    embedded: false, currentTrack: fixtureTrack('fixture-A'), reduxStore: store, dispatch: store.dispatch,
+    setCurrentLyrics, setTrackLyricsStatus, loadLyricsWithPreferences: async () => source,
+    skipSegmentsRef: { current: [{start:0,end:30,category:'music_offtopic'}] },
+    lyricsCacheService: { set: async (_id: string, lyrics: any) => {cached.push(lyrics);} },
+  });
+  effect(); await flush();
+  assert.deepEqual(cached[0].lines, source.lines, 'cache must preserve original source timing');
+  assert.deepEqual(store.getState().lyrics.currentLyrics?.lines, source.lines, 'unverified intro must not shift lyrics');
 });

@@ -6,6 +6,7 @@ import logger from '../utils/logger';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { canReuseLyrics, selectCandidate, SongMetadata } from './lyrics-matching';
 import { extractTrackInfo, isConfigured as isGeminiConfigured } from './gemini.service';
 
 // @ts-ignore - no types available
@@ -53,6 +54,17 @@ interface NeteaseLyricResponse {
 }
 
 class LyricsService {
+  private expectedMetadata(title: string, artist?: string, duration?: number): SongMetadata {
+    const embedded = title.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+    const cleanTitle = this.cleanSongTitle(title, artist);
+    const reliableArtist = embedded ? (cleanTitle === embedded[1].trim() ? this.cleanArtistName(embedded[2].trim()) : embedded[1].trim()) : (artist && !this.isKnownAggregator(artist) ? this.cleanArtistName(artist) : undefined);
+    return { title: cleanTitle, artist: reliableArtist, rawTitle: title, duration };
+  }
+
+  private neteaseCandidate(song: NeteaseSongResult) {
+    const raw = song as any;
+    return { id: song.id, trackName: song.name, artistName: (song.artists || raw.ar || []).map((a: any) => a.name).join(', '), duration: (song.duration || raw.dt) ? (song.duration || raw.dt) / 1000 : undefined };
+  }
   /**
    * 指數退避重試輔助函數
    */
@@ -91,12 +103,12 @@ class LyricsService {
    * 獲取歌詞（優先從快取，然後嘗試多個來源）
    * 改進版：更好的錯誤追蹤和日誌
    */
-  async getLyrics(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
+  async getLyrics(videoId: string, title: string, artist?: string, duration?: number): Promise<Lyrics | null> {
     // 整體管線 60s timeout — 避免 LRCLIB+NetEase+Genius+YouTube CC 串聯超時
     // 前端有 90s AbortController，後端必須在那之前完成
     const PIPELINE_TIMEOUT = 60000;
     return Promise.race([
-      this._getLyricsImpl(videoId, title, artist),
+      this._getLyricsImpl(videoId, title, artist, duration),
       new Promise<null>((resolve) => setTimeout(() => {
         console.warn(`⏰ [LyricsService] 管線超時 ${PIPELINE_TIMEOUT / 1000}s，回傳 null: ${videoId}`);
         resolve(null);
@@ -104,7 +116,7 @@ class LyricsService {
     ]);
   }
 
-  private async _getLyricsImpl(videoId: string, title: string, artist?: string): Promise<Lyrics | null> {
+  private async _getLyricsImpl(videoId: string, title: string, artist?: string, duration?: number): Promise<Lyrics | null> {
     const startTime = Date.now();
     console.log(`🎵 [LyricsService.getLyrics] START: videoId=${videoId}, title="${title}", artist="${artist || 'N/A'}"`);
     logger.info(`[LyricsService] Starting lyrics fetch for: ${videoId}`);
@@ -116,7 +128,7 @@ class LyricsService {
       console.log(`🎵 [LyricsService] Step 1/5: Checking cache...`);
       const cacheStart = Date.now();
       const cached = this.getFromCache(videoId);
-      if (cached) {
+      if (cached && canReuseLyrics(cached, this.expectedMetadata(title, artist, duration))) {
         console.log(`🎵 [LyricsService] ✅ Cache hit! (${Date.now() - cacheStart}ms)`);
         logger.info(`📝 使用快取的歌詞: ${videoId} (來源: ${cached.source})`);
         return cached;
@@ -128,12 +140,12 @@ class LyricsService {
 
       // 2. 同時啟動 YouTube CC（yt-dlp 較慢）作為最後備用
       console.log(`🎵 [LyricsService] Step 2: Starting YouTube CC in background (lowest priority)...`);
-      const ytCCPromise = this.fetchYouTubeCaptions(videoId).catch(() => null);
+      const ytCCPromise = this.fetchYouTubeCaptions(videoId, this.expectedMetadata(title, artist, duration)).catch(() => null);
 
       // 2.5 先嘗試使用使用者偏好 ID，但若 metadata 明顯不匹配就清除，避免錯歌詞黏住
       const preferences = this.getPreferences(videoId);
       if (preferences?.lrclibId) {
-        const preferred = await this.getLyricsByLRCLIBId(videoId, preferences.lrclibId, title, artist);
+        const preferred = await this.getLyricsByLRCLIBId(videoId, preferences.lrclibId);
         if (preferred) {
           this.saveToCache(preferred);
           this.logAttemptSummary(attemptResults, startTime);
@@ -144,7 +156,7 @@ class LyricsService {
         this.updatePreferences(videoId, { lrclibId: null });
       }
       if (preferences?.neteaseId) {
-        const preferred = await this.getLyricsByNeteaseId(videoId, preferences.neteaseId, title, artist);
+        const preferred = await this.getLyricsByNeteaseId(videoId, preferences.neteaseId);
         if (preferred) {
           this.saveToCache(preferred);
           this.logAttemptSummary(attemptResults, startTime);
@@ -159,7 +171,7 @@ class LyricsService {
       console.log(`🎵 [LyricsService] Step 3: Fetching from LRCLIB (priority for synced)...`);
       const lrclibStart = Date.now();
       try {
-        const lrclibLyrics = await this.fetchLRCLIB(videoId, title, artist);
+        const lrclibLyrics = await this.fetchLRCLIB(videoId, title, artist, duration);
         const lrclibDuration = Date.now() - lrclibStart;
         if (lrclibLyrics) {
           console.log(`🎵 [LyricsService] ✅ LRCLIB found! (${lrclibDuration}ms, synced=${lrclibLyrics.isSynced})`);
@@ -181,7 +193,7 @@ class LyricsService {
       console.log(`🎵 [LyricsService] Step 4: Fetching from NetEase...`);
       const neteaseStart = Date.now();
       try {
-        const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist);
+        const neteaseLyrics = await this.fetchNeteaseLyrics(videoId, title, artist, duration);
         const neteaseDuration = Date.now() - neteaseStart;
         if (neteaseLyrics) {
           console.log(`🎵 [LyricsService] ✅ NetEase found! (${neteaseDuration}ms, synced=${neteaseLyrics.isSynced})`);
@@ -288,10 +300,10 @@ class LyricsService {
    * 從 YouTube 字幕獲取同步歌詞（使用 yt-dlp）
    * 改進版：更好的超時處理和錯誤日誌
    */
-  private async fetchYouTubeCaptions(videoId: string): Promise<Lyrics | null> {
+  private async fetchYouTubeCaptions(videoId: string, expected?: SongMetadata): Promise<Lyrics | null> {
     console.log(`🎬 [fetchYouTubeCaptions] START: videoId=${videoId}`);
     logger.info(`[YouTube CC] Starting subtitle fetch for: ${videoId}`);
-    const tempDir = os.tmpdir();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lyrics-cc-'));
     const tempFile = path.join(tempDir, `${videoId}-subtitle`);
 
     const YT_DLP_TIMEOUT = 30000;
@@ -309,7 +321,7 @@ class LyricsService {
       // 不加 --write-auto-sub 的翻譯版（如 zh-Hant from en）避免 429
       const args = [
         '--skip-download',
-        '--write-auto-sub',
+        ...(expected ? ['--write-info-json'] : ['--write-auto-sub']),
         '--write-sub',
         '--sub-lang', preferredLangs.join(','),
         '--sub-format', 'vtt',
@@ -341,6 +353,15 @@ class LyricsService {
       });
 
       // 掃描所有產生的字幕文件（包括 .vtt 和可能的其他格式）
+      let provenance: NonNullable<Lyrics['provenance']> = { selection: 'user', evidence: 'user-selection' };
+      if (expected) {
+        const infoPath = `${tempFile}.info.json`;
+        if (!fs.existsSync(infoPath)) return null;
+        const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+        if (info.id !== videoId || info.uploader_verified !== true || !info.track || !info.artist ||
+            !selectCandidate(expected, [{ id: 0, trackName: info.track, artistName: info.artist, duration: info.duration }])) return null;
+        provenance = { selection: 'automatic', evidence: 'publisher-caption', title: info.track, artist: info.artist, duration: info.duration };
+      }
       const allTempFiles = fs.readdirSync(tempDir).filter(f => f.startsWith(`${videoId}-subtitle`));
       console.log(`🎬 [fetchYouTubeCaptions] All matching files in temp: ${allTempFiles.join(', ') || '(none)'}`);
       const allFiles = allTempFiles.filter(f => f.endsWith('.vtt'));
@@ -357,7 +378,7 @@ class LyricsService {
           const lines = this.parseVTT(vttContent);
           if (lines.length > 0) {
             console.log(`🎬 [fetchYouTubeCaptions] ✅ ${lines.length} lines from ${matchingFile}`);
-            return { videoId, lines, source: 'youtube', isSynced: true, language: lang };
+            return { videoId, lines, source: 'youtube', isSynced: true, language: lang, provenance };
           }
         }
       }
@@ -370,7 +391,7 @@ class LyricsService {
         if (lines.length > 0) {
           const detectedLang = anyVtt.replace(`${videoId}-subtitle.`, '').replace('.vtt', '');
           console.log(`🎬 [fetchYouTubeCaptions] ✅ Fallback: ${lines.length} lines from ${anyVtt}`);
-          return { videoId, lines, source: 'youtube', isSynced: true, language: detectedLang };
+          return { videoId, lines, source: 'youtube', isSynced: true, language: detectedLang, provenance };
         }
       }
 
@@ -392,6 +413,7 @@ class LyricsService {
             } catch {}
           }
         });
+        fs.rmdirSync(tempDir);
       } catch (cleanupError) {
         // 忽略清理錯誤
       }
@@ -405,7 +427,8 @@ class LyricsService {
   private async fetchNeteaseLyrics(
     videoId: string,
     title: string,
-    artist?: string
+    artist?: string,
+    duration?: number
   ): Promise<Lyrics | null> {
     // 設定更長的 timeout（Docker 環境可能較慢）
     const NETEASE_TIMEOUT = 30000;
@@ -456,7 +479,8 @@ class LyricsService {
           { maxRetries: 2, baseDelay: 1000, operationName: 'NetEase Search' }
         );
         if (searchResult?.result?.songs?.length > 0) {
-          songs = searchResult.result.songs as NeteaseSongResult[];
+          songs = (searchResult.result.songs as NeteaseSongResult[]).filter(song => !!selectCandidate(this.expectedMetadata(title, artist, duration), [this.neteaseCandidate(song)]));
+          if (!songs.length) continue;
           console.log(`🎵 [NetEase] Found ${songs.length} results for: "${searchQuery}"`);
           break;
         }
@@ -470,7 +494,9 @@ class LyricsService {
       console.log(`🎵 [NetEase] Found ${songs.length} songs`);
 
       // 選擇最匹配的歌曲（第一個結果通常最相關）
-      const song = songs[0];
+      const selected = selectCandidate(this.expectedMetadata(title, artist, duration), songs.map(song => this.neteaseCandidate(song)));
+      if (!selected) return null;
+      const song = songs.find(song => song.id === selected.id)!;
       const songArtist = song.artists?.map((a: any) => a.name).join(', ')
         || (song as any).ar?.map((a: any) => a.name).join(', ')
         || 'Unknown';
@@ -514,6 +540,7 @@ class LyricsService {
         lines,
         source: 'netease',
         isSynced: hasSyncedTimestamps,
+        provenance: { selection: 'automatic', evidence: 'metadata', sourceId: song.id, title: selected.trackName, artist: selected.artistName, duration: selected.duration },
       };
     } catch (error) {
       console.error(`🎵 [NetEase] Unexpected error:`, error instanceof Error ? error.message : String(error));
@@ -530,7 +557,8 @@ class LyricsService {
   private async fetchLRCLIB(
     videoId: string,
     title: string,
-    artist?: string
+    artist?: string,
+    duration?: number
   ): Promise<Lyrics | null> {
     try {
       // Gemini AI extraction (regex fallback built-in)
@@ -588,7 +616,8 @@ class LyricsService {
           const r = (await response.json()) as LRCLIBResponse[];
           console.log(`🎼 [LRCLIB] Search returned ${r?.length ?? 0} results`);
           if (r?.length > 0) {
-            results = r;
+            results = r.filter(candidate => !!selectCandidate(this.expectedMetadata(title, artist, duration), [candidate]));
+            if (!results.length) continue;
             break;
           }
           console.log(`🎼 [LRCLIB] No results, trying fallback...`);
@@ -604,7 +633,9 @@ class LyricsService {
       }
 
       // 優先選擇有同步歌詞的結果
-      const data = results.find(r => r.syncedLyrics) || results[0];
+      const data = selectCandidate(this.expectedMetadata(title, artist, duration), results.filter(r => !!(r.syncedLyrics || r.plainLyrics)));
+      if (!data) return null;
+      const provenance: NonNullable<Lyrics['provenance']> = { selection: 'automatic', evidence: 'metadata', sourceId: data.id, title: data.trackName, artist: data.artistName, duration: data.duration };
       console.log(`🎼 [LRCLIB] Selected: ${data.trackName} by ${data.artistName} (ID: ${data.id})`);
 
       // 優先使用同步歌詞
@@ -618,6 +649,7 @@ class LyricsService {
             lines,
             source: 'lrclib',
             isSynced: true,
+            provenance,
           };
         }
       }
@@ -640,6 +672,7 @@ class LyricsService {
             lines,
             source: 'lrclib',
             isSynced: false,
+            provenance,
           };
         }
       }
@@ -1049,6 +1082,9 @@ class LyricsService {
       if (!song || !song.lyrics) {
         return null;
       }
+      // The library may omit artist metadata. Search success alone is not matching evidence.
+      const actualArtist = (song as any).primary_artist?.name || (song as any).artist;
+      if (typeof actualArtist !== 'string' || !selectCandidate(this.expectedMetadata(title, artist), [{ id: song.id, trackName: song.title, artistName: actualArtist }])) return null;
 
       // 將純文字歌詞轉換為行數組（無時間戳）
       const lines: LyricsLine[] = song.lyrics
@@ -1065,6 +1101,7 @@ class LyricsService {
         lines,
         source: 'genius',
         isSynced: false,
+        provenance: { selection: 'automatic', evidence: 'metadata', sourceId: song.id, title: song.title, artist: actualArtist },
       };
     } catch (error) {
       logger.error(`Genius 獲取失敗 (${videoId}):`, error);
@@ -1210,6 +1247,7 @@ class LyricsService {
             source: 'lrclib',
             isSynced: true,
             lrclibId: data.id, // 記錄選擇的 ID
+            provenance: { selection: 'user', evidence: 'user-selection', sourceId: data.id, title: data.trackName, artist: data.artistName, duration: data.duration },
           };
           // 儲存到快取
           this.saveToCache(lyrics);
@@ -1235,6 +1273,7 @@ class LyricsService {
             source: 'lrclib',
             isSynced: false,
             lrclibId: data.id,
+            provenance: { selection: 'user', evidence: 'user-selection', sourceId: data.id, title: data.trackName, artist: data.artistName, duration: data.duration },
           };
           this.saveToCache(lyrics);
           return lyrics;
@@ -1335,6 +1374,7 @@ class LyricsService {
         lines,
         source: 'netease',
         isSynced: true,
+        provenance: { selection: 'user', evidence: 'user-selection', sourceId: neteaseId },
       };
 
       // 儲存到快取
@@ -1391,21 +1431,7 @@ class LyricsService {
   }
 
   private isLyricsMetadataMatch(expectedTitle: string, expectedArtist: string, actualTitle: string, actualArtist: string): boolean {
-    const normalize = (text: string) => String(text || '')
-      .toLowerCase()
-      .replace(/\s*\([^)]*\)/g, '')
-      .replace(/\s*\[[^\]]*\]/g, '')
-      .replace(/[^a-z0-9\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]+/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    const expectedT = normalize(expectedTitle);
-    const expectedA = normalize(expectedArtist);
-    const actualT = normalize(actualTitle);
-    const actualA = normalize(actualArtist);
-
-    if (!expectedT || !expectedA || !actualT || !actualA) return true;
-    return (actualT.includes(expectedT) || expectedT.includes(actualT)) && (actualA.includes(expectedA) || expectedA.includes(actualA));
+    return !!selectCandidate(this.expectedMetadata(expectedTitle, expectedArtist), [{ id: 0, trackName: actualTitle, artistName: actualArtist }]);
   }
 
   /**

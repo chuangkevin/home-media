@@ -44,6 +44,7 @@ import PlayerControls from './PlayerControls';
 import LyricsTypographySettings from './LyricsTypographySettings';
 import { useLyricsTypography } from '../../hooks/useLyricsTypography';
 import { scaleFontSize } from '../../utils/lyricsTypography';
+import { isLyricsTimelinePlausible } from '../../services/lyrics-match-cache';
 import MorrorLyrics from './MorrorLyrics';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -1009,7 +1010,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       await apiService.clearServerLyricsCache(track.videoId).catch(() => {});
       apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0, lrclibId: null });
 
-      const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel);
+      const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel, track.duration);
       if (!isCurrentOperation()) return;
 
       if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
@@ -1083,6 +1084,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         await apiService.deleteAILyricsCache(track.videoId).catch(() => {});
         const result = await apiService.generateAILyrics(track.videoId);
         if (!isCurrentOperation()) return;
+        if (result?.lines?.length && !isLyricsTimelinePlausible(result.lines, track.duration)) {
+          setSearchError('辨識結果的時間軸與歌曲長度不符，未套用這份歌詞。請改用其他來源。');
+          return;
+        }
         if (result?.lines?.length > 0 && activeTrackVideoIdRef.current === track.videoId) {
           // 直接套用 AI 生成的歌詞
           const lyrics = {

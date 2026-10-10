@@ -15,6 +15,7 @@ import { AudioLoadError, createPlaybackLoadAttempt, readOptionalCache, waitForAu
 import { handoffAudioToCache } from '../../services/audio-cache-handoff';
 import { setActivePlaybackAudio, clearActivePlaybackAudio } from '../../services/active-audio';
 import lyricsCacheService from '../../services/lyrics-cache.service';
+import { canReuseLyricsForTrack, withLyricsMatchContext } from '../../services/lyrics-match-cache';
 import { useAutoQueue } from '../../hooks/useAutoQueue';
 import { usePlaybackPersistence } from '../../hooks/usePlaybackPersistence';
 import playbackStateService from '../../services/playback-state.service';
@@ -269,62 +270,20 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
 
 
-  const loadLyricsWithPreferences = useCallback(async (track: Track): Promise<Lyrics | null> => {
-    const videoId = track.videoId;
-    let unsyncedFallback: Lyrics | null = null;
+  const loadLyricsWithPreferences = useCallback(async (
+    track: Track, isCurrent: () => boolean = () => true
+  ): Promise<Lyrics | null> => {
+    const cachedLyrics = await lyricsCacheService.get(track.videoId);
+    if (!isCurrent()) return null;
+    if (cachedLyrics && canReuseLyricsForTrack(cachedLyrics, track)) return cachedLyrics;
 
-    const cachedLyrics = await lyricsCacheService.get(videoId);
-    if (cachedLyrics?.lines?.length) {
-      if (cachedLyrics.isSynced || cachedLyrics.source !== 'lrclib') {
-        return cachedLyrics;
-      }
-      unsyncedFallback = cachedLyrics;
-    }
-
-    let lrclibId: number | null = null;
-    let neteaseId: number | null = null;
-    try {
-      console.log(`🔍 查詢後端歌詞偏好: ${videoId}`);
-      const backendPrefs = await apiService.getLyricsPreferences(videoId);
-      if (backendPrefs?.lrclibId) lrclibId = backendPrefs.lrclibId;
-      if (backendPrefs?.neteaseId) neteaseId = backendPrefs.neteaseId;
-    } catch (error) {
-      console.log(`⚠️ 後端獲取失敗，使用本地快取 preference`, error);
-      const localPref = await lyricsCacheService.getPreference(videoId);
-      if (localPref?.lrclibId) lrclibId = localPref.lrclibId;
-      if (localPref?.neteaseId) neteaseId = localPref.neteaseId;
-    }
-
-    if (lrclibId) {
-      const lrclibLyrics = await apiService.getLyricsByLRCLIBId(videoId, lrclibId);
-      if (lrclibLyrics?.lines?.length) {
-        if (lrclibLyrics.isSynced) {
-          return lrclibLyrics;
-        }
-        unsyncedFallback = lrclibLyrics;
-      }
-    }
-
-    if (neteaseId) {
-      const neteaseLyrics = await apiService.getLyricsByNeteaseId(videoId, neteaseId);
-      if (neteaseLyrics?.lines?.length) {
-        if (neteaseLyrics.isSynced) {
-          return neteaseLyrics;
-        }
-        if (!unsyncedFallback) {
-          unsyncedFallback = neteaseLyrics;
-        }
-      }
-    }
-
-    let lyrics = await apiService.getLyrics(videoId, track.title, track.channel);
-    if (!lyrics && !unsyncedFallback) {
-      console.log(`🔄 歌詞第一次查無結果，15s 後重試: ${track.title}`);
-      await new Promise(r => setTimeout(r, 15000));
-      lyrics = await apiService.getLyrics(videoId, track.title, track.channel);
-    }
-
-    return lyrics?.lines?.length ? lyrics : unsyncedFallback;
+    // Do not delete permanent legacy records, but do not treat an ID as proof.
+    // The server validates preferences/candidates against title, artist/version
+    // and duration; direct ID fetch shortcuts bypassed that matching pipeline.
+    const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel, track.duration);
+    if (!isCurrent() || !lyrics) return null;
+    const matched = withLyricsMatchContext(lyrics, track);
+    return canReuseLyricsForTrack(matched, track) ? matched : null;
   }, []);
 
   // One lifecycle for every confirmed song, not only the pending-audio loader.
@@ -339,12 +298,10 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     dispatch(setTrackLyricsStatus({ videoId, isLoading: true }));
     (async () => {
       try {
-        let lyrics = await loadLyricsWithPreferences(track);
+        const lyrics = await loadLyricsWithPreferences(track, isCurrent);
         if (!isCurrent()) return;
-        const intro = skipSegmentsRef.current.find(s => s.category === 'music_offtopic' && s.start < 5);
-        if (lyrics?.isSynced && intro && (lyrics.lines[0]?.time ?? 0) < intro.end * 0.5) {
-          lyrics = { ...lyrics, lines: lyrics.lines.map(line => ({ ...line, time: line.time + intro.end })) };
-        }
+        // Retain source timing. SponsorBlock segments are seek instructions,
+        // not evidence that a lyric sheet needs an offset; never cache shifted timing.
         if (lyrics?.lines.length) {
           dispatch(setCurrentLyrics({ ...lyrics, videoId }));
           lyricsCacheService.set(videoId, lyrics).catch(() => {});

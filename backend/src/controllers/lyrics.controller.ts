@@ -244,7 +244,7 @@ export class LyricsController {
   async getLyrics(req: Request, res: Response): Promise<void> {
     try {
       const { videoId } = req.params;
-      const { title, artist } = req.query;
+      const { title, artist, duration } = req.query;
 
       console.log(`📝 [Lyrics API] Request: videoId=${videoId}, title=${title}, artist=${artist}`);
       logger.info(`📝 [Lyrics API] Request: videoId=${videoId}, title=${title}`);
@@ -276,7 +276,8 @@ export class LyricsController {
       const lyrics = await lyricsService.getLyrics(
         videoId,
         title,
-        artist as string | undefined
+        typeof artist === 'string' ? artist : undefined,
+        typeof duration === 'string' && Number.isFinite(Number(duration)) && Number(duration) > 0 ? Number(duration) : undefined
       );
       console.log(`📝 [Lyrics API] Service returned:`, lyrics ? 'Found' : 'Not found');
 
