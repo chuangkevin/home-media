@@ -1,10 +1,11 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store';
-import { setTimeOffset, setCurrentLyrics } from '../store/lyricsSlice';
+import { setTrackTimeOffset, setCurrentLyrics } from '../store/lyricsSlice';
 import { socketService } from '../services/socket.service';
 import apiService from '../services/api.service';
 import lyricsCacheService from '../services/lyrics-cache.service';
+import { isMatchingLyricsTranslation, type LyricsTranslationBroadcast } from '../utils/lyricsTranslationIdentity';
 
 /**
  * useLyricsSync — 統一管理歌詞 Socket.io emit + listen 邏輯
@@ -22,9 +23,14 @@ export function useLyricsSync(
   const isRemoteUpdateRef = useRef(false);
   const activeVideoIdRef = useRef<string | undefined>(videoId);
   activeVideoIdRef.current = videoId;
+  const onTranslationReceivedRef = useRef(onTranslationReceived);
+  onTranslationReceivedRef.current = onTranslationReceived;
 
   // Get current track info for lyrics reload
   const currentTrack = useSelector((state: RootState) => state.player.currentTrack);
+  const currentLyrics = useSelector((state: RootState) => state.lyrics.currentLyrics);
+  const currentLyricsRef = useRef(currentLyrics);
+  currentLyricsRef.current = currentLyrics;
 
   // Emit offset update (called by local user actions)
   const emitOffsetUpdate = useCallback(
@@ -47,13 +53,15 @@ export function useLyricsSync(
   // Listen for remote changes
   useEffect(() => {
     if (!videoId) return;
+    let cancelled = false;
+    const isCurrent = () => !cancelled && activeVideoIdRef.current === videoId;
 
     const handleOffsetChanged = (data: { videoId: string; timeOffset: number; deviceId: string }) => {
-      if (data.videoId !== videoId) return; // different song, ignore
+      if (data.videoId !== videoId || !isCurrent()) return; // different or stale song
 
       // Apply remote offset — set flag to prevent re-emit
       isRemoteUpdateRef.current = true;
-      dispatch(setTimeOffset(data.timeOffset));
+      dispatch(setTrackTimeOffset({ videoId: data.videoId, timeOffset: data.timeOffset }));
       lyricsCacheService.setTimeOffset(data.videoId, data.timeOffset);
       console.log(`[LyricsSync] Remote offset applied: ${data.timeOffset}s for ${data.videoId}`);
       // Reset flag after microtask to ensure any synchronous side effects are skipped
@@ -63,7 +71,7 @@ export function useLyricsSync(
     };
 
     const handleSourceChanged = async (data: { videoId: string; source: string; sourceId: number | string | null; deviceId: string }) => {
-      if (data.videoId !== videoId) return; // different song, ignore
+      if (data.videoId !== videoId || !isCurrent()) return; // different or stale song
 
       isRemoteUpdateRef.current = true;
       console.log(`[LyricsSync] Remote source changed: ${data.source} (id=${data.sourceId}) for ${data.videoId}`);
@@ -74,8 +82,9 @@ export function useLyricsSync(
         const artist = currentTrack?.channel || '';
         const lyrics = await apiService.getLyrics(data.videoId, title, artist);
 
-        if (lyrics && activeVideoIdRef.current === data.videoId) {
+        if (lyrics && isCurrent()) {
           await lyricsCacheService.set(data.videoId, lyrics);
+          if (!isCurrent()) return;
           dispatch(setCurrentLyrics(lyrics));
         }
       } catch (error) {
@@ -85,11 +94,11 @@ export function useLyricsSync(
       }
     };
 
-    const handleTranslationReady = (data: { videoId: string; translations: string[] }) => {
-      if (data.videoId !== videoId) return; // different song, ignore
-      if (!data.translations?.length) return;
+    const handleTranslationReady = (data: LyricsTranslationBroadcast) => {
+      if (data.videoId !== videoId || !isCurrent()) return; // different or stale song
+      if (!isMatchingLyricsTranslation(currentLyricsRef.current, data)) return;
       console.log(`[LyricsSync] Received translation broadcast for ${data.videoId}`);
-      onTranslationReceived?.(data.translations);
+      onTranslationReceivedRef.current?.(data.translations);
     };
 
     socketService.onLyricsOffsetChanged(handleOffsetChanged);
@@ -97,11 +106,12 @@ export function useLyricsSync(
     socketService.onLyricsTranslationReady(handleTranslationReady);
 
     return () => {
+      cancelled = true;
       socketService.offLyricsOffsetChanged(handleOffsetChanged);
       socketService.offLyricsSourceChanged(handleSourceChanged);
       socketService.offLyricsTranslationReady(handleTranslationReady);
     };
-  }, [videoId, dispatch, currentTrack?.title, currentTrack?.channel, onTranslationReceived]);
+  }, [videoId, dispatch, currentTrack?.title, currentTrack?.channel]);
 
   return { emitOffsetUpdate, emitSourceUpdate, isRemoteUpdateRef };
 }

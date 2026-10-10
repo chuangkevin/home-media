@@ -2,6 +2,7 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { Lyrics } from '../types/lyrics.types';
 
 interface LyricsState {
+  videoId: string | null;
   currentLyrics: Lyrics | null;
   isLoading: boolean;
   error: string | null;
@@ -10,6 +11,7 @@ interface LyricsState {
 }
 
 const initialState: LyricsState = {
+  videoId: null,
   currentLyrics: null,
   isLoading: false,
   error: null,
@@ -21,7 +23,20 @@ const lyricsSlice = createSlice({
   name: 'lyrics',
   initialState,
   reducers: {
+    activateLyricsTrack(_state, action: PayloadAction<string | null>) {
+      return { ...initialState, videoId: action.payload, isLoading: !!action.payload };
+    },
+    setTrackLyricsStatus(state, action: PayloadAction<{ videoId: string; isLoading: boolean; error?: string | null }>) {
+      if (action.payload.videoId !== state.videoId) return;
+      state.isLoading = action.payload.isLoading;
+      state.error = action.payload.error ?? null;
+    },
+    setTrackTimeOffset(state, action: PayloadAction<{ videoId: string; timeOffset: number }>) {
+      if (action.payload.videoId !== state.videoId) return;
+      state.timeOffset = action.payload.timeOffset;
+    },
     setCurrentLyrics(state, action: PayloadAction<Lyrics | null>) {
+      if (action.payload && action.payload.videoId !== state.videoId) return;
       state.currentLyrics = action.payload;
       state.currentLineIndex = -1;
       state.error = null;
@@ -60,6 +75,9 @@ const lyricsSlice = createSlice({
 });
 
 export const {
+  activateLyricsTrack,
+  setTrackLyricsStatus,
+  setTrackTimeOffset,
   setCurrentLyrics,
   setIsLoading,
   setError,

@@ -1117,9 +1117,6 @@ class LyricsService {
   }
 
   /**
-   * 清除過期的快取（可選，例如 30 天）
-   */
-  /**
    * 清除特定來源的所有快取（例如清除所有 YouTube CC 快取）
    */
   clearCacheBySource(source: string): number {
@@ -1145,17 +1142,9 @@ class LyricsService {
     } catch { return false; }
   }
 
-  clearExpiredCache(daysOld: number = 30): number {
-    try {
-      const expiryTime = Date.now() - daysOld * 24 * 60 * 60 * 1000;
-      const stmt = db.prepare('DELETE FROM lyrics_cache WHERE cached_at < ?');
-      const result = stmt.run(expiryTime);
-      logger.info(`🗑️ 清除了 ${result.changes} 個過期歌詞快取`);
-      return result.changes;
-    } catch (error) {
-      logger.error('清除歌詞快取失敗:', error);
-      return 0;
-    }
+  /** @deprecated 歌詞不會過期。保留舊介面但不刪資料；請使用明確的清除方法。 */
+  clearExpiredCache(_daysOld: number = 30): number {
+    return 0;
   }
 
   /**

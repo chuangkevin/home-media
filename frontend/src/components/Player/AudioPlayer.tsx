@@ -8,7 +8,7 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import PlayerControls from './PlayerControls';
 import { RootState, AppDispatch } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack, setDisplayMode } from '../../store/playerSlice';
-import { setCurrentLyrics, setIsLoading as setLyricsLoading, setError as setLyricsError } from '../../store/lyricsSlice';
+import { setCurrentLyrics, setTrackLyricsStatus } from '../../store/lyricsSlice';
 import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import { AudioLoadError, createPlaybackLoadAttempt, readOptionalCache, waitForAudioReady } from '../../services/playback-load';
@@ -82,7 +82,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   }, []);
   // autoplayBlocked removed — radio 模式永遠自動重試播放，不需要手動按鈕
   const currentVideoIdRef = useRef<string | null>(null);
-  const activeLyricsVideoIdRef = useRef<string | null>(null);
+
   const currentBlobUrlRef = useRef<string | null>(null);
   const pendingBlobUrlRef = useRef<string | null>(null);
   const wasCompletedRef = useRef(false);
@@ -267,7 +267,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   // 播放清單選單狀態
   const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<null | HTMLElement>(null);
 
-  const isCurrentLyricsRequest = useCallback((videoId: string) => activeLyricsVideoIdRef.current === videoId, []);
+
 
   const loadLyricsWithPreferences = useCallback(async (track: Track): Promise<Lyrics | null> => {
     const videoId = track.videoId;
@@ -326,6 +326,38 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
     return lyrics?.lines?.length ? lyrics : unsyncedFallback;
   }, []);
+
+  // One lifecycle for every confirmed song, not only the pending-audio loader.
+  // Pending next-track preparation must not invalidate the playing song's lyrics.
+  useEffect(() => {
+    if (embedded || !currentTrack) return;
+    const track = currentTrack;
+    const videoId = track.videoId;
+    let cancelled = false;
+    const isCurrent = () => !cancelled
+      && (reduxStore.getState() as RootState).player.currentTrack?.videoId === videoId;
+    dispatch(setTrackLyricsStatus({ videoId, isLoading: true }));
+    (async () => {
+      try {
+        let lyrics = await loadLyricsWithPreferences(track);
+        if (!isCurrent()) return;
+        const intro = skipSegmentsRef.current.find(s => s.category === 'music_offtopic' && s.start < 5);
+        if (lyrics?.isSynced && intro && (lyrics.lines[0]?.time ?? 0) < intro.end * 0.5) {
+          lyrics = { ...lyrics, lines: lyrics.lines.map(line => ({ ...line, time: line.time + intro.end })) };
+        }
+        if (lyrics?.lines.length) {
+          dispatch(setCurrentLyrics({ ...lyrics, videoId }));
+          lyricsCacheService.set(videoId, lyrics).catch(() => {});
+          dispatch(setTrackLyricsStatus({ videoId, isLoading: false }));
+        } else {
+          dispatch(setTrackLyricsStatus({ videoId, isLoading: false, error: '找不到歌詞' }));
+        }
+      } catch {
+        if (isCurrent()) dispatch(setTrackLyricsStatus({ videoId, isLoading: false, error: '獲取歌詞失敗' }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentTrack?.videoId, embedded, dispatch, reduxStore, loadLyricsWithPreferences]);
 
   // 保持 isPlayingRef 同步
   useEffect(() => {
@@ -512,9 +544,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     console.log(`🔄 Pending track: ${pendingTrack.title} (${videoId}), preparing...`);
     setIsLoading(true);
     setIsCached(false); // 立即重置，避免顯示前一首的快取狀態
-    activeLyricsVideoIdRef.current = videoId;
-    dispatch(setCurrentLyrics(null));
-    dispatch(setLyricsError(null));
+
 
     const loadPendingAudio = async () => {
       try {
@@ -619,30 +649,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           commitTrack();
           setIsLoading(false);
           
-          // 🎵 快取路徑也需要載入歌詞！
-          (async () => {
-            dispatch(setLyricsLoading(true));
-            try {
-              const lyrics = await loadLyricsWithPreferences(pendingTrack);
-              if (lyrics && isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
-                console.log(`📝 歌詞從後端載入: ${pendingTrack.title} (來源: ${lyrics.source})`);
-                dispatch(setCurrentLyrics(lyrics));
-                lyricsCacheService.set(videoId, lyrics).catch(() => {});
-              } else if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
-                console.log(`⚠️ 找不到歌詞: ${pendingTrack.title}`);
-                dispatch(setLyricsError('找不到歌詞'));
-              }
-            } catch (error) {
-              console.error('獲取歌詞失敗:', error);
-              if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
-                dispatch(setLyricsError('獲取歌詞失敗'));
-              }
-            } finally {
-              if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
-                dispatch(setLyricsLoading(false));
-              }
-            }
-          })();
+
           
           return; // 直接返回，不等後端
         }
@@ -895,46 +902,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
             });
           }
 
-          // 🎵 播放成功後才開始搜尋歌詞
-          dispatch(setLyricsLoading(true));
-          (async () => {
-            try {
-              let lyrics = await loadLyricsWithPreferences(pendingTrack);
-              if (lyrics && lyrics.lines?.length > 0 && isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
-                // 用 SponsorBlock music_offtopic 計算 offset
-                // 如果影片前面有非音樂段落，歌詞時間戳需要加上 offset
-                const segments = skipSegmentsRef.current;
-                const introSegment = segments.find(s => s.category === 'music_offtopic' && s.start < 5);
-                if (introSegment && lyrics.isSynced) {
-                  const offset = introSegment.end;
-                  // 只在歌詞第一行 time 比 offset 小很多時才 offset（避免誤判）
-                  const firstLineTime = lyrics.lines[0]?.time || 0;
-                  if (firstLineTime < offset * 0.5) {
-                    console.log(`🔧 SponsorBlock offset: +${offset.toFixed(1)}s (非音樂段落 0-${offset.toFixed(1)}s)`);
-                    lyrics.lines = lyrics.lines.map(line => ({
-                      ...line,
-                      time: line.time + offset,
-                    }));
-                  }
-                }
 
-                console.log(`📝 歌詞載入: ${pendingTrack.title} (${lyrics.source}, ${lyrics.lines.length} 行, synced: ${lyrics.isSynced})`);
-                dispatch(setCurrentLyrics(lyrics));
-                lyricsCacheService.set(videoId, lyrics).catch(() => {});
-              } else if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
-                dispatch(setLyricsError('找不到歌詞'));
-              }
-            } catch (error) {
-              console.error('獲取歌詞失敗:', error);
-              if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
-                dispatch(setLyricsError('獲取歌詞失敗'));
-              }
-            } finally {
-              if (isCurrentRequest() && isCurrentLyricsRequest(videoId)) {
-                dispatch(setLyricsLoading(false));
-              }
-            }
-          })();
         };
 
         await ready;
@@ -963,7 +931,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           if (currentBlobUrlRef.current) URL.revokeObjectURL(currentBlobUrlRef.current);
           currentBlobUrlRef.current = null;
         }
-        dispatch(setLyricsLoading(false));
+
         setPlaybackError({ track: pendingTrack, message: error instanceof Error ? error.message : '音訊載入失敗，請再試一次。' });
         setIsLoading(false);
         dispatch(cancelPendingTrack());

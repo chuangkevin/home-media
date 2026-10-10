@@ -24,7 +24,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState, AppDispatch } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
-import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
+import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setTrackTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
 import { seekTo, setPendingTrack, setIsPlaying, reorderPlaylist, removeFromPlaylist, playNext } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
@@ -41,6 +41,9 @@ import { toTraditional } from '../../utils/chineseConvert';
 import { useLyricsSync } from '../../hooks/useLyricsSync';
 import AudioPlayer from './AudioPlayer';
 import PlayerControls from './PlayerControls';
+import LyricsTypographySettings from './LyricsTypographySettings';
+import { useLyricsTypography } from '../../hooks/useLyricsTypography';
+import { scaleFontSize } from '../../utils/lyricsTypography';
 import MorrorLyrics from './MorrorLyrics';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -68,6 +71,8 @@ interface FullscreenLyricsProps {
 
 export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyricsProps) {
   const dispatch = useDispatch<AppDispatch>();
+  const { settings: lyricsTypography, changeSettings: changeLyricsTypography } = useLyricsTypography();
+  const [typographyOpen, setTypographyOpen] = useState(false);
   const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
   const isUltrawide = useMediaQuery('(min-width: 1500px) and (orientation: landscape)');
   const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)'); // 滑鼠裝置
@@ -75,9 +80,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const showQueueSidebar = useMediaQuery('(min-width: 1280px) and (min-height: 560px)');
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const isShortViewport = useMediaQuery('(max-height: 768px)');
-  const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
+  const { currentLyrics: storedLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
+  const currentLyrics = storedLyrics?.videoId === track.videoId ? storedLyrics : null;
+  const activeLyricsRef = useRef(currentLyrics);
+  activeLyricsRef.current = currentLyrics;
   const { currentTime, playlist, currentIndex, seekTarget } = useSelector((state: RootState) => state.player);
   const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const { emitOffsetUpdate, emitSourceUpdate } = useLyricsSync(
@@ -101,7 +109,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const videoNudgeResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHardSeekAtRef = useRef(0);
   const activeTrackVideoIdRef = useRef(track.videoId);
+  const lyricsOperationGenerationRef = useRef(0);
+  if (activeTrackVideoIdRef.current !== track.videoId) lyricsOperationGenerationRef.current += 1;
   activeTrackVideoIdRef.current = track.videoId;
+  const beginLyricsOperation = () => {
+    const generation = ++lyricsOperationGenerationRef.current;
+    const videoId = track.videoId;
+    return () => lyricsOperationGenerationRef.current === generation && activeTrackVideoIdRef.current === videoId;
+  };
+  useEffect(() => () => {
+    lyricsOperationGenerationRef.current += 1;
+  }, []);
   const isOpenRef = useRef(open);
   isOpenRef.current = open;
 
@@ -124,7 +142,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const effectiveFullscreen = isFullscreenLayout || isLandscape;
 
   // 歌詞翻譯
-  const [translations, setTranslations] = useState<string[]>([]);
+  const [translationState, setTranslationState] = useState<{ lyrics: typeof currentLyrics; values: string[] }>({ lyrics: null, values: [] });
+  const translations = translationState.lyrics === currentLyrics ? translationState.values : [];
+  const setTranslations = useCallback((values: string[]) => {
+    setTranslationState({ lyrics: currentLyrics, values });
+  }, [currentLyrics]);
   const [translationError, setTranslationError] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const retryCountRef = useRef(0);
@@ -181,6 +203,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
     // AudioPlayer owns the shared lyrics lifecycle. A lazy-mounted sheet must
     // retain lyrics that AudioPlayer has already loaded for this track.
+    setIsRefreshingLyricsView(false);
+    setIsReloadingLyrics(false);
+    setIsLoadingYouTubeCC(false);
+    setIsSearching(false);
+    setIsApplying(false);
+    setSearchOpen(false);
+    setSearchError('');
+    setSearchResults([]);
     setTranslations([]);
     setTranslationError(false);
     setIsTranslating(false);
@@ -197,11 +227,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     setTranslations([]);
     setTranslationError(false);
     setIsTranslating(false);
-  }, []);
+  }, [setTranslations]);
 
   // 翻譯邏輯：提取為 doTranslate，供 effect 和 retry button 共用
   // gen: generation counter passed from caller — discards results from older generations
   const doTranslate = useCallback((gen: number) => {
+    const isCurrent = () => translationGenRef.current === gen
+      && activeTrackVideoIdRef.current === track.videoId
+      && activeLyricsRef.current === currentLyrics;
+    if (!isCurrent()) return;
     if (!currentLyrics || currentLyrics.lines.length === 0 || !track?.videoId) return;
 
     setIsTranslating(true);
@@ -214,7 +248,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     });
 
     Promise.race([translateRequest, fastTimeout]).then(result => {
-      if (translationGenRef.current !== gen) return; // stale
+      if (!isCurrent()) return; // stale song, lyrics, or generation
       if (!result) {
         throw new Error('Translation returned null');
       }
@@ -227,14 +261,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         // 翻譯結果全空 — 自動 retry
         retryCountRef.current++;
         console.log(`🔄 翻譯結果為空，重試 ${retryCountRef.current}/4`);
-        setTimeout(() => doTranslate(gen), 10000);
+        translationRetryTimeoutRef.current = setTimeout(() => {
+          translationRetryTimeoutRef.current = null;
+          if (isCurrent()) doTranslate(gen);
+        }, 10000);
         return;
       }
       setTranslations(hasAny ? trans : []);
       setTranslationError(!hasAny);
       setIsTranslating(false);
     }).catch(() => {
-      if (translationGenRef.current !== gen) return; // stale
+      if (!isCurrent()) return; // stale song, lyrics, or generation
       // 快速失敗 + 短暫重試，避免 UI 長時間卡在翻譯中
       if (retryCountRef.current < 1) {
         retryCountRef.current++;
@@ -265,6 +302,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     setTranslations([]);
 
     doTranslate(gen);
+    return () => {
+      translationGenRef.current += 1;
+      if (translationRetryTimeoutRef.current) clearTimeout(translationRetryTimeoutRef.current);
+      translationRetryTimeoutRef.current = null;
+    };
   }, [currentLyrics, track?.videoId, doTranslate]);
 
   // 手動重試翻譯
@@ -771,15 +813,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   // 載入儲存的偏好設定（切歌時先 reset 再載入，避免殘留上一首的 offset）
   useEffect(() => {
     // 切歌時立即 reset offset（不管 drawer 開不開）
-    dispatch(setTimeOffset(0));
+    dispatch(setTrackTimeOffset({ videoId: track.videoId, timeOffset: 0 }));
+    let cancelled = false;
+    const isCurrent = () => !cancelled && activeTrackVideoIdRef.current === track.videoId;
 
     if (!open) return;
 
     const loadPreference = async () => {
       try {
         const backendPrefs = await apiService.getLyricsPreferences(track.videoId);
+        if (!isCurrent()) return;
         if (backendPrefs?.timeOffset !== undefined && backendPrefs.timeOffset !== 0) {
-          dispatch(setTimeOffset(backendPrefs.timeOffset));
+          dispatch(setTrackTimeOffset({ videoId: track.videoId, timeOffset: backendPrefs.timeOffset }));
           lyricsCacheService.setTimeOffset(track.videoId, backendPrefs.timeOffset);
           console.log(`🎯 載入歌詞偏移: ${backendPrefs.timeOffset}s (${track.videoId})`);
           return;
@@ -789,13 +834,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       }
 
       const localPref = await lyricsCacheService.getPreference(track.videoId);
+      if (!isCurrent()) return;
       if (localPref?.timeOffset !== undefined && localPref.timeOffset !== 0) {
-        dispatch(setTimeOffset(localPref.timeOffset));
+        dispatch(setTrackTimeOffset({ videoId: track.videoId, timeOffset: localPref.timeOffset }));
         apiService.updateLyricsPreferences(track.videoId, { timeOffset: localPref.timeOffset });
         console.log(`🎯 載入歌詞偏移 (local): ${localPref.timeOffset}s (${track.videoId})`);
       }
     };
-    loadPreference();
+    loadPreference().catch(error => console.warn('歌詞偏好載入失敗', error));
+    return () => { cancelled = true; };
   }, [track.videoId, dispatch, open]);
 
   // 根據當前時間計算高亮歌詞行 — 用 rAF 直接讀 audio.currentTime（不依賴 Redux）
@@ -851,7 +898,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         behavior: reduceMotion ? 'auto' : 'smooth',
       });
     }
-  }, [currentLineIndex, open, isFineTuning, viewMode]);
+  }, [currentLineIndex, open, isFineTuning, viewMode, reduceMotion, lyricsTypography.originalScale, lyricsTypography.translationScale]);
 
   // 點選歌詞跳轉
   const handleLyricClick = (time: number, index: number) => {
@@ -951,6 +998,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 重新載入歌詞
   const handleReloadOriginalLyrics = async () => {
+    const isCurrentOperation = beginLyricsOperation();
     setIsReloadingLyrics(true);
     setIsRefreshingLyricsView(true);
     try {
@@ -962,9 +1010,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0, lrclibId: null });
 
       const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel);
+      if (!isCurrentOperation()) return;
 
       if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         await lyricsCacheService.set(track.videoId, lyrics);
+        if (!isCurrentOperation()) return;
         dispatch(setCurrentLyrics(lyrics));
         dispatch(resetTimeOffset());
         emitSourceUpdate(track.videoId, 'auto', null);
@@ -975,9 +1025,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
       setSearchOpen(false);
     } catch (error) {
+      if (!isCurrentOperation()) return;
       setSearchError('重新載入歌詞失敗，請稍後重試。');
       console.error('Reload lyrics failed:', error);
     } finally {
+      if (!isCurrentOperation()) return;
       setIsRefreshingLyricsView(false);
       setIsReloadingLyrics(false);
     }
@@ -985,14 +1037,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
   // 使用 YouTube CC 字幕
   const handleUseYouTubeCC = async () => {
+    const isCurrentOperation = beginLyricsOperation();
     setIsLoadingYouTubeCC(true);
     setIsRefreshingLyricsView(true);
     try {
       clearLyricsViewState();
       const lyrics = await apiService.getYouTubeCaptions(track.videoId);
+      if (!isCurrentOperation()) return;
 
       if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         await lyricsCacheService.set(track.videoId, lyrics);
+        if (!isCurrentOperation()) return;
         dispatch(setCurrentLyrics(lyrics));
         dispatch(resetTimeOffset());
         setSearchOpen(false);
@@ -1000,9 +1055,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         alert('此影片沒有可用的 YouTube CC 字幕');
       }
     } catch (error) {
+      if (!isCurrentOperation()) return;
       console.error('Fetch YouTube CC failed:', error);
       alert('獲取 YouTube CC 字幕失敗');
     } finally {
+      if (!isCurrentOperation()) return;
       setIsRefreshingLyricsView(false);
       setIsLoadingYouTubeCC(false);
     }
@@ -1012,6 +1069,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const handleSearch = async () => {
     if (isSearching) return;
     if (searchSource !== 'ai' && !searchQuery.trim()) return;
+    const isCurrentOperation = beginLyricsOperation();
     setSearchError('');
     setHasSearched(true);
     if (searchSource === 'ai') {
@@ -1024,6 +1082,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         // 先刪除舊的 AI 快取，強制重新辨識
         await apiService.deleteAILyricsCache(track.videoId).catch(() => {});
         const result = await apiService.generateAILyrics(track.videoId);
+        if (!isCurrentOperation()) return;
         if (result?.lines?.length > 0 && activeTrackVideoIdRef.current === track.videoId) {
           // 直接套用 AI 生成的歌詞
           const lyrics = {
@@ -1045,9 +1104,11 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           console.warn('AI 歌詞生成失敗');
         }
       } catch (error) {
+        if (!isCurrentOperation()) return;
         setSearchError('AI 辨識暫時無法使用，請稍後重試。');
         console.error('AI lyrics generation failed:', error);
       } finally {
+        if (!isCurrentOperation()) return;
         setIsRefreshingLyricsView(false);
         setIsSearching(false);
       }
@@ -1060,17 +1121,21 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     setSearchResults([]);
     try {
       const results = await apiService.searchLyrics(searchQuery, searchSource);
+      if (!isCurrentOperation()) return;
       setSearchResults(results);
     } catch (error) {
+      if (!isCurrentOperation()) return;
       setSearchError('暫時無法搜尋歌詞，請稍後重試。');
       console.error('Search lyrics failed:', error);
     } finally {
+      if (!isCurrentOperation()) return;
       setIsSearching(false);
     }
   };
 
   // 選擇歌詞
   const handleSelectLyrics = async (result: LyricsSearchResult) => {
+    const isCurrentOperation = beginLyricsOperation();
     setIsApplying(true);
     setIsRefreshingLyricsView(true);
     try {
@@ -1078,6 +1143,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       const lyrics = searchSource === 'netease'
         ? await apiService.getLyricsByNeteaseId(track.videoId, result.id)
         : await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
+      if (!isCurrentOperation()) return;
 
       if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         if (searchSource === 'lrclib') {
@@ -1088,14 +1154,17 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           await lyricsCacheService.setNeteaseId(track.videoId, result.id);
         }
         await lyricsCacheService.set(track.videoId, lyrics);
+        if (!isCurrentOperation()) return;
         dispatch(setCurrentLyrics(lyrics));
         emitSourceUpdate(track.videoId, searchSource, result.id);
         setSearchOpen(false);
       }
     } catch (error) {
+      if (!isCurrentOperation()) return;
       setSearchError('無法套用這份歌詞，請重試或選擇其他結果。');
       console.error('Apply lyrics failed:', error);
     } finally {
+      if (!isCurrentOperation()) return;
       setIsRefreshingLyricsView(false);
       setIsApplying(false);
     }
@@ -1205,7 +1274,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     // 全螢幕橫向模式：更大的歌詞
 
     return (
-      <Box sx={{ 
+      <Box data-lyrics-video-id={currentLyrics.videoId} data-translation-video-id={translations.length ? currentLyrics.videoId : undefined} sx={{
         px: { xs: 1.5, sm: 3 },
         maxWidth: 900,
         mx: 'auto',
@@ -1248,7 +1317,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               <Typography
                 sx={{
                   fontWeight: isActive ? 700 : 400,
-                  fontSize: { xs: '1.25rem', sm: '1.5rem', lg: '1.75rem', xl: '2rem' },
+                  fontSize: { xs: scaleFontSize('1.25rem', lyricsTypography.originalScale), sm: scaleFontSize('1.5rem', lyricsTypography.originalScale), lg: scaleFontSize('1.75rem', lyricsTypography.originalScale), xl: scaleFontSize('2rem', lyricsTypography.originalScale) },
+                  overflowWrap: 'anywhere',
                   color: isActive
                     ? 'primary.main'
                     : isPassed
@@ -1265,7 +1335,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               {translations[index] && translations[index] !== toTraditional(line.text) && (
                 <Typography
                   sx={{
-                    fontSize: { xs: '0.875rem', sm: '1rem', lg: '1.125rem' },
+                    fontSize: { xs: scaleFontSize('0.875rem', lyricsTypography.translationScale), sm: scaleFontSize('1rem', lyricsTypography.translationScale), lg: scaleFontSize('1.125rem', lyricsTypography.translationScale) },
+                    overflowWrap: 'anywhere',
                     color: 'text.secondary',
                     opacity: 1,
                     mt: isUltrawide ? 0.1 : 0.3,
@@ -1483,7 +1554,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   fontWeight: 700,
                   lineHeight: 1.35,
                   textShadow: '0 2px 8px rgba(0,0,0,0.7)',
-                  fontSize: effectiveFullscreen ? '1.4rem' : '1.1rem'
+                  fontSize: scaleFontSize(effectiveFullscreen ? '1.4rem' : '1.1rem', lyricsTypography.originalScale),
+                  overflowWrap: 'anywhere'
                 }}
               >
                 {toTraditional(currentLineText)}
@@ -1496,7 +1568,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                     mt: 0.35,
                     lineHeight: 1.35,
                     textShadow: '0 2px 8px rgba(0,0,0,0.7)',
-                    fontSize: effectiveFullscreen ? '1.1rem' : '0.9rem'
+                    fontSize: scaleFontSize(effectiveFullscreen ? '1.1rem' : '0.9rem', lyricsTypography.translationScale),
+                    overflowWrap: 'anywhere'
                   }}
                 >
                   {currentLineTranslation}
@@ -1754,6 +1827,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                     {track.channel}
                   </Typography>
                 </Box>
+                <Button aria-label="調整歌詞字體大小" onClick={() => setTypographyOpen(true)}
+                  sx={{ minWidth: 44, minHeight: 44, flexShrink: 0 }}>字體</Button>
                 <Tooltip title="歌詞設定">
                   <IconButton aria-label="歌詞設定" aria-expanded={lyricsSettingsOpen} aria-controls="lyrics-settings"
                     color={lyricsSettingsOpen ? 'primary' : 'default'} onClick={() => {
@@ -1842,6 +1917,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               <MorrorLyrics
                 lines={currentLyrics.lines} currentLineIndex={currentLineIndex} track={track} timeOffset={timeOffset}
                 onFullscreenChange={setIsMorrorFullscreen} translations={translations}
+                originalFontScale={lyricsTypography.originalScale} translationFontScale={lyricsTypography.translationScale}
                 translationError={translationError} isTranslating={isTranslating} onRetryTranslation={handleRetryTranslation}
               />
             )}
@@ -1863,6 +1939,15 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
         )}
       </Drawer>
+
+      <Dialog open={open && typographyOpen} onClose={() => setTypographyOpen(false)} fullWidth maxWidth="sm"
+        aria-labelledby="lyrics-typography-dialog-title" PaperProps={{ sx: { maxHeight: '85dvh' } }}>
+        <DialogTitle id="lyrics-typography-dialog-title">調整歌詞字體</DialogTitle>
+        <DialogContent dividers>
+          <LyricsTypographySettings settings={lyricsTypography} onChange={changeLyricsTypography} />
+        </DialogContent>
+        <DialogActions><Button onClick={() => setTypographyOpen(false)} sx={{ minHeight: 44 }}>完成</Button></DialogActions>
+      </Dialog>
 
       <Drawer anchor="bottom" open={open && queueOpen && !showQueueSidebar && !isMorrorFullscreen} onClose={() => setQueueOpen(false)}
         PaperProps={{ role: 'dialog', 'aria-modal': true, 'aria-label': '待播清單', sx: {

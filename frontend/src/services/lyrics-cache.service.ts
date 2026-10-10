@@ -27,9 +27,7 @@ class LyricsCacheService {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
 
-  // 快取設置
-  private readonly CACHE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 天快取期限
-  private readonly MAX_ENTRIES = 500; // 最多儲存 500 首歌的歌詞
+  // 歌詞永久保存；timestamp 僅作紀錄，不作 TTL 或自動淘汰依據。
 
   /**
    * 初始化資料庫
@@ -146,15 +144,6 @@ class LyricsCacheService {
           return;
         }
 
-        // 檢查是否過期
-        const age = Date.now() - cached.timestamp;
-        if (age > this.CACHE_TTL) {
-          console.log(`⏰ Lyrics cache expired for ${videoId}`);
-          this.delete(videoId);
-          resolve(null);
-          return;
-        }
-
         console.log(`✅ Lyrics cache hit: ${videoId} (source: ${cached.lyrics.source})`);
         resolve(cached.lyrics);
       };
@@ -178,9 +167,6 @@ class LyricsCacheService {
       lyrics,
       timestamp: Date.now(),
     };
-
-    // 檢查數量限制
-    await this.enforceLimit();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([this.storeName], 'readwrite');
@@ -243,31 +229,6 @@ class LyricsCacheService {
         reject(request.error);
       };
     });
-  }
-
-  /**
-   * 強制執行數量限制
-   * 如果超過限制，刪除最舊的項目
-   */
-  private async enforceLimit(): Promise<void> {
-    const all = await this.getAll();
-
-    if (all.length < this.MAX_ENTRIES) {
-      return;
-    }
-
-    console.log(`⚠️ Lyrics cache limit reached, cleaning old entries...`);
-
-    // 按時間排序
-    all.sort((a, b) => a.timestamp - b.timestamp);
-
-    // 刪除最舊的 10%
-    const toDelete = Math.floor(all.length * 0.1);
-    for (let i = 0; i < toDelete; i++) {
-      await this.delete(all[i].videoId);
-    }
-
-    console.log(`✅ Removed ${toDelete} old lyrics entries`);
   }
 
   /**

@@ -3,6 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import { getDatabase } from '../config/database';
 import audioCacheService from './audio-cache.service';
 import logger from '../utils/logger';
+import { getCachedTranslation, saveTranslation } from './translation-cache.service';
 
 // Reuse key management from gemini.service
 import { getApiKey, getApiKeyExcluding, markKeyBad } from './gemini.service';
@@ -23,15 +24,18 @@ interface AILyricsResult {
  * 用 Gemini 2.5 Flash 聽音訊檔案，生成帶時間戳的歌詞 + 翻譯
  */
 export async function generateAILyrics(videoId: string): Promise<AILyricsResult | null> {
+  // Permanent results remain usable even when the provider or audio is gone.
+  const cached = getCachedAILyrics(videoId);
+  if (cached) {
+    cacheAITranslation(videoId, cached);
+    return cached;
+  }
+
   const apiKey = getApiKey();
   if (!apiKey) {
     console.warn('⚠️ [AI Lyrics] No Gemini API key configured');
     return null;
   }
-
-  // 檢查快取
-  const cached = getCachedAILyrics(videoId);
-  if (cached) return cached;
 
   // 確認音訊檔案存在
   if (!audioCacheService.has(videoId)) {
@@ -141,22 +145,8 @@ Rules:
       // 快取結果
       cacheAILyrics(videoId, result);
 
-      // 同時把翻譯存到 lyrics_translations 表（避免 translateLyrics 重複翻譯）
-      if (result.translation && result.translation.length > 0 && result.language !== 'zh-TW') {
-        try {
-          const db = getDatabase();
-          db.exec(`CREATE TABLE IF NOT EXISTS lyrics_translations (
-            video_id TEXT PRIMARY KEY, translations_json TEXT NOT NULL,
-            detected_language TEXT, cached_at INTEGER NOT NULL
-          )`);
-          db.prepare(
-            `INSERT INTO lyrics_translations (video_id, translations_json, detected_language, cached_at)
-             VALUES (?, ?, ?, ?) ON CONFLICT(video_id) DO UPDATE SET
-             translations_json = excluded.translations_json, detected_language = excluded.detected_language, cached_at = excluded.cached_at`
-          ).run(videoId, JSON.stringify(result.translation.map(t => t.text)), result.language, Date.now());
-          console.log(`💾 [AI Lyrics] Translation cached for ${videoId}`);
-        } catch {}
-      }
+      // Share the exact source-content key with the regular translation route.
+      cacheAITranslation(videoId, result);
 
       return result;
 
@@ -174,6 +164,21 @@ Rules:
     }
   }
   return null;
+}
+
+function cacheAITranslation(videoId: string, result: AILyricsResult): void {
+  if (!result.translation?.length || result.language === 'zh-TW') return;
+  try {
+    const lines = result.lines.map(line => line.text);
+    // A cache read must not overwrite an explicitly retranslated version.
+    if (getCachedTranslation(videoId, lines)) return;
+    saveTranslation(videoId, lines, {
+      translations: result.translation.map(line => line.text),
+      detected_language: result.language,
+    }, 'zh-TW');
+  } catch (err) {
+    logger.warn('AI translation cache save error:', err);
+  }
 }
 
 function getCachedAILyrics(videoId: string): AILyricsResult | null {

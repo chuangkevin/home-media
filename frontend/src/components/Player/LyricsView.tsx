@@ -18,7 +18,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
-import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
+import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setTrackTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
 import { seekTo } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
@@ -34,16 +34,25 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const dispatch = useDispatch();
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [showTiming, setShowTiming] = useState(false);
-  const { currentLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
+  const { currentLyrics: storedLyrics, isLoading, error, currentLineIndex, timeOffset } = useSelector(
     (state: RootState) => state.lyrics
   );
+  const currentLyrics = storedLyrics?.videoId === track.videoId ? storedLyrics : null;
   const { currentTime } = useSelector((state: RootState) => state.player);
   const { emitOffsetUpdate, emitSourceUpdate } = useLyricsSync(track.videoId);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const lyricsViewRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
   const activeTrackVideoIdRef = useRef(track.videoId);
+  const lyricsOperationGenerationRef = useRef(0);
+  if (activeTrackVideoIdRef.current !== track.videoId) lyricsOperationGenerationRef.current++;
   activeTrackVideoIdRef.current = track.videoId;
+  const beginLyricsOperation = () => {
+    const generation = ++lyricsOperationGenerationRef.current;
+    const videoId = track.videoId;
+    return () => generation === lyricsOperationGenerationRef.current && activeTrackVideoIdRef.current === videoId;
+  };
+  useEffect(() => () => { lyricsOperationGenerationRef.current++; }, []);
 
   // 搜尋對話框狀態
   const [searchOpen, setSearchOpen] = useState(false);
@@ -65,6 +74,12 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     setIsFineTuning(false);
     setFineTuneOffset(0);
     setShowTiming(false);
+    setIsReloadingLyrics(false);
+    setIsSearching(false);
+    setIsApplying(false);
+    setSearchOpen(false);
+    setSearchResults([]);
+    setSearchError('');
   }, [track.videoId]);
 
   // 固定填充高度（容器 maxHeight 500px 的一半）
@@ -72,13 +87,16 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
   // 載入儲存的偏好設定（優先使用後端 API，IndexedDB 作為離線備份）
   useEffect(() => {
+    let cancelled = false;
+    const isCurrent = () => !cancelled && activeTrackVideoIdRef.current === track.videoId;
     const loadPreference = async () => {
       try {
         // 1. 嘗試從後端 API 載入（跨裝置同步）
         const backendPrefs = await apiService.getLyricsPreferences(track.videoId);
+        if (!isCurrent()) return;
         if (backendPrefs?.timeOffset !== undefined && backendPrefs.timeOffset !== 0) {
           console.log(`📝 套用後端儲存的時間偏移: ${backendPrefs.timeOffset}s`);
-          dispatch(setTimeOffset(backendPrefs.timeOffset));
+          dispatch(setTrackTimeOffset({ videoId: track.videoId, timeOffset: backendPrefs.timeOffset }));
           // 同步到本地快取（離線支援）
           lyricsCacheService.setTimeOffset(track.videoId, backendPrefs.timeOffset);
           return;
@@ -89,14 +107,16 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
       // 2. 後端沒有資料時，嘗試從本地 IndexedDB 載入（離線模式）
       const localPref = await lyricsCacheService.getPreference(track.videoId);
+      if (!isCurrent()) return;
       if (localPref?.timeOffset !== undefined && localPref.timeOffset !== 0) {
         console.log(`📝 套用本地儲存的時間偏移: ${localPref.timeOffset}s`);
-        dispatch(setTimeOffset(localPref.timeOffset));
+        dispatch(setTrackTimeOffset({ videoId: track.videoId, timeOffset: localPref.timeOffset }));
         // 同步到後端（如果之前是離線調整的）
         apiService.updateLyricsPreferences(track.videoId, { timeOffset: localPref.timeOffset });
       }
     };
-    loadPreference();
+    loadPreference().catch(error => console.warn('歌詞偏好載入失敗', error));
+    return () => { cancelled = true; };
   }, [track.videoId, dispatch]);
 
   // 使用 rAF 直接讀取 audio.currentTime，避免 Redux dispatch 延遲
@@ -318,6 +338,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
   // 重新載入原始歌詞（清除快取，讓後端重新自動搜尋）
   const handleReloadOriginalLyrics = async () => {
+    const isCurrentOperation = beginLyricsOperation();
     setIsReloadingLyrics(true);
     try {
       // 清除本地快取
@@ -329,14 +350,16 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
       // 重新從後端獲取歌詞（後端會自動搜尋 YouTube CC, NetEase, LRCLIB, Genius）
       const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel);
+      if (!isCurrentOperation()) return;
 
       if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         // 更新本地快取
         await lyricsCacheService.set(track.videoId, lyrics);
+        if (!isCurrentOperation()) return;
         // 更新 Redux
         dispatch(setCurrentLyrics(lyrics));
-        // 重置時間偏移
-        dispatch(resetTimeOffset());
+        // Only this confirmed song may reset its offset.
+        dispatch(setTrackTimeOffset({ videoId: track.videoId, timeOffset: 0 }));
         // 廣播來源切換（reload = 重置來源）+ 偏移重置
         emitSourceUpdate(track.videoId, 'auto', null);
         emitOffsetUpdate(track.videoId, 0);
@@ -348,9 +371,11 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
 
       setSearchOpen(false);
     } catch (error) {
+      if (!isCurrentOperation()) return;
       setSearchError('重新載入歌詞失敗，請稍後重試。');
       console.error('Reload lyrics failed:', error);
     } finally {
+      if (!isCurrentOperation()) return;
       setIsReloadingLyrics(false);
     }
   };
@@ -359,6 +384,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const handleSearch = async () => {
     if (isSearching) return;
     if (!searchQuery.trim()) return;
+    const isCurrentOperation = beginLyricsOperation();
     setSearchError('');
     setHasSearched(true);
     if (!searchQuery.trim()) return;
@@ -367,23 +393,28 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
     setSearchResults([]); // 清空舊結果
     try {
       const results = await apiService.searchLyrics(searchQuery, searchSource);
+      if (!isCurrentOperation()) return;
       setSearchResults(results);
     } catch (error) {
+      if (!isCurrentOperation()) return;
       setSearchError('暫時無法搜尋歌詞，請稍後重試。');
       console.error('Search lyrics failed:', error);
     } finally {
+      if (!isCurrentOperation()) return;
       setIsSearching(false);
     }
   };
 
   // 選擇歌詞
   const handleSelectLyrics = async (result: LyricsSearchResult) => {
+    const isCurrentOperation = beginLyricsOperation();
     setIsApplying(true);
     try {
       // 根據來源使用不同的 API
       const lyrics = searchSource === 'netease'
         ? await apiService.getLyricsByNeteaseId(track.videoId, result.id)
         : await apiService.getLyricsByLRCLIBId(track.videoId, result.id);
+      if (!isCurrentOperation()) return;
 
       if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
         // 儲存選擇（同步到後端和本地）
@@ -398,6 +429,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         }
         // 更新本地快取
         await lyricsCacheService.set(track.videoId, lyrics);
+        if (!isCurrentOperation()) return;
         // 更新 Redux
         dispatch(setCurrentLyrics(lyrics));
         // 廣播來源切換給其他裝置
@@ -407,9 +439,11 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
         console.log(`✅ 已套用歌詞 (${searchSource}): ${result.trackName} - ${result.artistName} (已同步)`);
       }
     } catch (error) {
+      if (!isCurrentOperation()) return;
       setSearchError('無法套用這份歌詞，請重試或選擇其他結果。');
       console.error('Apply lyrics failed:', error);
     } finally {
+      if (!isCurrentOperation()) return;
       setIsApplying(false);
     }
   };

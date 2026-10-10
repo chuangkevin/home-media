@@ -10,6 +10,7 @@ import type { LyricsLine } from '../../types/lyrics.types';
 import type { Track } from '../../types/track.types';
 import { extractDominantColor } from '../../utils/extractColor';
 import { toTraditional } from '../../utils/chineseConvert';
+import { scaleFontSize } from '../../utils/lyricsTypography';
 import apiService from '../../services/api.service';
 import useAudioAnalyser from '../../hooks/useAudioAnalyser';
 
@@ -51,6 +52,8 @@ interface MorrorLyricsProps {
   translationError?: boolean;
   isTranslating?: boolean;
   onRetryTranslation?: () => void;
+  originalFontScale?: number;
+  translationFontScale?: number;
 }
 
 // Split text into characters for per-char animation
@@ -300,7 +303,7 @@ function AudioVisualizerCanvas({ accentColor, subscribe }: {
   );
 }
 
-export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange, translations = [], translationError = false, isTranslating = false, onRetryTranslation }: MorrorLyricsProps) {
+export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscreenChange, translations = [], translationError = false, isTranslating = false, onRetryTranslation, originalFontScale = 1, translationFontScale = 1 }: MorrorLyricsProps) {
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [accentColor, setAccentColor] = useState(DEFAULT_COLOR);
   const [effect, setEffect] = useState<LyricsEffect>(() => {
@@ -476,7 +479,8 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
       } as any}>
         {/* Previous line */}
         <Typography sx={{
-          fontSize: { xs: '1rem', sm: '1.2rem', md: '1.4rem' },
+          fontSize: { xs: scaleFontSize('1rem', originalFontScale), sm: scaleFontSize('1.2rem', originalFontScale), md: scaleFontSize('1.4rem', originalFontScale) },
+          overflowWrap: 'anywhere',
           color: textColorDim, fontWeight: 300, lineHeight: 1.4, textShadow: textShadowLight,
           minHeight: { xs: '1.5rem', sm: '1.8rem' },
           transition: 'all 0.5s ease',
@@ -487,7 +491,7 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
 
         {/* Current line */}
         <Box key={animKey} sx={{
-          fontSize: 'clamp(1.5rem, 3.5vw, 2.75rem)',
+          fontSize: scaleFontSize('clamp(1.5rem, 3.5vw, 2.75rem)', originalFontScale),
           overflowWrap: 'anywhere',
           fontWeight: 700, lineHeight: 1.3,
           minHeight: { xs: '2.5rem', sm: '3.2rem' },
@@ -504,7 +508,8 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
           {/* 當前行翻譯 */}
           {currentLineIndex >= 0 && translations[currentLineIndex] && (
             <Typography sx={{
-              fontSize: { xs: '1.3rem', sm: '1.5rem', md: '1.7rem' },
+              fontSize: { xs: scaleFontSize('1.3rem', translationFontScale), sm: scaleFontSize('1.5rem', translationFontScale), md: scaleFontSize('1.7rem', translationFontScale) },
+              overflowWrap: 'anywhere',
               color: 'rgba(255,255,255,0.88)',
               fontWeight: 400, fontStyle: 'italic',
               mt: 0.5, lineHeight: 1.3,
@@ -539,7 +544,8 @@ export default function MorrorLyrics({ lines, currentLineIndex, track, onFullscr
 
         {/* Next line */}
         <Typography sx={{
-          fontSize: { xs: '1.1rem', sm: '1.3rem', md: '1.5rem' },
+          fontSize: { xs: scaleFontSize('1.1rem', originalFontScale), sm: scaleFontSize('1.3rem', originalFontScale), md: scaleFontSize('1.5rem', originalFontScale) },
+          overflowWrap: 'anywhere',
           color: textColorMid, fontWeight: 400, lineHeight: 1.4, textShadow: textShadowLight,
           minHeight: { xs: '1.6rem', sm: '2rem' },
           transition: 'all 0.5s ease',
