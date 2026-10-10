@@ -1,0 +1,249 @@
+/* Layout mode is measured in CSS pixels using the same stable visualViewport
+   height as --app-dvh. Never move/remount the audio owner to change layouts. */
+.app-shell .player-dock {
+  min-height: 0;
+}
+.app-shell .audio-player ~ .player-idle {
+  display: none;
+}
+.app-shell[data-layout] .app-header > .MuiContainer-root,
+.app-shell[data-layout] .main-inner {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.app-shell[data-layout] .player-surface {
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+}
+.app-shell[data-layout] .audio-player .MuiIconButton-root {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Short landscape is a horizontal control deck, not a shrunken tablet.
+   Metadata and transport stay side-by-side; seek and all actions stay usable. */
+.app-shell[data-layout='compact-landscape'] .header-inner {
+  min-height: 48px;
+  gap: 8px;
+}
+.app-shell[data-layout='compact-landscape'] .header-inner nav {
+  gap: 4px;
+}
+.app-shell[data-layout='compact-landscape'] .header-inner nav button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.app-shell[data-layout='compact-landscape'] .search-dock {
+  /* Let search scroll away so it never monopolizes a shallow content pane. */
+  position: static;
+  margin-bottom: 8px;
+  padding-bottom: 0;
+}
+.app-shell[data-layout='compact-landscape'] .player-dock {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.app-shell[data-layout='compact-landscape'] .app-header {
+  background-image: linear-gradient(100deg, #ffffff04, transparent);
+}
+.app-shell[data-layout='compact-landscape'] .main-inner {
+  padding-top: 12px;
+  padding-bottom: 16px;
+}
+.app-shell[data-layout='compact-landscape'] .main-inner > h1 {
+  /* Keep the page heading available to assistive technology without spending
+     the scarce landscape height on a second title below the brand header. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.app-shell[data-layout='compact-landscape'] .shelf-heading {
+  margin-bottom: 8px;
+}
+.app-shell[data-layout='compact-landscape'] .shelf-heading h2 {
+  font-size: 14px;
+  line-height: 20px;
+}
+.app-shell[data-layout='compact-landscape'] .personalized-track-card {
+  width: 280px;
+}
+.app-shell[data-layout='compact-landscape'] .personalized-track-card .MuiCardActionArea-root {
+  flex-direction: row;
+  align-items: center;
+  min-height: 64px;
+}
+.app-shell[data-layout='compact-landscape'] .personalized-track-card .MuiCardActionArea-root > div:first-child {
+  width: 80px;
+  flex-shrink: 0;
+}
+.app-shell[data-layout='compact-landscape'] .personalized-track-card img {
+  width: 80px;
+  height: 64px;
+}
+.app-shell[data-layout='compact-landscape'] .personalized-track-card .MuiCardContent-root {
+  padding: 8px 10px;
+}
+.app-shell[data-layout='compact-landscape'] .personalized-track-card .MuiCardContent-root > p:first-child {
+  font-size: 13px;
+  line-height: 18px;
+}
+.app-shell[data-layout='compact-landscape'] .personalized-track-card .MuiCardContent-root > p:last-child {
+  margin-top: 4px;
+}
+.app-shell[data-layout='compact-landscape'] .player-surface {
+  grid-template-columns: minmax(180px, 0.85fr) minmax(280px, 1.4fr);
+  gap: 16px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.app-shell[data-layout='compact-landscape'] .player-artwork {
+  width: 44px;
+  height: 44px;
+}
+.app-shell[data-layout='compact-landscape'] .player-track {
+  flex-wrap: wrap;
+  gap: 0;
+}
+.app-shell[data-layout='compact-landscape'] .player-track-button {
+  flex-basis: 100%;
+  gap: 8px;
+  padding: 0;
+  min-height: 44px;
+}
+.app-shell[data-layout='compact-landscape'] .player-seek {
+  min-height: 44px;
+}
+.app-shell[data-layout='compact-landscape'] .player-control-row {
+  gap: 0;
+}
+.app-shell[data-layout='compact-landscape'] .mobile-navigation .MuiBottomNavigation-root {
+  height: 48px;
+}
+.app-shell[data-layout='compact-landscape'] .mobile-navigation .MuiBottomNavigationAction-root {
+  flex-direction: row;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 12px;
+}
+.app-shell[data-layout='compact-landscape'] .mobile-navigation .MuiBottomNavigationAction-label {
+  font-size: 12px;
+}
+.app-shell[data-layout='compact-landscape'] .home-recommendations h2 {
+  font-size: 14px;
+}
+
+/* Wide landscape: a calm browsing canvas with a dedicated listening pane.
+   Both panes scroll independently; the header and navigation never get clipped. */
+.app-shell[data-layout='wide-landscape'] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 23vw, 400px);
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 24px;
+  padding-right: max(24px, env(safe-area-inset-right, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+}
+.app-shell[data-layout='wide-landscape'] .app-header {
+  grid-column: 1 / -1;
+  margin-right: calc(-1 * max(24px, env(safe-area-inset-right, 0px)));
+  margin-bottom: 24px;
+}
+.app-shell[data-layout='wide-landscape'] .app-header > .MuiContainer-root {
+  max-width: none;
+  padding-left: max(32px, env(safe-area-inset-left, 0px));
+  padding-right: max(32px, env(safe-area-inset-right, 0px));
+}
+.app-shell[data-layout='wide-landscape'] .header-inner {
+  min-height: 72px;
+}
+.app-shell[data-layout='wide-landscape'] .app-main {
+  grid-column: 1;
+  grid-row: 2;
+}
+.app-shell[data-layout='wide-landscape'] .main-inner {
+  max-width: none;
+  padding: 0 8px 24px max(32px, env(safe-area-inset-left, 0px));
+}
+.app-shell[data-layout='wide-landscape'] .player-dock {
+  grid-column: 2;
+  grid-row: 2;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #ffffff14;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #ffffff06, transparent 65%);
+  scrollbar-width: thin;
+}
+.app-shell[data-layout='wide-landscape'] .audio-player {
+  border-top: 0;
+  background: transparent;
+  overflow: visible;
+}
+.app-shell[data-layout='wide-landscape'] .player-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px;
+  align-items: stretch;
+}
+.app-shell[data-layout='wide-landscape'] .player-track {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.app-shell[data-layout='wide-landscape'] .player-track-button {
+  flex-basis: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  padding: 0 0 8px;
+}
+.app-shell[data-layout='wide-landscape'] .player-artwork {
+  width: 100%;
+  height: auto;
+  max-height: 180px;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px #00000035;
+}
+.app-shell[data-layout='wide-landscape'] .player-track-copy > .MuiTypography-root {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 18px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.app-shell[data-layout='wide-landscape'] .player-controls {
+  border-top: 1px solid #ffffff12;
+  padding-top: 12px;
+}
+.app-shell[data-layout='wide-landscape'] .home-channel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+  gap: 0 24px;
+  align-items: start;
+}
+.app-shell[data-layout='wide-landscape'] .home-channel-grid > div {
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .app-shell[data-layout='portrait'] .app-header > .MuiContainer-root,
+  .app-shell[data-layout='standard'] .app-header > .MuiContainer-root,
+  .app-shell[data-layout='portrait'] .main-inner,
+  .app-shell[data-layout='standard'] .main-inner {
+    padding-left: max(32px, env(safe-area-inset-left, 0px));
+    padding-right: max(32px, env(safe-area-inset-right, 0px));
+  }
+}
+@media (min-width: 1024px) {
+  .app-shell:not([data-layout='wide-landscape']) .player-dock {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}

@@ -243,7 +243,7 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
   }
 
   return (
-    <Box sx={{ width: '100%', minWidth: 0 }}>
+    <Box className="home-recommendations" sx={{ width: '100%', minWidth: 0 }}>
       <PersonalizedSection onPlay={handlePlay} />
       <Box
         sx={{
@@ -308,20 +308,22 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
         </Alert>
       )}
 
-      {visibleRecommendations.map((channel, index) => (
-        <div
-          key={`${channel.channelName}-${index}`}
-          ref={index === visibleRecommendations.length - 1 ? lastChannelRef : null}
-        >
-          <ChannelSection
-            channel={channel}
-            onPlay={handlePlay}
-            onHideChannel={handleHideChannel}
-            cacheStatus={cacheStatus}
-            onChannelSearch={onSearch}
-          />
-        </div>
-      ))}
+      <Box className="home-channel-grid" data-testid="home-channel-grid">
+        {visibleRecommendations.map((channel, index) => (
+          <div
+            key={`${channel.channelName}-${index}`}
+            ref={index === visibleRecommendations.length - 1 ? lastChannelRef : null}
+          >
+            <ChannelSection
+              channel={channel}
+              onPlay={handlePlay}
+              onHideChannel={handleHideChannel}
+              cacheStatus={cacheStatus}
+              onChannelSearch={onSearch}
+            />
+          </div>
+        ))}
+      </Box>
 
       {visibleRecommendations.length === 0 && !loading && !error && (
         <Box

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSelector } from 'react-redux'
-import { Box, IconButton, Slider, Typography } from '@mui/material'
+import { Box, IconButton, Popover, Slider, Typography } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import PauseIcon from '@mui/icons-material/Pause'
 import SkipNextIcon from '@mui/icons-material/SkipNext'
@@ -29,6 +29,7 @@ export default function PlayerControls({
 }: PlayerControlsProps) {
   const [isSeeking, setIsSeeking] = useState(false)
   const [seekValue, setSeekValue] = useState(0)
+  const [volumeAnchor, setVolumeAnchor] = useState<HTMLElement | null>(null)
   const { isPlaying, currentTime, duration, volume, playlist, currentIndex } = useSelector(
     (state: RootState) => state.player
   )
@@ -55,6 +56,7 @@ export default function PlayerControls({
     <Box
       role="group"
       aria-label="播放控制"
+      className="player-transport"
       sx={{ display: 'flex', alignItems: 'center', gap: compact ? 0 : 1, flexShrink: 0 }}
     >
       <IconButton
@@ -99,6 +101,7 @@ export default function PlayerControls({
     <Box
       role="group"
       aria-label="音量與投射"
+      className="player-sound"
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -109,10 +112,14 @@ export default function PlayerControls({
       }}
     >
       <IconButton
-        aria-label={muteLabel}
+        aria-label={compact ? '音量設定' : muteLabel}
+        aria-haspopup={compact ? 'dialog' : undefined}
+        aria-expanded={compact ? Boolean(volumeAnchor) : undefined}
         aria-pressed={volume === 0}
-        title={muteLabel}
-        onClick={() => handleVolume(volume > 0 ? 0 : 0.7)}
+        title={compact ? '音量設定' : muteLabel}
+        onClick={(event) =>
+          compact ? setVolumeAnchor(event.currentTarget) : handleVolume(volume > 0 ? 0 : 0.7)
+        }
       >
         <VolumeIcon />
       </IconButton>
@@ -133,8 +140,15 @@ export default function PlayerControls({
   )
 
   return (
-    <Box sx={{ width: '100%', minWidth: 0 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 44, px: 0.5 }}>
+    <Box
+      className="player-controls"
+      data-testid="player-controls"
+      sx={{ width: '100%', minWidth: 0 }}
+    >
+      <Box
+        className="player-seek"
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 44, px: 0.5 }}
+      >
         <Typography
           component="span"
           variant="caption"
@@ -169,6 +183,7 @@ export default function PlayerControls({
         </Typography>
       </Box>
       <Box
+        className="player-control-row"
         sx={{
           display: 'flex',
           flexDirection: compact ? 'row' : 'column',
@@ -182,6 +197,33 @@ export default function PlayerControls({
         {transport}
         {soundControls}
       </Box>
+      {compact && (
+        <Popover
+          open={Boolean(volumeAnchor)}
+          anchorEl={volumeAnchor}
+          onClose={() => setVolumeAnchor(null)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        >
+          <Box role="dialog" aria-label="音量設定" sx={{ p: 2, width: 240 }}>
+            <Typography variant="subtitle2">音量 · {Math.round(volume * 100)}%</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+              <IconButton aria-label={muteLabel} onClick={() => handleVolume(volume > 0 ? 0 : 0.7)}>
+                <VolumeIcon />
+              </IconButton>
+              <Slider
+                aria-label="音量"
+                value={volume}
+                min={0}
+                max={1}
+                step={0.01}
+                getAriaValueText={(value) => `${Math.round(value * 100)}%`}
+                onChange={(_event, value) => handleVolume(value as number)}
+              />
+            </Box>
+          </Box>
+        </Popover>
+      )}
     </Box>
   )
 }

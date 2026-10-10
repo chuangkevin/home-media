@@ -132,8 +132,9 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
     const limit = canExpand && expanded[title] ? 20 : collapsedLimit
     const visibleItems = items.slice(0, limit)
     return (
-      <Box component="section" aria-label={title} sx={{ minWidth: 0 }}>
+      <Box component="section" className="personalized-shelf" aria-label={title} sx={{ minWidth: 0 }}>
         <Box
+          className="shelf-heading"
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -161,6 +162,7 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
         <Box sx={homeMediaShelfSx}>
           {visibleItems.map((item) => (
             <Card
+              className="personalized-track-card"
               key={item.videoId}
               sx={{
                 ...homeMediaCardSx,

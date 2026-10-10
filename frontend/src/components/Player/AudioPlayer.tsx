@@ -1989,6 +1989,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
   return (
     <>{audioElements}<Card
+      className={embedded ? 'embedded-player' : 'audio-player'}
+      data-testid={embedded ? 'embedded-player' : 'audio-player'}
       sx={{
         ...(!embedded && {
           flexShrink: 0, // 不被壓縮
@@ -2030,14 +2032,14 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
           </Box>
         </CardContent>
       ) : (
-        <CardContent sx={{ py: 1, px: { xs: 1.5, sm: 3 }, '&:last-child': { pb: 1 }, width: '100%', maxWidth: 1440, mx: 'auto',
+        <CardContent className="player-surface" sx={{ py: 1, px: { xs: 1.5, sm: 3 }, '&:last-child': { pb: 1 }, width: '100%', maxWidth: 1440, mx: 'auto',
           display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(280px, 1fr) minmax(320px, 1.25fr)' }, gap: { xs: 0.5, lg: 4 }, alignItems: 'center' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-            <ButtonBase onClick={onOpenLyrics} aria-label={`展開播放器：${displayTrack.title}`} title={displayTrack.title}
+          <Box className="player-track" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+            <ButtonBase className="player-track-button" onClick={onOpenLyrics} aria-label={`展開播放器：${displayTrack.title}`} title={displayTrack.title}
               sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flex: 1, minWidth: 0, textAlign: 'left', borderRadius: 1, justifyContent: 'flex-start', py: 0.5 }}>
-              <CardMedia component="img" image={displayTrack.thumbnail} alt=""
+              <CardMedia className="player-artwork" component="img" image={displayTrack.thumbnail} alt=""
                 sx={{ width: { xs: 44, sm: 52 }, height: { xs: 44, sm: 52 }, borderRadius: 1, flexShrink: 0, objectFit: 'cover' }} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box className="player-track-copy" sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="body2" noWrap sx={{ fontWeight: 650, fontSize: '0.875rem', lineHeight: 1.5 }}>{displayTrack.title}</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                   <Typography variant="caption" color="text.secondary" noWrap sx={{ minWidth: 0, fontSize: '0.75rem' }}>{displayTrack.channel}</Typography>

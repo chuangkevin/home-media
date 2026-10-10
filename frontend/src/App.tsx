@@ -58,6 +58,8 @@ import { useSocketConnection } from './hooks/useSocketConnection'
 import { useRadioSync } from './hooks/useRadioSync'
 import { version } from '../package.json'
 import { getAppViewportHeight } from './utils/appViewport'
+import { getResponsiveLayout, type AppLayout } from './utils/responsiveLayout'
+import './responsiveLayout.css'
 
 const VideoPlayer = lazy(() => import('./components/Player/VideoPlayer'))
 const FullscreenLyrics = lazy(() => import('./components/Player/FullscreenLyrics'))
@@ -185,6 +187,7 @@ function BottomNav({
       component="nav"
       aria-label="主要導覽"
       square
+      className="mobile-navigation"
       sx={{
         flexShrink: 0,
         borderTop: 1,
@@ -248,6 +251,12 @@ function AppContent() {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
+  const [responsiveLayout, setResponsiveLayout] = useState<AppLayout>(() =>
+    getResponsiveLayout(window.innerWidth, window.innerHeight)
+  )
+  // Short landscape has room for a horizontal header navigation, but not
+  // a second fixed navigation row competing with the content for height.
+  const headerNavigation = isDesktop || responsiveLayout === 'compact-landscape'
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const { currentTrack, displayMode, playlist } = useSelector(
     (state: RootState) => ({
@@ -391,6 +400,9 @@ function AppContent() {
       })
       if (stableHeight === null) return
       document.documentElement.style.setProperty('--app-dvh', `${stableHeight}px`)
+      setResponsiveLayout(
+        getResponsiveLayout(document.documentElement.clientWidth || window.innerWidth, stableHeight)
+      )
     }
 
     const clearPendingTimers = () => {
@@ -532,6 +544,9 @@ function AppContent() {
 
   return (
     <Box
+      className="app-shell"
+      data-layout={responsiveLayout}
+      data-testid="app-layout"
       sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -560,6 +575,7 @@ function AppContent() {
       </Box>
       <Box
         component="header"
+        className="app-header"
         sx={{
           flexShrink: 0,
           bgcolor: 'background.paper',
@@ -570,6 +586,7 @@ function AppContent() {
       >
         <Container maxWidth={false} sx={{ maxWidth: 1280, px: { xs: 2, md: 4 } }}>
           <Box
+            className="header-inner"
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -608,7 +625,7 @@ function AppContent() {
                 {siteTitle}
               </Typography>
             </Box>
-            {isDesktop && <BottomNav desktop scrollToTop={scrollToTop} />}
+            {headerNavigation && <BottomNav desktop scrollToTop={scrollToTop} />}
             <RadioButton />
           </Box>
         </Container>
@@ -617,6 +634,7 @@ function AppContent() {
       <Box
         component="main"
         id="main-content"
+        className="app-main"
         tabIndex={-1}
         ref={scrollContainerRef}
         sx={{
@@ -630,6 +648,7 @@ function AppContent() {
       >
         <Container
           maxWidth={false}
+          className="main-inner"
           sx={{ maxWidth: 1280, px: { xs: 2, md: 4 }, py: { xs: 2, md: 3 } }}
         >
           <RadioIndicator />
@@ -643,8 +662,10 @@ function AppContent() {
                 {isHome ? '今天，想聽什麼？' : '搜尋音樂'}
               </Typography>
               <Box
+                className="search-dock"
                 sx={{
                   position: 'sticky',
+                  // The dock stays within the scrolling content, not over the player.
                   top: 0,
                   zIndex: 5,
                   bgcolor: 'background.default',
@@ -714,8 +735,23 @@ function AppContent() {
         </Container>
       </Box>
 
-      <AudioPlayer onOpenLyrics={openLyrics} />
-      {!isDesktop && <BottomNav scrollToTop={scrollToTop} />}
+      <Box className="player-dock" data-testid="player-dock" sx={{ flexShrink: 0, minWidth: 0 }}>
+        <AudioPlayer onOpenLyrics={openLyrics} />
+        {!currentTrack && responsiveLayout === 'wide-landscape' && (
+          <Box className="player-idle" sx={{ p: 3, color: 'text.secondary' }}>
+            <Typography variant="overline" sx={{ letterSpacing: '0.15em' }}>
+              你的聆聽空間
+            </Typography>
+            <Typography variant="h5" color="text.primary" sx={{ mt: 2, mb: 1 }}>
+              從一首歌開始
+            </Typography>
+            <Typography variant="body2" sx={{ lineHeight: 1.8 }}>
+              選擇推薦歌曲，或搜尋喜歡的藝人。播放控制會留在這裡，陪你繼續探索。
+            </Typography>
+          </Box>
+        )}
+      </Box>
+      {!headerNavigation && <BottomNav scrollToTop={scrollToTop} />}
       {currentTrack && hasOpenedLyrics && (
         <LazyContentBoundary
           label="歌詞畫面"
