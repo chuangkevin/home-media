@@ -57,6 +57,7 @@ import type { Track } from './types/track.types'
 import { useSocketConnection } from './hooks/useSocketConnection'
 import { useRadioSync } from './hooks/useRadioSync'
 import { version } from '../package.json'
+import { getAppViewportHeight } from './utils/appViewport'
 
 const VideoPlayer = lazy(() => import('./components/Player/VideoPlayer'))
 const FullscreenLyrics = lazy(() => import('./components/Player/FullscreenLyrics'))
@@ -373,10 +374,6 @@ function AppContent() {
     const pendingTimers = new Set<number>()
 
     const applyViewportHeight = () => {
-      const vvHeight = window.visualViewport?.height ?? 0
-      const fullHeight = window.innerHeight
-      const clientHeight = document.documentElement.clientHeight
-      const stableHeight = Math.max(vvHeight, fullHeight, clientHeight)
       const activeElement = document.activeElement as HTMLElement | null
       const isEditableFocused =
         Boolean(activeElement) &&
@@ -385,7 +382,14 @@ function AppContent() {
           activeElement?.isContentEditable)
       // 鍵盤彈出時 visualViewport.height 會大幅縮小，此時不更新高度
       // 避免整個佈局被壓縮、播放器跑位
-      if (isEditableFocused && vvHeight > 0 && fullHeight - vvHeight > 100) return
+      const stableHeight = getAppViewportHeight({
+        innerHeight: window.innerHeight,
+        clientHeight: document.documentElement.clientHeight,
+        visualHeight: window.visualViewport?.height,
+        visualScale: window.visualViewport?.scale,
+        editableFocused: Boolean(isEditableFocused),
+      })
+      if (stableHeight === null) return
       document.documentElement.style.setProperty('--app-dvh', `${stableHeight}px`)
     }
 
