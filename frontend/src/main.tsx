@@ -5,10 +5,10 @@ import { ThemeProvider, createTheme, CssBaseline, alpha } from '@mui/material'
 import App from './App'
 import { store } from './store'
 import apiService from './services/api.service'
+import { APP_FONT_FAMILY } from './utils/appFont'
 
 // A quiet listening room: warm amber, readable surfaces, and familiar controls.
-const bodyFont =
-  '"Outfit", -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", sans-serif'
+const bodyFont = APP_FONT_FAMILY
 
 function createPremiumTheme(mode: 'light' | 'dark') {
   const isDark = mode === 'dark'
@@ -47,7 +47,7 @@ function createPremiumTheme(mode: 'light' | 'dark') {
     typography: {
       fontFamily: bodyFont,
       h1: {
-        fontFamily: '"Cinzel", "PingFang TC", serif',
+        fontFamily: APP_FONT_FAMILY,
         fontWeight: 600,
         letterSpacing: '0.02em',
         lineHeight: 1.2,

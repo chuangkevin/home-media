@@ -10,6 +10,7 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 import { useDispatch, useSelector, shallowEqual } from 'react-redux'
+import { APP_FONT_FAMILY } from './utils/appFont'
 import {
   BrowserRouter as Router,
   Routes,
@@ -615,7 +616,7 @@ function AppContent() {
                 component="span"
                 noWrap
                 sx={{
-                  fontFamily: '\"Cinzel\", \"PingFang TC\", serif',
+                  fontFamily: APP_FONT_FAMILY,
                   fontSize: { xs: 20, sm: 24 },
                   fontWeight: 600,
                   letterSpacing: '0.02em',
