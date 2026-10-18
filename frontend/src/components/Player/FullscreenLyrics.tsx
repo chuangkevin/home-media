@@ -44,6 +44,7 @@ import PlayerControls from './PlayerControls';
 import LyricsTypographySettings from './LyricsTypographySettings';
 import { useLyricsTypography } from '../../hooks/useLyricsTypography';
 import { scaleFontSize } from '../../utils/lyricsTypography';
+import { measureHorizontalViewportSegments } from '../../utils/viewportSegments';
 import { isLyricsTimelinePlausible } from '../../services/lyrics-match-cache';
 import MorrorLyrics from './MorrorLyrics';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -131,10 +132,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const isFullscreenLayout = true;
   const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  // Spanned foldable (Surface Duo class): lyrics stay on the left screen and
+  // the queue on the right screen so nothing crosses the hinge. Measured when
+  // the drawer opens; the --span-* variables come from App.tsx.
+  const [spannedHinge, setSpannedHinge] = useState(false);
   const [lyricsSettingsOpen, setLyricsSettingsOpen] = useState(false);
   useEffect(() => {
     if (open) {
-      setQueueOpen(showQueueSidebar);
+      const spanned = measureHorizontalViewportSegments() !== null;
+      setSpannedHinge(spanned);
+      setQueueOpen(showQueueSidebar || spanned);
       setLyricsSettingsOpen(false);
     }
   }, [open, showQueueSidebar]);
@@ -1815,7 +1822,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           </Box>
         )}
 
-        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <Box sx={{
+          flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative',
+          // Spanned hinge: the lyrics column stops before the fold; in morror
+          // (karaoke) mode the whole column is capped to the left screen.
+          marginRight: spannedHinge ? 'var(--span-column-gap, 24px)' : 0,
+          maxWidth: spannedHinge && isMorrorFullscreen ? 'var(--span-left-width, 100%)' : undefined,
+        }}>
           {!isMorrorFullscreen && (
             <Box sx={{ flexShrink: 0, backgroundColor: 'background.paper', borderBottom: 1, borderColor: 'divider', px: { xs: 1.5, sm: 2.5 }, pb: 1 }}>
               <Box
@@ -1934,11 +1947,18 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
           )}
         </Box>
 
-        {showQueueSidebar && queueOpen && !isMorrorFullscreen && (
-          <Box component="aside" aria-label="待播清單" sx={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0, borderLeft: 1, borderColor: 'divider' }}>
+        {(showQueueSidebar || spannedHinge) && queueOpen && !isMorrorFullscreen && (
+          <Box component="aside" aria-label="待播清單" sx={{
+            width: spannedHinge ? 'calc(100vw - var(--span-left-width, 50vw) - var(--span-column-gap, 24px))' : 320,
+            flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0, borderLeft: 1, borderColor: 'divider',
+          }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
               <Box><Typography fontWeight={700}>待播清單</Typography><Typography variant="caption" color="text.secondary">{playlist.filter(t => t.title && t.title !== '載入中...').length} 首歌曲</Typography></Box>
-              <IconButton aria-label="收起待播清單" onClick={() => setQueueOpen(false)}><CloseIcon /></IconButton>
+              {/* Spanned hinge keeps the queue pinned to the right screen;
+                  closing it would let the lyrics cross the fold again. */}
+              {!spannedHinge && (
+                <IconButton aria-label="收起待播清單" onClick={() => setQueueOpen(false)}><CloseIcon /></IconButton>
+              )}
             </Box>
             <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{renderPlaylist()}</Box>
           </Box>
