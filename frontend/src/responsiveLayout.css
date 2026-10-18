@@ -233,6 +233,22 @@
   min-width: 0;
 }
 
+/* Spanned foldables (Surface Duo class): align the two-pane split with the
+   physical hinge so no text or touch target sits on the fold. The variables
+   and attribute are set in App.tsx only when the browser reports two
+   side-by-side viewport segments; everywhere else the standard grid above
+   stays in effect. */
+html[data-spanned='true'] .app-shell[data-layout='wide-landscape'] {
+  grid-template-columns: var(--span-left-width, minmax(0, 1fr)) minmax(0, 1fr);
+  column-gap: var(--span-column-gap, 24px);
+}
+html[data-spanned='true'] .app-shell[data-layout='wide-landscape'] .app-header > .MuiContainer-root {
+  /* Keep header controls on the left screen; the hinge never sits under a
+     touch target. */
+  width: var(--span-left-width, auto);
+  margin-left: 0;
+}
+
 @media (min-width: 900px) {
   .app-shell[data-layout='portrait'] .app-header > .MuiContainer-root,
   .app-shell[data-layout='standard'] .app-header > .MuiContainer-root,

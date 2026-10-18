@@ -60,6 +60,7 @@ import { useRadioSync } from './hooks/useRadioSync'
 import { version } from '../package.json'
 import { getAppViewportHeight } from './utils/appViewport'
 import { getResponsiveLayout, type AppLayout } from './utils/responsiveLayout'
+import { computeSpannedShell, measureHorizontalViewportSegments } from './utils/viewportSegments'
 import './responsiveLayout.css'
 
 const VideoPlayer = lazy(() => import('./components/Player/VideoPlayer'))
@@ -401,9 +402,26 @@ function AppContent() {
       })
       if (stableHeight === null) return
       document.documentElement.style.setProperty('--app-dvh', `${stableHeight}px`)
-      setResponsiveLayout(
-        getResponsiveLayout(document.documentElement.clientWidth || window.innerWidth, stableHeight)
-      )
+      const layout = getResponsiveLayout(document.documentElement.clientWidth || window.innerWidth, stableHeight)
+      setResponsiveLayout(layout)
+      applySpannedShell()
+    }
+
+    // Spanned foldables (Surface Duo class): align the wide-landscape two-pane
+    // split with the physical hinge. When the browser reports no side-by-side
+    // segments the attribute is removed and the standard grid stays in effect.
+    const applySpannedShell = () => {
+      const segments = measureHorizontalViewportSegments()
+      const shell = segments ? computeSpannedShell(segments) : null
+      if (shell) {
+        document.documentElement.dataset.spanned = 'true'
+        document.documentElement.style.setProperty('--span-left-width', `${shell.leftColumnWidth}px`)
+        document.documentElement.style.setProperty('--span-column-gap', `${shell.columnGap}px`)
+      } else {
+        delete document.documentElement.dataset.spanned
+        document.documentElement.style.removeProperty('--span-left-width')
+        document.documentElement.style.removeProperty('--span-column-gap')
+      }
     }
 
     const clearPendingTimers = () => {
