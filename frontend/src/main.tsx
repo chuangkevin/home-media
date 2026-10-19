@@ -30,7 +30,7 @@ function createPremiumTheme(mode: 'light' | 'dark') {
       },
       background: isDark
         ? { default: '#0D1117', paper: '#151B23' }
-        : { default: '#F5F1E9', paper: '#FFFCF7' },
+        : { default: '#FFFFFF', paper: '#FFFCF7' },
       text: { primary: foreground, secondary: secondaryText },
       divider,
       action: {
