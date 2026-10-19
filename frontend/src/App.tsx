@@ -60,7 +60,7 @@ import { useRadioSync } from './hooks/useRadioSync'
 import { version } from '../package.json'
 import { getAppViewportHeight } from './utils/appViewport'
 import { getResponsiveLayout, type AppLayout } from './utils/responsiveLayout'
-import { computeSpannedShell, measureHorizontalViewportSegments } from './utils/viewportSegments'
+import { detectSpannedHinge } from './utils/viewportSegments'
 import './responsiveLayout.css'
 
 const VideoPlayer = lazy(() => import('./components/Player/VideoPlayer'))
@@ -404,19 +404,20 @@ function AppContent() {
       document.documentElement.style.setProperty('--app-dvh', `${stableHeight}px`)
       const layout = getResponsiveLayout(document.documentElement.clientWidth || window.innerWidth, stableHeight)
       setResponsiveLayout(layout)
-      applySpannedShell()
+      applySpannedShell(stableHeight)
     }
 
-    // Spanned foldables (Surface Duo class): align the wide-landscape two-pane
-    // split with the physical hinge. When the browser reports no side-by-side
-    // segments the attribute is removed and the standard grid stays in effect.
-    const applySpannedShell = () => {
-      const segments = measureHorizontalViewportSegments()
-      const shell = segments ? computeSpannedShell(segments) : null
-      if (shell) {
+    // Spanned foldables (Surface Duo class): align the two-pane split with the
+    // physical hinge. Falls back to a centre split for spanned viewports whose
+    // browser does not expose viewport segments. Without either the attribute
+    // is removed and the standard grid stays in effect.
+    const applySpannedShell = (height: number) => {
+      const width = document.documentElement.clientWidth || window.innerWidth
+      const hinge = detectSpannedHinge(width, height)
+      if (hinge) {
         document.documentElement.dataset.spanned = 'true'
-        document.documentElement.style.setProperty('--span-left-width', `${shell.leftColumnWidth}px`)
-        document.documentElement.style.setProperty('--span-column-gap', `${shell.columnGap}px`)
+        document.documentElement.style.setProperty('--span-left-width', `${hinge.leftWidth}px`)
+        document.documentElement.style.setProperty('--span-column-gap', `${hinge.columnGap}px`)
       } else {
         delete document.documentElement.dataset.spanned
         document.documentElement.style.removeProperty('--span-left-width')

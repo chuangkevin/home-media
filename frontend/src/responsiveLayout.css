@@ -248,6 +248,14 @@ html[data-spanned='true'] .app-shell[data-layout='wide-landscape'] .app-header >
   width: var(--span-left-width, auto);
   margin-left: 0;
 }
+/* Spanned devices: the player always owns the left screen and content the
+   right screen, matching the lyrics view (player left, lyrics right). */
+html[data-spanned='true'] .app-shell[data-layout='wide-landscape'] .player-dock {
+  grid-column: 1;
+}
+html[data-spanned='true'] .app-shell[data-layout='wide-landscape'] .app-main {
+  grid-column: 2;
+}
 
 @media (min-width: 900px) {
   .app-shell[data-layout='portrait'] .app-header > .MuiContainer-root,

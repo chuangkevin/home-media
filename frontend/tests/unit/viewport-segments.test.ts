@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   HINGE_INSET,
   computeSpannedShell,
+  detectSpannedHinge,
   resolveHorizontalViewportSegments,
 } from '../../src/utils/viewportSegments'
 
@@ -64,4 +65,16 @@ test('spanned shell keeps both panes clear of the hinge', () => {
   assert.equal(shell.columnGap, 16 + HINGE_INSET * 2)
   const rightPaneStart = shell.leftColumnWidth + shell.columnGap
   assert.ok(rightPaneStart >= segments.second.left + HINGE_INSET - 0.001)
+})
+
+test('spanned hinge falls back to a centre split for Duo-sized viewports', () => {
+  // No DOM in unit tests, so the env probe reports nothing and the Duo-sized
+  // heuristic decides. Surface Duo 1 spanned landscape with browser chrome.
+  assert.deepEqual(detectSpannedHinge(1392, 750), { leftWidth: 672, columnGap: 48 })
+  // Ordinary desktop, tablet and phone sizes never trigger the fallback.
+  assert.equal(detectSpannedHinge(1920, 1080), null)
+  assert.equal(detectSpannedHinge(1024, 768), null)
+  assert.equal(detectSpannedHinge(390, 844), null)
+  // Same width but too tall (not a landscape span) is rejected.
+  assert.equal(detectSpannedHinge(1400, 1000), null)
 })

@@ -62,3 +62,34 @@ export function measureHorizontalViewportSegments(): HorizontalViewportSegments 
   const second = readViewportSegment(1, 0)
   return first && second ? resolveHorizontalViewportSegments(first, second) : null
 }
+
+export interface SpannedHinge {
+  leftWidth: number
+  columnGap: number
+}
+
+// Surface Duo 1 spanned landscape in CSS pixels: two ~720px screens with a
+// narrow hinge at the centre. Used as a fallback when the browser does not
+// expose viewport segments; a desktop window in the same range gets the same
+// (still sensible) centre split.
+const DUO_SPANNED_MIN_WIDTH = 1300
+const DUO_SPANNED_MAX_WIDTH = 1450
+const DUO_SPANNED_MIN_HEIGHT = 550
+const DUO_SPANNED_MAX_HEIGHT = 950
+
+export function detectSpannedHinge(width: number, height: number): SpannedHinge | null {
+  const shell = computeSpannedShellSafe(measureHorizontalViewportSegments())
+  if (shell) return { leftWidth: shell.leftColumnWidth, columnGap: shell.columnGap }
+  if (
+    width >= DUO_SPANNED_MIN_WIDTH && width <= DUO_SPANNED_MAX_WIDTH &&
+    height >= DUO_SPANNED_MIN_HEIGHT && height <= DUO_SPANNED_MAX_HEIGHT &&
+    width / height >= 1.45
+  ) {
+    return { leftWidth: Math.round(width / 2) - 24, columnGap: 48 }
+  }
+  return null
+}
+
+function computeSpannedShellSafe(segments: HorizontalViewportSegments | null) {
+  return segments ? computeSpannedShell(segments) : null
+}
