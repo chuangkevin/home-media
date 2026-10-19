@@ -78,6 +78,11 @@ const DUO_SPANNED_MIN_HEIGHT = 550
 const DUO_SPANNED_MAX_HEIGHT = 950
 
 export function detectSpannedHinge(width: number, height: number): SpannedHinge | null {
+  // Duo simulator support: the local duo-simulator page passes ?duoSim=<mode>.
+  const mode = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('duoSim') : null
+  if (mode === 'landscape-span') {
+    return { leftWidth: 672 - HINGE_INSET, columnGap: 48 + HINGE_INSET * 2 }
+  }
   const shell = computeSpannedShellSafe(measureHorizontalViewportSegments())
   if (shell) return { leftWidth: shell.leftColumnWidth, columnGap: shell.columnGap }
   if (
