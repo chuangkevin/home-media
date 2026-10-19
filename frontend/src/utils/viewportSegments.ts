@@ -58,6 +58,16 @@ function readViewportSegment(column: number, row: number): ViewportSegment | nul
 }
 
 export function measureHorizontalViewportSegments(): HorizontalViewportSegments | null {
+  // Edge ≥97 on spanned foldables publishes window.visualViewport.segments —
+  // the official JS twin of the CSS env() probe.
+  if (typeof window !== 'undefined') {
+    const segments = (window.visualViewport as (VisualViewport & { segments?: { left: number; top: number; width: number; height: number }[] }) | null | undefined)?.segments
+    if (Array.isArray(segments) && segments.length === 2) {
+      const sorted = segments.map(s => ({ left: s.left, top: s.top, width: s.width, height: s.height }))
+        .sort((a, b) => a.top - b.top || a.left - b.left)
+      return resolveHorizontalViewportSegments(sorted[0], sorted[1])
+    }
+  }
   const first = readViewportSegment(0, 0)
   const second = readViewportSegment(1, 0)
   return first && second ? resolveHorizontalViewportSegments(first, second) : null
