@@ -77,7 +77,6 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const dispatch = useDispatch<AppDispatch>();
   const { settings: lyricsTypography, changeSettings: changeLyricsTypography } = useLyricsTypography();
   const [typographyOpen, setTypographyOpen] = useState(false);
-  const isLandscape = useMediaQuery('(orientation: landscape) and (min-width: 480px) and (min-height: 360px)');
   const isUltrawide = useMediaQuery('(min-width: 1500px) and (orientation: landscape)');
   const isDesktop = useMediaQuery('(min-width: 768px) and (pointer: fine)'); // 滑鼠裝置
   const showLandscapeSidePanel = useMediaQuery('(min-width: 1024px) and (min-height: 560px)');
@@ -146,7 +145,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
   }, [open, showQueueSidebar]);
 
-  // landscape 里 main lyrics sizing kept responsive; compact toggle only affects
+  // 橫向裝置自動全螢幕佈局；緊湊切換僅影響浮動字幕字級。; compact toggle only affects
   // the floating video caption and the toggle itself.
 
   // 歌詞翻譯
