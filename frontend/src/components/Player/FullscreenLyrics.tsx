@@ -19,6 +19,8 @@ import LyricsIcon from '@mui/icons-material/Lyrics';
 import OndemandVideoIcon from '@mui/icons-material/OndemandVideo';
 import AlbumIcon from '@mui/icons-material/Album';
 import ClosedCaptionIcon from '@mui/icons-material/ClosedCaption';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import QueueMusicIcon from '@mui/icons-material/QueueMusic';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, AppDispatch } from '../../store';
@@ -129,7 +131,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [viewMode, setViewMode] = useState<ViewMode>('lyrics');
   const viewModeRef = useRef(viewMode);
   viewModeRef.current = viewMode;
-  const isFullscreenLayout = true;
+  const [isFullscreenLayout, setIsFullscreenLayout] = useState(true);
   const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   // Spanned foldable (Surface Duo class): force the queue open so the left
@@ -144,8 +146,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
   }, [open, showQueueSidebar]);
 
-  // 橫向自動視為全螢幕佈局
-  const effectiveFullscreen = isFullscreenLayout || isLandscape;
+  // landscape 里 main lyrics sizing kept responsive; compact toggle only affects
+  // the floating video caption and the toggle itself.
 
   // 歌詞翻譯
   const [translationState, setTranslationState] = useState<{ lyrics: typeof currentLyrics; values: string[] }>({ lyrics: null, values: [] });
@@ -1538,7 +1540,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               position: 'absolute',
               left: 12,
               right: 12,
-              bottom: effectiveFullscreen ? 40 : 18,
+              bottom: isFullscreenLayout ? 40 : 18,
               zIndex: 10, // 確保在 IFrame 之上
               pointerEvents: 'none',
               display: 'flex',
@@ -1564,7 +1566,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   fontWeight: 700,
                   lineHeight: 1.35,
                   textShadow: '0 2px 8px rgba(0,0,0,0.7)',
-                  fontSize: scaleFontSize(effectiveFullscreen ? '1.4rem' : '1.1rem', lyricsTypography.originalScale),
+                  fontSize: scaleFontSize(isFullscreenLayout ? '1.4rem' : '1.1rem', lyricsTypography.originalScale),
                   overflowWrap: 'anywhere'
                 }}
               >
@@ -1578,7 +1580,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                     mt: 0.35,
                     lineHeight: 1.35,
                     textShadow: '0 2px 8px rgba(0,0,0,0.7)',
-                    fontSize: scaleFontSize(effectiveFullscreen ? '1.1rem' : '0.9rem', lyricsTypography.translationScale),
+                    fontSize: scaleFontSize(isFullscreenLayout ? '1.1rem' : '0.9rem', lyricsTypography.translationScale),
                     overflowWrap: 'anywhere'
                   }}
                 >
@@ -1871,6 +1873,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                   <IconButton aria-label={`待播清單（${playlist.length} 首）`} aria-expanded={queueOpen}
                     color={queueOpen ? 'primary' : 'default'} onClick={() => setQueueOpen(!queueOpen)}>
                     <QueueMusicIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={isFullscreenLayout ? '退出全螢幕' : '全螢幕歌詞'}>
+                  <IconButton
+                    aria-label={isFullscreenLayout ? '退出全螢幕' : '全螢幕歌詞'}
+                    color={isFullscreenLayout ? 'default' : 'primary'}
+                    onClick={() => setIsFullscreenLayout(!isFullscreenLayout)}>
+                    {isFullscreenLayout ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="收起播放器">
