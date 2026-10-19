@@ -132,15 +132,13 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const isFullscreenLayout = true;
   const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
-  // Spanned foldable (Surface Duo class): the player owns the left screen and
-  // the lyrics the right screen, split clear of the hinge. Measured when the
-  // drawer opens; the --span-* variables come from App.tsx.
-  const [spannedHinge, setSpannedHinge] = useState(false);
+  // Spanned foldable (Surface Duo class): force the queue open so the left
+  // screen keeps the player plus queue. Hinge geometry lives in CSS variables
+  // from App.tsx; the drawer layout no longer depends on detection.
   const [lyricsSettingsOpen, setLyricsSettingsOpen] = useState(false);
   useEffect(() => {
     if (open) {
       const spanned = detectSpannedHinge(window.innerWidth, window.innerHeight) !== null;
-      setSpannedHinge(spanned);
       setQueueOpen(showQueueSidebar || spanned);
       setLyricsSettingsOpen(false);
     }
@@ -1815,7 +1813,9 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       >
         {showLandscapeSidePanel && !isMorrorFullscreen && (
           <Box component="aside" aria-label="目前歌曲與播放控制" sx={{
-            width: spannedHinge ? 'var(--span-left-width, 252px)' : { lg: 252, xl: 288 },
+            // Player always owns the left half (the Duo's left screen when
+            // spanned); the hinge-aware variables tighten it when available.
+            width: 'var(--span-left-width, calc(50% - 24px))',
             minWidth: 240, flexShrink: 0,
             borderRight: 1, borderColor: 'divider', overflow: 'auto',
             display: 'flex', flexDirection: 'column', minHeight: 0,
@@ -1823,7 +1823,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
             <AudioPlayer embedded />
             {/* Spanned hinge: the queue lives under the player on the left
                 screen so the right screen stays dedicated to lyrics. */}
-            {spannedHinge && queueOpen && (
+            {queueOpen && (
               <Box sx={{ flex: 1, minHeight: 220, display: 'flex', flexDirection: 'column', borderTop: 1, borderColor: 'divider' }}>
                 <Box sx={{ px: 2, py: 1.5 }}>
                   <Typography fontWeight={700}>待播清單</Typography>
@@ -1837,9 +1837,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
         <Box sx={{
           flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative',
-          // Spanned hinge: the lyrics column starts clear of the fold, on the
-          // right screen.
-          marginLeft: spannedHinge ? 'var(--span-column-gap, 24px)' : 0,
+          // Lyrics always start clear of the fold on the right screen.
+          marginLeft: 'var(--span-column-gap, 48px)',
         }}>
           {!isMorrorFullscreen && (
             <Box sx={{ flexShrink: 0, backgroundColor: 'background.paper', borderBottom: 1, borderColor: 'divider', px: { xs: 1.5, sm: 2.5 }, pb: 1 }}>
@@ -1952,25 +1951,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
               />
             )}
           </Box>
-          {!showLandscapeSidePanel && !isMorrorFullscreen && (
+        {!showLandscapeSidePanel && !isMorrorFullscreen && (
             <Box sx={{ flexShrink: 0, px: { xs: 2, sm: 3 }, py: 1, borderTop: 1, borderColor: 'divider', backgroundColor: 'background.paper' }}>
               <PlayerControls isCompact />
             </Box>
           )}
         </Box>
-
-        {!spannedHinge && showQueueSidebar && queueOpen && !isMorrorFullscreen && (
-          <Box component="aside" aria-label="待播清單" sx={{
-            width: 320,
-            flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0, borderLeft: 1, borderColor: 'divider',
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-              <Box><Typography fontWeight={700}>待播清單</Typography><Typography variant="caption" color="text.secondary">{playlist.filter(t => t.title && t.title !== '載入中...').length} 首歌曲</Typography></Box>
-              <IconButton aria-label="收起待播清單" onClick={() => setQueueOpen(false)}><CloseIcon /></IconButton>
-            </Box>
-            <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{renderPlaylist()}</Box>
-          </Box>
-        )}
       </Drawer>
 
       <Dialog open={open && typographyOpen} onClose={() => setTypographyOpen(false)} fullWidth maxWidth="sm"
