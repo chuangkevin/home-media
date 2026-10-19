@@ -1008,6 +1008,8 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     const isCurrentOperation = beginLyricsOperation();
     setIsReloadingLyrics(true);
     setIsRefreshingLyricsView(true);
+    // Own signal: not shared with other lyrics flows.
+    const controller = new AbortController();
     try {
       clearLyricsViewState();
       // 清除前端+後端快取，確保重新搜尋
@@ -1016,7 +1018,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       await apiService.clearServerLyricsCache(track.videoId).catch(() => {});
       apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0, lrclibId: null });
 
-      const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel, track.duration);
+      const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel, track.duration, { signal: controller.signal });
       if (!isCurrentOperation()) return;
 
       if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
@@ -1036,6 +1038,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
       setSearchError('重新載入歌詞失敗，請稍後重試。');
       console.error('Reload lyrics failed:', error);
     } finally {
+      controller.abort();
       if (!isCurrentOperation()) return;
       setIsRefreshingLyricsView(false);
       setIsReloadingLyrics(false);

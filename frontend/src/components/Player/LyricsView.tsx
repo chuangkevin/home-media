@@ -340,6 +340,8 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
   const handleReloadOriginalLyrics = async () => {
     const isCurrentOperation = beginLyricsOperation();
     setIsReloadingLyrics(true);
+    // Own signal: this reload must not be killed by (nor kill) other lyrics flows.
+    const controller = new AbortController();
     try {
       // 清除本地快取
       await lyricsCacheService.delete(track.videoId);
@@ -349,7 +351,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       apiService.updateLyricsPreferences(track.videoId, { timeOffset: 0, lrclibId: null });
 
       // 重新從後端獲取歌詞（後端會自動搜尋 YouTube CC, NetEase, LRCLIB, Genius）
-      const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel, track.duration);
+      const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel, track.duration, { signal: controller.signal });
       if (!isCurrentOperation()) return;
 
       if (lyrics && activeTrackVideoIdRef.current === track.videoId) {
@@ -375,6 +377,7 @@ export default function LyricsView({ track, onVisibilityChange }: LyricsViewProp
       setSearchError('重新載入歌詞失敗，請稍後重試。');
       console.error('Reload lyrics failed:', error);
     } finally {
+      controller.abort();
       if (!isCurrentOperation()) return;
       setIsReloadingLyrics(false);
     }

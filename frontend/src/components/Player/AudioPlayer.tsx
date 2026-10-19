@@ -8,8 +8,7 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import PlayerControls from './PlayerControls';
 import { RootState, AppDispatch } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack, setDisplayMode } from '../../store/playerSlice';
-import { setCurrentLyrics, setTrackLyricsStatus } from '../../store/lyricsSlice';
-import apiService from '../../services/api.service';
+import { setCurrentLyrics, setTrackLyricsStatus } from '../../store/lyricsSlice';import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import { AudioLoadError, createPlaybackLoadAttempt, readOptionalCache, waitForAudioReady } from '../../services/playback-load';
 import { handoffAudioToCache } from '../../services/audio-cache-handoff';
@@ -271,7 +270,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
 
 
   const loadLyricsWithPreferences = useCallback(async (
-    track: Track, isCurrent: () => boolean = () => true
+    track: Track, isCurrent: () => boolean = () => true, signal?: AbortSignal
   ): Promise<Lyrics | null> => {
     const cachedLyrics = await lyricsCacheService.get(track.videoId);
     if (!isCurrent()) return null;
@@ -280,7 +279,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     // Do not delete permanent legacy records, but do not treat an ID as proof.
     // The server validates preferences/candidates against title, artist/version
     // and duration; direct ID fetch shortcuts bypassed that matching pipeline.
-    const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel, track.duration);
+    const lyrics = await apiService.getLyrics(track.videoId, track.title, track.channel, track.duration, { signal });
     if (!isCurrent() || !lyrics) return null;
     const matched = withLyricsMatchContext(lyrics, track);
     return canReuseLyricsForTrack(matched, track) ? matched : null;
@@ -296,9 +295,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     const isCurrent = () => !cancelled
       && (reduxStore.getState() as RootState).player.currentTrack?.videoId === videoId;
     dispatch(setTrackLyricsStatus({ videoId, isLoading: true }));
+    // Per-song controller: cleanup aborts only OUR request; other panels or
+    // remote-device sync can no longer cancel this sheet.
+    const controller = new AbortController();
     (async () => {
       try {
-        const lyrics = await loadLyricsWithPreferences(track, isCurrent);
+        const lyrics = await loadLyricsWithPreferences(track, isCurrent, controller.signal);
         if (!isCurrent()) return;
         // Retain source timing. SponsorBlock segments are seek instructions,
         // not evidence that a lyric sheet needs an offset; never cache shifted timing.
@@ -313,7 +315,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
         if (isCurrent()) dispatch(setTrackLyricsStatus({ videoId, isLoading: false, error: '獲取歌詞失敗' }));
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, [currentTrack?.videoId, embedded, dispatch, reduxStore, loadLyricsWithPreferences]);
 
   // 保持 isPlayingRef 同步
