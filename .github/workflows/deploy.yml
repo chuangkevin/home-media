@@ -72,7 +72,7 @@ jobs:
           mkdir -- "$remote_name"
           [[ -d "$remote_name" && ! -L "$remote_name" ]] || exit 1
           REMOTE
-          scp -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+          scp -O -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
             docker-compose.video-cache.yml scripts/persist-video-cache.sh \
             "$DEPLOY_USER@$DEPLOY_SERVER_IP:$remote_stage/"
           deploy_path_b64=$(printf '%s' "$DEPLOY_PATH" | base64 | tr -d '\n')
