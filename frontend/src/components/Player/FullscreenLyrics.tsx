@@ -1982,7 +1982,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         <DialogActions><Button onClick={() => setTypographyOpen(false)} sx={{ minHeight: 44 }}>完成</Button></DialogActions>
       </Dialog>
 
-      <Drawer anchor="bottom" open={open && queueOpen && !showQueueSidebar && !isMorrorFullscreen} onClose={() => setQueueOpen(false)}
+      <Drawer anchor="bottom" open={open && queueOpen && !showLandscapeSidePanel && !isMorrorFullscreen} onClose={() => setQueueOpen(false)}
         PaperProps={{ role: 'dialog', 'aria-modal': true, 'aria-label': '待播清單', sx: {
           maxHeight: '75dvh', borderRadius: '20px 20px 0 0', pb: 'env(safe-area-inset-bottom, 0px)',
           width: '100%', maxWidth: 640, mx: 'auto',
