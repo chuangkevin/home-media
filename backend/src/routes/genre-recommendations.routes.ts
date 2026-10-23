@@ -143,32 +143,32 @@ router.get('/similar/:videoId', async (req: Request, res: Response) => {
         const recPrompt = `I'm listening to "${title}" by "${artist}". Suggest 8 songs by DIFFERENT artists with similar style/genre/mood. Format: one per line, "Artist - Song". No numbering, no quotes.`;
 
         // OpenCode primary
-        const { buildOpenCodeAdapters } = await import('../ai/provider');
-        const { getOpenCodeTextModel } = await import('../ai/opencode-settings');
-        const ocAdapters = buildOpenCodeAdapters();
-        const ocModel = getOpenCodeTextModel();
-        let ocHandled = false;
-        for (const { adapter } of ocAdapters) {
-          budget.check();
-          try {
-            const adapterFn = adapter as unknown as { generateContent: (p: unknown) => Promise<{ text: string }> };
-            const response = await waitWithinBudget(
-              adapterFn.generateContent({ model: ocModel, prompt: recPrompt, maxOutputTokens: 400 }), budget.signal
+        // AI gateway (New API) is the single provider; the selected model comes
+        // from the radio settings page.
+        let aiHandled = false;
+        try {
+          const { chatCompletion, isConfigured: gatewayConfigured, isCoolingDown } = await import('../ai/newapi');
+          if (gatewayConfigured() && !isCoolingDown()) {
+            budget.check();
+            const raw = await waitWithinBudget(
+              chatCompletion([{ role: 'user', content: recPrompt }], { timeoutMs: 12000, maxTokens: 400 }) as Promise<string | null>,
+              budget.signal,
             );
             budget.check();
-            queries = response.text.trim().split('\n')
-              .map((q: string) => q.replace(/^\d+[\.\)]\s*/, '').trim())
-              .filter((q: string) => q.length > 3 && q.length < 80);
-            ocHandled = true;
-            break;
-          } catch (ocErr) {
-            upstreamFailed = true;
-            budget.check();
-            console.warn(`⚠️ [Similar] OpenCode failed: ${ocErr instanceof Error ? ocErr.message.slice(0, 80) : ocErr}`);
+            if (raw) {
+              queries = raw.trim().split('\n')
+                .map((q: string) => q.replace(/^\d+[\.\)]\s*/, '').trim())
+                .filter((q: string) => q.length > 3 && q.length < 80);
+              aiHandled = queries.length > 0;
+            }
           }
+        } catch (aiErr) {
+          upstreamFailed = true;
+          budget.check();
+          console.warn(`⚠️ [Similar] New API failed: ${aiErr instanceof Error ? aiErr.message.slice(0, 80) : aiErr}`);
         }
 
-        if (!ocHandled) {
+        if (!aiHandled) {
           const { getApiKey } = await import('../services/gemini.service');
           const apiKey = getApiKey();
           if (apiKey) {
