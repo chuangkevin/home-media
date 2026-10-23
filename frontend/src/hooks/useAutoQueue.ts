@@ -111,10 +111,17 @@ export function useAutoQueue(enabled = true) {
             console.log(`💡 建議：嘗試播放不同類型的歌曲以獲得更多元的推薦`);
           }
         } else {
+          // Empty result is usually a transient upstream hiccup — allow a
+          // later retry instead of pinning this track as "already loaded".
+          lastLoadedVideoIdRef.current = null;
           console.warn('⚠️ 自動佇列：沒有獲取到推薦歌曲');
         }
       } catch (error) {
         console.error('❌ 自動佇列載入失敗:', error);
+        // Allow a retry for the same track: without this, one transient
+        // backend error (e.g. a deploy restart) disabled auto-queue for the
+        // rest of the song and the queue stayed at a single track.
+        lastLoadedVideoIdRef.current = null;
       } finally {
         isLoadingRef.current = false;
       }

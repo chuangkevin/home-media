@@ -30,7 +30,6 @@ class ApiService {
 
   // 用於取消過時的歌詞請求
 
-  private searchLyricsAbortController: AbortController | null = null;
 
   /**
    * 搜尋 YouTube 音樂
@@ -193,19 +192,20 @@ class ApiService {
   /**
    * 搜尋歌詞（支援多平台：lrclib, netease）
    */
-  async searchLyrics(query: string, source: LyricsSource = 'lrclib'): Promise<LyricsSearchResult[]> {
-    // 取消之前的搜尋請求
-    if (this.searchLyricsAbortController) {
-      this.searchLyricsAbortController.abort();
-    }
-    this.searchLyricsAbortController = new AbortController();
-
+  async searchLyrics(
+    query: string,
+    source: LyricsSource = 'lrclib',
+    options?: { signal?: AbortSignal },
+  ): Promise<LyricsSearchResult[]> {
+    // Each caller owns its cancellation. A shared controller used to let a
+    // second search abort the first, which then resolved to [] and looked
+    // exactly like "no lyrics found".
     try {
       const endpoint = source === 'netease' ? '/lyrics/search/netease' : '/lyrics/search';
       const response = await this.api.get<{ query: string; count: number; results: LyricsSearchResult[] }>(endpoint, {
         params: { q: query },
         timeout: 60000,
-        signal: this.searchLyricsAbortController.signal,
+        signal: options?.signal,
       });
       return response.data.results;
     } catch (error) {
