@@ -1382,7 +1382,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 {toTraditional(line.text)}
               </Typography>
               {/* 翻譯行 */}
-              {translations[index] && translations[index] !== toTraditional(line.text) && (
+              {translations[index] && translations[index] !== toTraditional(line.text) && !/[\u3400-\u9fff]/.test(line.text) && (
                 <Typography
                   sx={{
                     fontSize: { xs: scaleFontSize('0.875rem', lyricsTypography.translationScale), sm: scaleFontSize('1rem', lyricsTypography.translationScale), lg: scaleFontSize('1.125rem', lyricsTypography.translationScale) },

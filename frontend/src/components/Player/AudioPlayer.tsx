@@ -1882,17 +1882,32 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
   }, [embedded]);
 
+  const retryPlaybackError = () => {
+    if (!playbackError) return;
+    const track = playbackError.track;
+    // A failed browser blob must not trap Retry in the same corrupt cache entry.
+    bypassBrowserCacheRef.current = track.videoId;
+    currentVideoIdRef.current = null;
+    setPlaybackError(null);
+    dispatch(setPendingTrack(track));
+    dispatch(setIsPlaying(true));
+  };
+
+  // A deploy restart or a transient 503 should not need a manual tap: retry
+  // once automatically, then leave the notice for the user.
+  const autoRetriedVideoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!playbackError || embedded) return;
+    const videoId = playbackError.track.videoId;
+    if (autoRetriedVideoRef.current === videoId) return;
+    autoRetriedVideoRef.current = videoId;
+    const timer = window.setTimeout(() => { retryPlaybackError(); }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [playbackError, embedded]);
+
   const playbackErrorNotice = playbackError && !embedded ? (
     <Alert severity="error" role="alert" action={
-      <Button color="inherit" onClick={() => {
-        const track = playbackError.track;
-        // A failed browser blob must not trap Retry in the same corrupt cache entry.
-        bypassBrowserCacheRef.current = track.videoId;
-        currentVideoIdRef.current = null;
-        setPlaybackError(null);
-        dispatch(setPendingTrack(track));
-        dispatch(setIsPlaying(true));
-      }}>重試播放</Button>
+      <Button color="inherit" onClick={retryPlaybackError}>重試播放</Button>
     }>
       無法播放「{playbackError.track.title}」。{playbackError.message}
     </Alert>

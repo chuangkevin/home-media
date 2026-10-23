@@ -37,8 +37,6 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
-import AddIcon from '@mui/icons-material/Add'
-import KeyIcon from '@mui/icons-material/Key'
 import BlockIcon from '@mui/icons-material/Block'
 import apiService from '../../services/api.service'
 import audioCacheService, { type CacheListItem } from '../../services/audio-cache.service'
@@ -104,13 +102,6 @@ export default function AdminSettings() {
   const [cacheListError, setCacheListError] = useState(false)
   const [deletingTrack, setDeletingTrack] = useState<string | null>(null)
 
-  // Gemini API Key 管理
-  const [geminiKeys, setGeminiKeys] = useState<Array<{ suffix: string; fromEnv: boolean }>>([])
-  const [geminiConfigured, setGeminiConfigured] = useState(false)
-  const [geminiKeyInput, setGeminiKeyInput] = useState('')
-  const [geminiSaving, setGeminiSaving] = useState(false)
-  const [geminiStatusError, setGeminiStatusError] = useState(false)
-  const [geminiStatusLoaded, setGeminiStatusLoaded] = useState(false)
   const [ocStatusError, setOcStatusError] = useState(false)
   const [ocModelsError, setOcModelsError] = useState(false)
 
@@ -165,18 +156,6 @@ export default function AdminSettings() {
       setMessage({ type: 'error', text: '載入設定失敗' })
     } finally {
       setLoading(false)
-    }
-  }
-
-  const loadGeminiStatus = async () => {
-    try {
-      const data = await apiService.getGeminiStatus()
-      setGeminiConfigured(data.configured)
-      setGeminiKeys(data.keys)
-      setGeminiStatusError(false)
-      setGeminiStatusLoaded(true)
-    } catch {
-      setGeminiStatusError(true)
     }
   }
 
@@ -275,37 +254,8 @@ export default function AdminSettings() {
     }
   }
 
-  const handleAddGeminiKeys = async () => {
-    if (!geminiKeyInput.trim()) return
-    setGeminiSaving(true)
-    try {
-      const data = await apiService.addGeminiKeys(geminiKeyInput)
-      setMessage({ type: 'success', text: `新增 ${data.added} 把 Key（跳過 ${data.skipped} 把）` })
-      setGeminiKeyInput('')
-      loadGeminiStatus()
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.response?.data?.error || '新增失敗' })
-    } finally {
-      setGeminiSaving(false)
-    }
-  }
-
-  const handleRemoveGeminiKey = async (suffix: string) => {
-    setGeminiSaving(true)
-    try {
-      await apiService.removeGeminiKey(suffix)
-      setMessage({ type: 'success', text: '金鑰已移除' })
-      await loadGeminiStatus()
-    } catch {
-      setMessage({ type: 'error', text: '移除失敗' })
-    } finally {
-      setGeminiSaving(false)
-    }
-  }
-
   useEffect(() => {
     loadSettings()
-    loadGeminiStatus()
     loadNewapi()
     loadOpenCode()
     loadOpenCodeModels()
@@ -1006,102 +956,8 @@ export default function AdminSettings() {
         hidden={activeTab !== 3}
       >
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          管理歌詞辨識與 AI 服務。一般播放不需要在這裡調整設定。
+          AI 服務統一走 New API 閘道；一般播放不需要在這裡調整設定。
         </Typography>
-
-        {/* Gemini AI 歌詞提取 */}
-        <Card sx={{ mt: 3 }}>
-          <CardContent>
-            <Typography
-              variant="h6"
-              component="h3"
-              gutterBottom
-              sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-            >
-              <SmartToyIcon /> Gemini AI 歌詞提取
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              使用已設定的 AI 服務整理歌名與藝人，協助搜尋歌詞。
-              {geminiStatusError
-                ? ' 目前無法確認設定狀態。'
-                : !geminiStatusLoaded
-                  ? ' 正在讀取設定…'
-                  : geminiConfigured
-                    ? ` 已設定 ${geminiKeys.length} 把 Key。`
-                    : ' 尚未設定，將使用基本歌名辨識。'}
-            </Typography>
-
-            {geminiStatusError && (
-              <Alert
-                severity="warning"
-                sx={{ mb: 2 }}
-                action={
-                  <Button color="inherit" onClick={loadGeminiStatus}>
-                    重試
-                  </Button>
-                }
-              >
-                金鑰狀態載入失敗
-              </Alert>
-            )}
-            {geminiKeys.length > 0 && (
-              <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {geminiKeys.map((k) => (
-                  <Box
-                    key={k.suffix}
-                    sx={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      px: 1.5,
-                      py: 0.5,
-                      bgcolor: 'action.hover',
-                      borderRadius: 1,
-                    }}
-                  >
-                    <KeyIcon sx={{ fontSize: 16, mr: 0.5 }} />
-                    <Typography variant="body2" sx={{ mr: 0.5, fontFamily: 'monospace' }}>
-                      ...{k.suffix} {k.fromEnv ? '(env)' : ''}
-                    </Typography>
-                    {!k.fromEnv && (
-                      <IconButton
-                        aria-label={`移除尾碼 ${k.suffix} 的金鑰`}
-                        size="small"
-                        onClick={() => handleRemoveGeminiKey(k.suffix)}
-                        disabled={geminiStatusError || geminiSaving}
-                      >
-                        <DeleteIcon sx={{ fontSize: 14 }} />
-                      </IconButton>
-                    )}
-                  </Box>
-                ))}
-              </Box>
-            )}
-
-            <TextField
-              multiline
-              minRows={2}
-              maxRows={6}
-              fullWidth
-              label="API Key"
-              helperText="每行一個，可一次新增多個金鑰。"
-              placeholder={'AIzaSy...\nAIzaSy...'}
-              value={geminiKeyInput}
-              onChange={(e) => setGeminiKeyInput(e.target.value)}
-              sx={{ mb: 1.5 }}
-            />
-            <Button
-              variant="contained"
-              startIcon={geminiSaving ? <CircularProgress size={20} /> : <AddIcon />}
-              onClick={handleAddGeminiKeys}
-              disabled={
-                geminiSaving || geminiStatusError || !geminiStatusLoaded || !geminiKeyInput.trim()
-              }
-              size="small"
-            >
-              {geminiSaving ? '驗證中...' : '新增 API Key'}
-            </Button>
-          </CardContent>
-        </Card>
 
         {/* New API 模型 */}
         <Card sx={{ mt: 3 }}>
