@@ -88,7 +88,7 @@ export async function chatCompletion(
   options.signal?.addEventListener('abort', onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 15000);
   try {
-    const res = await fetch(`${BASE_URL}/chat/completions`, {
+    const request = (useJsonMode: boolean) => fetch(`${BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: headers(),
       signal: controller.signal,
@@ -97,9 +97,15 @@ export async function chatCompletion(
         messages,
         temperature: 0,
         max_tokens: options.maxTokens ?? 800,
-        response_format: { type: 'json_object' },
+        ...(useJsonMode ? { response_format: { type: 'json_object' } } : {}),
       }),
     });
+    let res = await request(true);
+    // Some local models reject JSON mode (structured_output_failed). Retry once
+    // without it; callers already parse JSON out of the raw text.
+    if (!res.ok && res.status !== 429 && res.status !== 503) {
+      res = await request(false);
+    }
     if (res.status === 429 || res.status === 503) {
       blockedUntil = Date.now() + FAILURE_COOLDOWN_MS;
       logger.warn(`[newapi] ${res.status} — pausing AI calls for ${FAILURE_COOLDOWN_MS / 1000}s`);
