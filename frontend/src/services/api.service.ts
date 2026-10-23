@@ -576,6 +576,17 @@ class ApiService {
     await this.api.put(`/settings/${key}`, { value });
   }
 
+  // New API gateway (model selection)
+  async getNewapiStatus(): Promise<{ configured: boolean; coolingDown: boolean; model: string }> {
+    const res = await this.api.get('/settings/newapi');
+    return res.data;
+  }
+
+  async getNewapiModels(): Promise<{ models: string[]; configured: boolean; model: string }> {
+    const res = await this.api.get('/settings/newapi/models');
+    return res.data;
+  }
+
   // Gemini API Key 管理
   async getGeminiStatus(): Promise<{ configured: boolean; keys: Array<{ suffix: string; fromEnv: boolean }> }> {
     const res = await this.api.get('/gemini/status');

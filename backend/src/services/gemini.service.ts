@@ -4,6 +4,7 @@ import { getDatabase } from '../config/database';
 import logger from '../utils/logger';
 import { buildOpenCodeAdapters } from '../ai/provider';
 import { getOpenCodeTextModel } from '../ai/opencode-settings';
+import { chatCompletion as newapiChat, isConfigured as isNewapiConfigured } from '../ai/newapi';
 
 interface ExtractedTrackInfo {
   title: string;
@@ -144,6 +145,24 @@ ${channelName ? `Channel name (hint only): "${channelName}"` : ''}
 Return ONLY valid JSON, no other text:
 {"title": "song title in original language", "artist": "artist name or empty string", "confidence": "high|medium|low"}`;
 
+  // Preferred path: New API gateway with a model selected in settings.
+  if (isNewapiConfigured()) {
+    const raw = await newapiChat([{ role: 'user', content: prompt }], {
+      signal: options.signal, timeoutMs: 15000, maxTokens: 400,
+    });
+    if (raw) {
+      const match = raw.match(/\{[\s\S]*?\}/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[0]) as ExtractedTrackInfo;
+          if (parsed.title) {
+            console.log(`🤖 [newapi] 提取成功: title="${parsed.title}", artist="${parsed.artist || ''}" (原始: "${youtubeTitle}")`);
+            return parsed;
+          }
+        } catch { /* fall through to the legacy pool */ }
+      }
+    }
+  }
   let currentKey = apiKey;
   const maxRetries = getMaxRetries();
 
@@ -306,6 +325,7 @@ export function removeKey(suffix: string): boolean {
 }
 
 export function isConfigured(): boolean {
+  if (isNewapiConfigured()) return true;
   return loadKeys().length > 0;
 }
 

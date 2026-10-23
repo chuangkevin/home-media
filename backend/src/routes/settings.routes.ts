@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../config/database';
+import { getSelectedModel, listModels as listNewapiModels, isConfigured as isNewapiConfigured, isCoolingDown } from '../ai/newapi';
 import {
   getOpenCodeStatus,
   setOpenCodeServers,
@@ -64,6 +65,25 @@ router.get('/opencode/models', async (_req: Request, res: Response): Promise<voi
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ models: [], sourceServerId: null, warning: err.message || 'Query failed' });
+  }
+});
+
+// ── New API gateway (model selection) ─────────────────────────────────────────
+
+router.get('/newapi', (_req: Request, res: Response): void => {
+  res.json({
+    configured: isNewapiConfigured(),
+    coolingDown: isCoolingDown(),
+    model: getSelectedModel(),
+  });
+});
+
+router.get('/newapi/models', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const models = await listNewapiModels();
+    res.json({ models, configured: isNewapiConfigured(), model: getSelectedModel() });
+  } catch (err: any) {
+    res.status(500).json({ models: [], error: err.message || 'Query failed' });
   }
 });
 

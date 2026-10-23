@@ -9,6 +9,10 @@ import {
   Button,
   Switch,
   FormControlLabel,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
   Grid,
   Divider,
   Alert,
@@ -110,6 +114,14 @@ export default function AdminSettings() {
   const [ocStatusError, setOcStatusError] = useState(false)
   const [ocModelsError, setOcModelsError] = useState(false)
 
+  // New API gateway model
+  const [newapiModel, setNewapiModel] = useState('')
+  const [newapiModels, setNewapiModels] = useState<string[]>([])
+  const [newapiConfigured, setNewapiConfigured] = useState(false)
+  const [newapiCooling, setNewapiCooling] = useState(false)
+  const [newapiLoading, setNewapiLoading] = useState(false)
+  const [newapiSaving, setNewapiSaving] = useState(false)
+
   // OpenCode 設定
   type OcVariant = 'default' | 'medium' | 'high' | ''
   interface OcModel {
@@ -165,6 +177,36 @@ export default function AdminSettings() {
       setGeminiStatusLoaded(true)
     } catch {
       setGeminiStatusError(true)
+    }
+  }
+
+  const loadNewapi = async () => {
+    try {
+      const status = await apiService.getNewapiStatus()
+      setNewapiConfigured(status.configured)
+      setNewapiCooling(status.coolingDown)
+      setNewapiModel(status.model)
+      setNewapiLoading(true)
+      const list = await apiService.getNewapiModels()
+      setNewapiModels(list.models)
+    } catch {
+      setNewapiModels([])
+    } finally {
+      setNewapiLoading(false)
+    }
+  }
+
+  const handleSaveNewapiModel = async () => {
+    if (!newapiModel) return
+    setNewapiSaving(true)
+    try {
+      await apiService.updateSetting('ai_model', newapiModel)
+      setMessage({ type: 'success', text: `AI 模型已切換為 ${newapiModel}` })
+      await loadNewapi()
+    } catch {
+      setMessage({ type: 'error', text: 'AI 模型儲存失敗' })
+    } finally {
+      setNewapiSaving(false)
     }
   }
 
@@ -264,6 +306,7 @@ export default function AdminSettings() {
   useEffect(() => {
     loadSettings()
     loadGeminiStatus()
+    loadNewapi()
     loadOpenCode()
     loadOpenCodeModels()
   }, [])
@@ -1057,6 +1100,42 @@ export default function AdminSettings() {
             >
               {geminiSaving ? '驗證中...' : '新增 API Key'}
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* New API 模型 */}
+        <Card sx={{ mt: 3 }}>
+          <CardContent>
+            <Typography variant="h6" component="h3" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <SmartToyIcon /> AI 模型（New API）
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              歌詞辨識、翻譯與推薦都走 New API 閘道；在這裡選擇要使用的模型。
+              {!newapiConfigured && '（伺服器尚未設定 NEWAPI_API_KEY）'}
+              {newapiCooling && '（閘道目前降溫中，稍後自動恢復）'}
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+              <FormControl size="small" sx={{ minWidth: 220, flex: 1 }}>
+                <InputLabel id="newapi-model-label">模型</InputLabel>
+                <Select
+                  labelId="newapi-model-label"
+                  label="模型"
+                  value={newapiModel}
+                  onChange={(e: any) => setNewapiModel(String(e.target.value))}
+                  disabled={newapiLoading || newapiModels.length === 0}
+                >
+                  {(newapiModels.length > 0 ? newapiModels : [newapiModel].filter(Boolean)).map((m) => (
+                    <MenuItem key={m} value={m}>{m}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Button variant="contained" size="small" onClick={handleSaveNewapiModel} disabled={newapiSaving || !newapiModel}>
+                {newapiSaving ? '儲存中…' : '儲存'}
+              </Button>
+              <Button size="small" onClick={loadNewapi} disabled={newapiLoading}>
+                重新整理模型
+              </Button>
+            </Box>
           </CardContent>
         </Card>
 
