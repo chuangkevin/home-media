@@ -52,7 +52,7 @@ RUN mkdir -p /app/data/cache /app/data/db /app/logs
 EXPOSE 3001 3002
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 CMD ["node", "dist/server.js"]

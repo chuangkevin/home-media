@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useSelector } from 'react-redux'
-import { Box, IconButton, Popover, Slider, Typography } from '@mui/material'
+import { useDispatch, useSelector } from 'react-redux'
+import { Box, Button, IconButton, Menu, MenuItem, Popover, Slider, Typography } from '@mui/material'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import PauseIcon from '@mui/icons-material/Pause'
 import SkipNextIcon from '@mui/icons-material/SkipNext'
@@ -8,10 +8,11 @@ import SkipPreviousIcon from '@mui/icons-material/SkipPrevious'
 import VolumeUpIcon from '@mui/icons-material/VolumeUp'
 import VolumeDownIcon from '@mui/icons-material/VolumeDown'
 import VolumeOffIcon from '@mui/icons-material/VolumeOff'
-import { RootState } from '../../store'
+import { RootState, AppDispatch } from '../../store'
 import { formatDuration } from '../../utils/formatTime'
 import { CastButton } from '../Cast'
 import { useCastingControls } from '../../hooks/useCastingControls'
+import { setPlaybackRate } from '../../store/playerSlice'
 
 interface PlayerControlsProps {
   embedded?: boolean
@@ -30,7 +31,9 @@ export default function PlayerControls({
   const [isSeeking, setIsSeeking] = useState(false)
   const [seekValue, setSeekValue] = useState(0)
   const [volumeAnchor, setVolumeAnchor] = useState<HTMLElement | null>(null)
-  const { isPlaying, currentTime, duration, volume, playlist, currentIndex } = useSelector(
+  const [speedAnchor, setSpeedAnchor] = useState<HTMLElement | null>(null)
+  const dispatch = useDispatch<AppDispatch>()
+  const { isPlaying, currentTime, duration, volume, playbackRate, playlist, currentIndex } = useSelector(
     (state: RootState) => state.player
   )
   const { handlePlayPause, handleSeek, handleVolume, handleNext, handlePrevious } =
@@ -41,6 +44,12 @@ export default function PlayerControls({
   const VolumeIcon = volume === 0 ? VolumeOffIcon : volume < 0.5 ? VolumeDownIcon : VolumeUpIcon
   const muteLabel = volume > 0 ? '靜音' : '取消靜音'
   const compact = isCompact && !embedded
+
+  // Long-form listening: jump without grabbing the tiny seek bar on a phone.
+  const skipBy = (seconds: number) => {
+    if (safeDuration <= 0) return
+    handleSeek(Math.max(0, Math.min(safeDuration, currentTime + seconds)))
+  }
 
   const onSeekChange = (_event: Event, value: number | number[]) => {
     setIsSeeking(true)
@@ -59,6 +68,16 @@ export default function PlayerControls({
       className="player-transport"
       sx={{ display: 'flex', alignItems: 'center', gap: compact ? 0 : 1, flexShrink: 0 }}
     >
+      <Button
+        size="small"
+        aria-label="倒退 15 秒"
+        title="倒退 15 秒"
+        onClick={() => skipBy(-15)}
+        disabled={safeDuration === 0}
+        sx={{ minWidth: 44, minHeight: 44, px: 0.5, fontSize: '0.8rem', fontWeight: 700 }}
+      >
+        −15
+      </Button>
       <IconButton
         aria-label={currentTime > 3 ? '從頭播放' : '上一首'}
         title={currentTime > 3 ? '從頭播放' : '上一首'}
@@ -94,6 +113,16 @@ export default function PlayerControls({
       >
         <SkipNextIcon />
       </IconButton>
+      <Button
+        size="small"
+        aria-label="前進 15 秒"
+        title="前進 15 秒"
+        onClick={() => skipBy(15)}
+        disabled={safeDuration === 0}
+        sx={{ minWidth: 44, minHeight: 44, px: 0.5, fontSize: '0.8rem', fontWeight: 700 }}
+      >
+        +15
+      </Button>
     </Box>
   )
 
@@ -135,6 +164,16 @@ export default function PlayerControls({
           sx={{ flex: 1, minWidth: 0 }}
         />
       )}
+      <Button
+        size="small"
+        aria-label={`播放速度 ${playbackRate} 倍`}
+        aria-haspopup="menu"
+        title="播放速度"
+        onClick={(event) => setSpeedAnchor(event.currentTarget)}
+        sx={{ minWidth: 44, minHeight: 44, px: 0.5, fontSize: '0.8rem', fontWeight: 700 }}
+      >
+        {playbackRate}×
+      </Button>
       <CastButton />
     </Box>
   )
@@ -197,6 +236,23 @@ export default function PlayerControls({
         {transport}
         {soundControls}
       </Box>
+      <Menu
+        anchorEl={speedAnchor}
+        open={Boolean(speedAnchor)}
+        onClose={() => setSpeedAnchor(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
+          <MenuItem
+            key={rate}
+            selected={rate === playbackRate}
+            onClick={() => { dispatch(setPlaybackRate(rate)); setSpeedAnchor(null) }}
+          >
+            {rate}×
+          </MenuItem>
+        ))}
+      </Menu>
       {compact && (
         <Popover
           open={Boolean(volumeAnchor)}

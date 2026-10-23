@@ -11,6 +11,7 @@ interface PlayerState {
   currentTime: number;
   duration: number;
   volume: number;
+  playbackRate: number; // 1 = normal; long-form audio (podcasts) can speed up
   queue: Track[];
   repeat: 'none' | 'one' | 'all';
   shuffle: boolean;
@@ -29,6 +30,7 @@ const initialState: PlayerState = {
   currentTime: 0,
   duration: 0,
   volume: 0.7,
+  playbackRate: 1,
   queue: [],
   repeat: 'all', // 預設循環播放，配合自動佇列實現無限播放
   shuffle: false,
@@ -112,6 +114,9 @@ const playerSlice = createSlice({
     },
     setDuration(state, action: PayloadAction<number>) {
       state.duration = action.payload;
+    },
+    setPlaybackRate(state, action: PayloadAction<number>) {
+      state.playbackRate = Math.max(0.5, Math.min(3, action.payload));
     },
     setVolume(state, action: PayloadAction<number>) {
       state.volume = Math.max(0, Math.min(1, action.payload));
@@ -289,6 +294,7 @@ export const {
   setCurrentTime,
   setDuration,
   setVolume,
+  setPlaybackRate,
   setQueue,
   addToQueue,
   removeFromQueue,

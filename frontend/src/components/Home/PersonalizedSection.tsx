@@ -48,6 +48,7 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [retryTick, setRetryTick] = useState(0)
   const dataRef = useRef<PersonalizedData | null>(null)
   const inFlightRef = useRef<Promise<void> | null>(null)
   const restoreThrottleRef = useRef(0)
@@ -55,6 +56,17 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
   useEffect(() => {
     dataRef.current = data
   }, [data])
+
+  // Deploys/restarts make a first load fail; recover on its own instead of
+  // leaving the error card until the user taps 重試.
+  useEffect(() => {
+    if (!error) return
+    const timer = window.setTimeout(() => {
+      setRetryTick((tick) => tick + 1)
+      void fetchDataRef.current?.({ silent: true })
+    }, 15000)
+    return () => window.clearTimeout(timer)
+  }, [error, retryTick])
 
   const fetchData = useCallback(async (options?: { silent?: boolean }) => {
     if (inFlightRef.current) {
@@ -83,6 +95,10 @@ export default function PersonalizedSection({ onPlay }: PersonalizedSectionProps
     inFlightRef.current = request
     return request
   }, [])
+
+  // Stable handle for the background auto-retry timer.
+  const fetchDataRef = useRef<typeof fetchData | null>(null);
+  useEffect(() => { fetchDataRef.current = fetchData }, [fetchData]);
 
   useEffect(() => {
     void fetchData()

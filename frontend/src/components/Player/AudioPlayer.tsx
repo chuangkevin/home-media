@@ -8,7 +8,9 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import PlayerControls from './PlayerControls';
 import { RootState, AppDispatch } from '../../store';
 import { setIsPlaying, setCurrentTime, setDuration, clearSeekTarget, playNext, playPrevious, confirmPendingTrack, cancelPendingTrack, setPendingTrack, setDisplayMode } from '../../store/playerSlice';
-import { setCurrentLyrics, setTrackLyricsStatus } from '../../store/lyricsSlice';import apiService from '../../services/api.service';
+import { setCurrentLyrics, setTrackLyricsStatus } from '../../store/lyricsSlice';
+import MarqueeText from './MarqueeText';
+import { clearResumePosition, getResumePosition, saveResumePosition } from '../../utils/longTrackResume';import apiService from '../../services/api.service';
 import audioCacheService from '../../services/audio-cache.service';
 import { AudioLoadError, createPlaybackLoadAttempt, readOptionalCache, waitForAudioReady } from '../../services/playback-load';
 import { handoffAudioToCache } from '../../services/audio-cache-handoff';
@@ -61,7 +63,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       if (secondaryAudioRef.current === previous) secondaryAudioRef.current = null;
     }
   }, []);
-  const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
+  const { currentTrack, pendingTrack, isLoadingTrack, isPlaying, volume, playbackRate, displayMode, seekTarget, playlist, currentIndex } = useSelector((state: RootState) => state.player);
   const { isHost } = useSelector((state: RootState) => state.radio);
   const favoriteIds = useSelector((state: RootState) => state.favorites.favoriteIds);
   const { isEnabled: continuousMode, sessionId: continuousSessionId } = useSelector((state: RootState) => state.continuousPlayer);
@@ -262,6 +264,8 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
   const [skipToast, setSkipToast] = useState('');
   const skipSegmentsRef = useRef<Array<{ start: number; end: number; category: string }>>([]);
   const lastSkipRef = useRef(0); // 防止重複跳過同一段
+  const resumeAppliedRef = useRef<string | null>(null); // videoId whose saved position was restored
+  const lastResumeSaveRef = useRef(0); // throttle long-track position writes
   const skippedSegmentsRef = useRef<Set<number>>(new Set()); // 已跳過的 segment index
 
   // 播放清單選單狀態
@@ -978,6 +982,12 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     }
   }, [volume, audioOwnerVersion]);
 
+  // 播放速度（長節目/講座用）。套用到目前音源；crossfade 時由 primary/secondary 各自持有。
+  useEffect(() => {
+    if (embedded) return;
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+  }, [playbackRate, audioOwnerVersion, embedded]);
+
   // 當需要 seek 時（所有模式，audio element 是唯一音源）
   useEffect(() => {
     if (embedded) return;
@@ -1195,6 +1205,23 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
       const td = currentTrack?.duration;
       const clampedTime = (td && td > 0 && audio.currentTime > td) ? td : audio.currentTime;
       dispatch(setCurrentTime(clampedTime));
+      // Long programmes: remember the position so a later visit can resume.
+      const resumeId = currentTrack?.videoId;
+      const resumeDur = currentTrack?.duration || audio.duration || 0;
+      if (resumeId && resumeDur > 0 && Date.now() - lastResumeSaveRef.current > 10000) {
+        lastResumeSaveRef.current = Date.now();
+        saveResumePosition(resumeId, clampedTime, resumeDur);
+      }
+      // Restore once per track, after metadata is available.
+      if (resumeId && resumeAppliedRef.current !== resumeId && resumeDur > 0 && !audio.seeking) {
+        resumeAppliedRef.current = resumeId;
+        const saved = getResumePosition(resumeId, resumeDur);
+        if (saved !== null && Math.abs(audio.currentTime - saved) > 5) {
+          console.log(`⏯️ [Resume] ${resumeId} 從 ${saved}s 續播`);
+          audio.currentTime = saved;
+          dispatch(setCurrentTime(saved));
+        }
+      }
       // Record complete when 90% reached (用 YouTube metadata duration)
       const completeDur = currentTrack?.duration || audio.duration;
       // 80% preload: reinforce prefetch of next tracks in case earlier attempt failed
@@ -1352,6 +1379,9 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
     };
 
     const handleEnded = () => {
+      // Completed: no need to resume this long track later.
+      const endedId = currentVideoIdRef.current;
+      if (endedId) clearResumePosition(endedId);
       // If crossfade is active, the outgoing element naturally ended — ignore
       if (crossfade.crossfadeActiveRef.current) return;
 
@@ -1967,7 +1997,7 @@ export default function AudioPlayer({ onOpenLyrics, embedded = false }: AudioPla
               <CardMedia className="player-artwork" component="img" image={displayTrack.thumbnail} alt=""
                 sx={{ width: { xs: 44, sm: 52 }, height: { xs: 44, sm: 52 }, borderRadius: 1, flexShrink: 0, objectFit: 'cover' }} />
               <Box className="player-track-copy" sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="body2" noWrap sx={{ fontWeight: 650, fontSize: '0.875rem', lineHeight: 1.5 }}>{displayTrack.title}</Typography>
+                <MarqueeText sx={{ fontWeight: 650, fontSize: '0.875rem', lineHeight: 1.5, color: 'text.primary' }}>{displayTrack.title}</MarqueeText>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                   <Typography variant="caption" color="text.secondary" noWrap sx={{ minWidth: 0, fontSize: '0.75rem' }}>{displayTrack.channel}</Typography>
                   {!isLoading && !isLoadingTrack && <Box role="img" aria-label={isCached ? '可離線播放' : '串流播放'}

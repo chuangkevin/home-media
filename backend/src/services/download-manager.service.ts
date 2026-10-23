@@ -109,6 +109,31 @@ class DownloadManager {
     this.processLowQueue();
   }
 
+  private lowPriorityPaused = false;
+
+  /**
+   * 使用者開始主動播放時暫停背景預快取，把頻寬與 cache 槽讓給前景串流。
+   * 被取消的低優先級項目會重新排入佇列，前景串流結束後自動恢復。
+   */
+  pauseLowPriority(): void {
+    if (this.lowPriorityPaused) return;
+    this.lowPriorityPaused = true;
+    const jobs = this.lowPriority.slice();
+    this.lowPriority = [];
+    for (const job of jobs) {
+      this.lowQueue.push(job.videoId);
+      job.cancel();
+    }
+    console.log(`⏸️ [DM] Low-priority pre-cache paused (${jobs.length} job(s) requeued)`);
+  }
+
+  resumeLowPriority(): void {
+    if (!this.lowPriorityPaused) return;
+    this.lowPriorityPaused = false;
+    console.log('▶️ [DM] Low-priority pre-cache resumed');
+    this.processLowQueue();
+  }
+
   /**
    * 取消正在進行或排隊的低優先級下載（供串流端點使用，避免同一首歌有兩個 yt-dlp 同時運行）
    */
@@ -155,7 +180,7 @@ class DownloadManager {
   private processLowQueue(): void {
     if (this.highPriority) return; // 高優先級運行中，不啟動低優先級
 
-    while (this.lowPriority.length < MAX_LOW_PRIORITY && this.lowQueue.length > 0 && this.cacheProducerCount() < 4) {
+    while (!this.lowPriorityPaused && this.lowPriority.length < MAX_LOW_PRIORITY && this.lowQueue.length > 0 && this.cacheProducerCount() < 4) {
       const index = this.lowQueue.findIndex(id => !this.retiringJobs.has(id) && !audioStreamOwners.has(id));
       if (index === -1) break;
       const [videoId] = this.lowQueue.splice(index, 1);

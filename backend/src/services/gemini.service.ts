@@ -101,11 +101,16 @@ export function getApiKeyExcluding(failedKey: string): string | null {
 /**
  * 用 Gemini 2.5 Flash 從 YouTube 標題提取歌名和藝人
  */
+let geminiQuotaBlockedUntil = 0;
+const GEMINI_QUOTA_COOLDOWN = 120000;
+
 export async function extractTrackInfo(
   youtubeTitle: string, channelName?: string,
   options: { signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<ExtractedTrackInfo | null> {
   if (options.signal?.aborted) return null;
+  // Fail fast while the shared quota is exhausted (recent 429 storm).
+  if (Date.now() < geminiQuotaBlockedUntil) return null;
   const apiKey = getApiKey();
   if (!apiKey) return null;
 
@@ -195,6 +200,10 @@ Return ONLY valid JSON, no other text:
           console.warn(`⚠️ [Gemini] extractTrackInfo attempt ${attempt + 1} failed: ${msg}, retrying...`);
         }
         continue;
+      }
+      if (is429) {
+        geminiQuotaBlockedUntil = Date.now() + GEMINI_QUOTA_COOLDOWN;
+        console.warn(`⏸️ [Gemini] Quota exhausted — pausing AI calls for ${GEMINI_QUOTA_COOLDOWN / 1000}s`);
       }
       console.error(`❌ [Gemini] extractTrackInfo failed after ${maxRetries + 1} attempts:`, msg);
       return null;

@@ -104,19 +104,32 @@ class LyricsService {
    * 改進版：更好的錯誤追蹤和日誌
    */
   async getLyrics(videoId: string, title: string, artist?: string, duration?: number): Promise<Lyrics | null> {
-    // 整體管線 60s timeout — 避免 LRCLIB+NetEase+Genius+YouTube CC 串聯超時
-    // 前端有 90s AbortController，後端必須在那之前完成
-    const PIPELINE_TIMEOUT = 60000;
+    const metadata = this.expectedMetadata(title, artist, duration);
+    // Start YouTube CC once and share it, so a ready CC result can be returned
+    // immediately instead of waiting behind slower sources.
+    const ytCCPromise = this.fetchYouTubeCaptions(videoId, metadata).catch(() => null);
+    const pipeline = this._getLyricsImpl(videoId, title, artist, duration, ytCCPromise);
+    // Keep the HTTP response snappy: 20s cap. The pipeline keeps running and
+    // saves to cache when it finishes, so the next open is instant.
+    const FAST_TIMEOUT = 20000;
+    const earlyCC = ytCCPromise.then((lyrics) => {
+      if (lyrics && lyrics.lines.length > 0) {
+        this.saveToCache(lyrics);
+        return lyrics;
+      }
+      return new Promise<null>(() => {});
+    });
     return Promise.race([
-      this._getLyricsImpl(videoId, title, artist, duration),
+      pipeline,
+      earlyCC,
       new Promise<null>((resolve) => setTimeout(() => {
-        console.warn(`⏰ [LyricsService] 管線超時 ${PIPELINE_TIMEOUT / 1000}s，回傳 null: ${videoId}`);
+        console.warn(`⏰ [LyricsService] 回應超時 ${FAST_TIMEOUT / 1000}s（管線仍在背景執行並寫入快取）: ${videoId}`);
         resolve(null);
-      }, PIPELINE_TIMEOUT)),
+      }, FAST_TIMEOUT)),
     ]);
   }
 
-  private async _getLyricsImpl(videoId: string, title: string, artist?: string, duration?: number): Promise<Lyrics | null> {
+  private async _getLyricsImpl(videoId: string, title: string, artist?: string, duration?: number, sharedYtCC?: Promise<Lyrics | null> | null): Promise<Lyrics | null> {
     const startTime = Date.now();
     console.log(`🎵 [LyricsService.getLyrics] START: videoId=${videoId}, title="${title}", artist="${artist || 'N/A'}"`);
     logger.info(`[LyricsService] Starting lyrics fetch for: ${videoId}`);
@@ -140,7 +153,7 @@ class LyricsService {
 
       // 2. 同時啟動 YouTube CC（yt-dlp 較慢）作為最後備用
       console.log(`🎵 [LyricsService] Step 2: Starting YouTube CC in background (lowest priority)...`);
-      const ytCCPromise = this.fetchYouTubeCaptions(videoId, this.expectedMetadata(title, artist, duration)).catch(() => null);
+      const ytCCPromise = sharedYtCC ?? this.fetchYouTubeCaptions(videoId, this.expectedMetadata(title, artist, duration)).catch(() => null);
 
       // 2.5 先嘗試使用使用者偏好 ID，但若 metadata 明顯不匹配就清除，避免錯歌詞黏住
       const preferences = this.getPreferences(videoId);

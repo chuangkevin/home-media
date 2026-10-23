@@ -27,7 +27,7 @@ import { RootState, AppDispatch } from '../../store';
 import type { Track } from '../../types/track.types';
 import type { LyricsSearchResult, LyricsSource } from '../../types/lyrics.types';
 import { setCurrentLineIndex, adjustTimeOffset, resetTimeOffset, setTimeOffset, setTrackTimeOffset, setCurrentLyrics } from '../../store/lyricsSlice';
-import { seekTo, setPendingTrack, setIsPlaying, reorderPlaylist, removeFromPlaylist, playNext } from '../../store/playerSlice';
+import { seekTo, setPendingTrack, setIsPlaying, reorderPlaylist, removeFromPlaylist, playNext, appendToPlaylist } from '../../store/playerSlice';
 import apiService from '../../services/api.service';
 import lyricsCacheService from '../../services/lyrics-cache.service';
 import { shouldUseCachedVideo, transitionCachedVideoFallback } from '../../services/cached-video-fallback';
@@ -133,6 +133,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
   const [isFullscreenLayout, setIsFullscreenLayout] = useState(true);
   const [isMorrorFullscreen, setIsMorrorFullscreen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [isFillingQueue, setIsFillingQueue] = useState(false);
   // Spanned foldable (Surface Duo class): force the queue open so the left
   // screen keeps the player plus queue. Hinge geometry lives in CSS variables
   // from App.tsx; the drawer layout no longer depends on detection.
@@ -1060,14 +1061,16 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         if (!isCurrentOperation()) return;
         dispatch(setCurrentLyrics(lyrics));
         dispatch(resetTimeOffset());
+        emitSourceUpdate(track.videoId, 'youtube', null);
         setSearchOpen(false);
+        setSearchError('');
       } else {
-        alert('此影片沒有可用的 YouTube CC 字幕');
+        setSearchError('這支影片沒有可用的 YouTube CC 字幕。');
       }
     } catch (error) {
       if (!isCurrentOperation()) return;
       console.error('Fetch YouTube CC failed:', error);
-      alert('獲取 YouTube CC 字幕失敗');
+      setSearchError('獲取 YouTube CC 字幕失敗，請稍後重試。');
     } finally {
       if (!isCurrentOperation()) return;
       setIsRefreshingLyricsView(false);
@@ -1193,6 +1196,36 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
     }
   };
 
+  // 一鍵補滿佇列：用目前曲目的 similar 推薦補到 20 首以上。
+  const handleFillQueue = async () => {
+    const seed = track;
+    if (!seed?.videoId || isFillingQueue) return;
+    setIsFillingQueue(true);
+    try {
+      const recs = await apiService.getSimilarTracks(seed.videoId, 20, seed.channel, seed.title);
+      const existing = new Set(playlist.map(t => t.videoId));
+      const tracks = recs
+        .filter((r: any) => !existing.has(r.videoId))
+        .filter((r: any) => (r.duration || 0) > 0 && (r.duration || 0) <= 600)
+        .map((r: any) => ({
+          id: r.videoId,
+          videoId: r.videoId,
+          title: r.title,
+          channel: r.channelName || r.channel,
+          thumbnail: r.thumbnail,
+          duration: r.duration || 0,
+        }));
+      if (tracks.length > 0) {
+        dispatch(appendToPlaylist(tracks));
+        apiService.prewarmUrls(tracks.map((t: any) => t.videoId)).catch(() => {});
+      }
+    } catch (error) {
+      console.error('Fill queue failed:', error);
+    } finally {
+      setIsFillingQueue(false);
+    }
+  };
+
   const handleOpenSearch = () => {
     setHasSearched(false);
     setSearchError('');
@@ -1272,7 +1305,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         <Box sx={{ textAlign: 'center', px: 3, py: 6 }}>
           <Typography variant="h6" sx={{ fontSize: '1.125rem', mb: 1 }}>還沒找到這首歌的歌詞</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>音樂會繼續播放。你可以換個關鍵字或歌詞來源。</Typography>
-          <Button variant="outlined" startIcon={<SearchIcon />} onClick={handleOpenSearch}>搜尋歌詞</Button>
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Button variant="outlined" startIcon={<SearchIcon />} onClick={handleOpenSearch}>搜尋歌詞</Button>
+            <Button variant="text" onClick={handleUseYouTubeCC} disabled={isLoadingYouTubeCC || isApplying}>用本片 YouTube CC</Button>
+          </Box>
         </Box>
       );
     }
@@ -1829,9 +1865,14 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
                 screen so the right screen stays dedicated to lyrics. */}
             {queueOpen && (
               <Box sx={{ flex: 1, minHeight: 220, display: 'flex', flexDirection: 'column', borderTop: 1, borderColor: 'divider' }}>
-                <Box sx={{ px: 2, py: 1.5 }}>
-                  <Typography fontWeight={700}>待播清單</Typography>
-                  <Typography variant="caption" color="text.secondary">{playlist.filter(t => t.title && t.title !== '載入中...').length} 首歌曲</Typography>
+                <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Box>
+                    <Typography fontWeight={700}>待播清單</Typography>
+                    <Typography variant="caption" color="text.secondary">{playlist.filter(t => t.title && t.title !== '載入中...').length} 首歌曲</Typography>
+                  </Box>
+                  <Button size="small" onClick={handleFillQueue} disabled={isFillingQueue} sx={{ minHeight: 40, whiteSpace: 'nowrap' }}>
+                    {isFillingQueue ? '補滿中…' : '補滿相似'}
+                  </Button>
                 </Box>
                 <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>{renderPlaylist()}</Box>
               </Box>
@@ -1989,7 +2030,12 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         } }}>
         <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: 1, borderColor: 'divider' }}>
           <Box><Typography fontWeight={700}>待播清單</Typography><Typography variant="caption" color="text.secondary">{playlist.filter(t => t.title && t.title !== '載入中...').length} 首歌曲・可拖曳排序</Typography></Box>
-          <IconButton aria-label="關閉待播清單" onClick={() => setQueueOpen(false)}><CloseIcon /></IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Button size="small" onClick={handleFillQueue} disabled={isFillingQueue} sx={{ minHeight: 40, whiteSpace: 'nowrap' }}>
+              {isFillingQueue ? '補滿中…' : '補滿相似'}
+            </Button>
+            <IconButton aria-label="關閉待播清單" onClick={() => setQueueOpen(false)}><CloseIcon /></IconButton>
+          </Box>
         </Box>
         <Box sx={{ overflow: 'auto', minHeight: 0 }}>{renderPlaylist()}</Box>
       </Drawer>
@@ -2080,6 +2126,7 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button onClick={handleUseYouTubeCC} disabled={isLoadingYouTubeCC || isApplying}>用本片 YouTube CC</Button>
             <Button
               onClick={handleReloadOriginalLyrics}
               disabled={isReloadingLyrics || isLoadingYouTubeCC}

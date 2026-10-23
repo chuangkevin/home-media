@@ -178,6 +178,10 @@ export class YouTubeController {
               const producer = this.inFlightTimings.get(videoId);
               await streamProgressiveAudio(req, res, spool, {
                 beforeFirstWrite: () => res.setHeader('Server-Timing', timing.header('shared', producer)),
+                // Long programmes: keep the progressive response alive for the
+                // full 2h instead of the old 5-minute default.
+                lifetimeMs: 2 * 60 * 60 * 1000,
+                firstByteTimeoutMs: 45000,
               });
               return;
             }
@@ -193,6 +197,8 @@ export class YouTubeController {
           timing.mark('admitted');
           await streamProgressiveAudio(req, res, background.spool, {
             beforeFirstWrite: () => res.setHeader('Server-Timing', timing.header('shared')),
+            lifetimeMs: 2 * 60 * 60 * 1000,
+            firstByteTimeoutMs: 45000,
           });
           return;
         }
@@ -226,6 +232,7 @@ export class YouTubeController {
         const cleanup = () => {
           if (released) return;
           released = true;
+          downloadManager.resumeLowPriority();
           this.activeStreamOwners--;
           if (this.inFlightStreams.get(videoId) === completion) this.inFlightStreams.delete(videoId);
           if (this.inFlightOwners.get(videoId) === owner) {
@@ -235,7 +242,12 @@ export class YouTubeController {
           resolveInFlight();
           owner.finish();
         };
-        try { this.streamWithYtDlp(req, res, videoId, cleanup, owner, timing); }
+        try {
+          // Long-track first play: stop low-priority pre-caches from eating the
+          // bandwidth/cache slots; they are requeued when this stream ends.
+          downloadManager.pauseLowPriority();
+          this.streamWithYtDlp(req, res, videoId, cleanup, owner, timing);
+        }
         catch (error) { cleanup(); throw error; }
         return;
       }

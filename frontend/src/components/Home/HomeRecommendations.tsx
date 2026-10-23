@@ -71,6 +71,16 @@ export default function HomeRecommendations({ onSearch }: HomeRecommendationsPro
     setHiddenChannels(new Set())
   }, [channelRecommendations])
 
+  // A deploy/restart can fail the first load; retry on its own every 15s so
+  // the page recovers without the user tapping 重試 (and without a reload).
+  useEffect(() => {
+    if (!error || loading) return
+    const timer = window.setTimeout(() => {
+      dispatch(fetchChannelRecommendations({ page: 0, pageSize: 5, mixed: true }))
+    }, 15000)
+    return () => window.clearTimeout(timer)
+  }, [error, loading, dispatch])
+
   // 檢查所有影片的快取狀態 + 自動預載未快取的音樂和歌詞
   useEffect(() => {
     let isActive = true // 用於取消預載

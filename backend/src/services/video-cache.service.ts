@@ -6,7 +6,10 @@ import logger from '../utils/logger';
 import { getDatabase } from '../config/database';
 
 const VIDEO_CACHE_DIR = path.join(process.cwd(), 'data', 'video-cache');
-const MAX_VIDEO_CACHE_MB = 5000; // 5GB 上限
+// Configurable: the NAS has 3.5TB free, so long programmes can be cached.
+const MAX_VIDEO_CACHE_MB = parseInt(process.env.VIDEO_CACHE_MAX_MB || '100000', 10); // 100GB default
+// yt-dlp needs far longer than 5 real minutes for a 2h 720p download.
+const VIDEO_DOWNLOAD_TIMEOUT_MS = parseInt(process.env.VIDEO_DOWNLOAD_TIMEOUT_MS || '1800000', 10); // 30 min
 
 type ByteRangeResult =
   | { kind: 'range'; start: number; end: number }
@@ -109,7 +112,7 @@ class VideoCacheService {
 
       console.log(`🎬 [VideoCache] Downloading: ${videoId}`);
       console.log(`🎬 [VideoCache] Command: ${ytdlpPath} ${args.slice(-3).join(' ')}`);
-      const proc = spawn(ytdlpPath, args, { timeout: 300000 });
+      const proc = spawn(ytdlpPath, args, { timeout: VIDEO_DOWNLOAD_TIMEOUT_MS });
 
       let lastProgress = '';
       proc.stderr.on('data', (data: Buffer) => {
