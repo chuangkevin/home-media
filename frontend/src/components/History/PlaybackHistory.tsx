@@ -3,10 +3,10 @@ import {
   Alert,
   Box,
   Button,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
+  Card,
+  CardActionArea,
+  CardContent,
+  CardMedia,
   Skeleton,
   Typography,
 } from '@mui/material'
@@ -14,6 +14,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import apiService, { type PlaybackHistoryTrack } from '../../services/api.service'
 import type { Track } from '../../types/track.types'
+import { homeMediaCardSx, homeMediaPlaySx, homeMediaShelfSx, homeMediaTitleSx } from '../Home/homeMediaStyles'
 
 function groupByDate(tracks: PlaybackHistoryTrack[]): Record<string, PlaybackHistoryTrack[]> {
   const now = new Date()
@@ -141,42 +142,43 @@ export default function PlaybackHistory({ onPlay }: PlaybackHistoryProps) {
             >
               {label}
             </Typography>
-            <List disablePadding aria-label={`${label}播放的歌曲`}>
+            <Box sx={homeMediaShelfSx} aria-label={`${label}播放的歌曲`}>
               {items.map((track) => (
-                <ListItem key={track.videoId} disablePadding>
-                  <ListItemButton
+                <Card key={track.videoId} sx={{ ...homeMediaCardSx, scrollSnapAlign: 'start' }}>
+                  <CardActionArea
                     onClick={() => handlePlay(track)}
                     aria-label={`播放 ${track.title}`}
-                    sx={{ px: { xs: 1, sm: 2 }, py: 1.5, minHeight: 76, gap: 2, m: 0 }}
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'stretch',
+                      justifyContent: 'flex-start',
+                      '&.Mui-focusVisible': { outlineOffset: -3 },
+                    }}
                   >
-                    <Box
-                      component="img"
-                      src={track.thumbnail}
-                      alt=""
-                      loading="lazy"
-                      sx={{
-                        width: 48,
-                        height: 48,
-                        flexShrink: 0,
-                        objectFit: 'cover',
-                        borderRadius: 1,
-                      }}
-                    />
-                    <ListItemText
-                      primary={track.title}
-                      secondary={`${track.channel} · 播放 ${track.playCount} 次`}
-                      primaryTypographyProps={{
-                        noWrap: true,
-                        sx: { fontSize: 15, fontWeight: 500 },
-                      }}
-                      secondaryTypographyProps={{ noWrap: true, sx: { fontSize: 12, mt: 0.5 } }}
-                      sx={{ minWidth: 0, m: 0 }}
-                    />
-                    <PlayArrowIcon sx={{ flexShrink: 0, color: 'primary.main' }} />
-                  </ListItemButton>
-                </ListItem>
+                    <Box sx={{ position: 'relative', width: '100%' }}>
+                      <CardMedia
+                        component="img"
+                        loading="lazy"
+                        image={track.thumbnail || `https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg`}
+                        alt=""
+                        sx={{ width: '100%', aspectRatio: '16 / 10', objectFit: 'cover', bgcolor: 'action.selected' }}
+                      />
+                      <Box aria-hidden="true" sx={{ position: 'absolute', right: 8, bottom: 8, ...homeMediaPlaySx }}>
+                        <PlayArrowIcon />
+                      </Box>
+                    </Box>
+                    <CardContent sx={{ p: 1.5, flex: 1, minWidth: 0, '&:last-child': { pb: 1.5 } }}>
+                      <Typography variant="body2" sx={homeMediaTitleSx}>{track.title}</Typography>
+                      <Typography variant="caption" component="p" color="text.secondary" noWrap sx={{ fontSize: 12, mt: 0.5 }}>
+                        {track.channel} · 播放 {track.playCount} 次
+                      </Typography>
+                    </CardContent>
+                  </CardActionArea>
+                </Card>
               ))}
-            </List>
+            </Box>
           </Box>
         )
       })}
