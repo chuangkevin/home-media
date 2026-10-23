@@ -1841,8 +1841,10 @@ export default function FullscreenLyrics({ open, onClose, track }: FullscreenLyr
 
         <Box sx={{
           flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative',
-          // Lyrics always start clear of the fold on the right screen.
-          marginLeft: 'var(--span-column-gap, 48px)',
+          // The gap between panels only exists when the player panel is shown
+          // (landscape/spanned). On narrow portrait there is no left panel, so
+          // the 48px margin would just shove the video and lyrics sideways.
+          marginLeft: showLandscapeSidePanel ? 'var(--span-column-gap, 48px)' : 0,
         }}>
           {!isMorrorFullscreen && (
             <Box sx={{ flexShrink: 0, backgroundColor: 'background.paper', borderBottom: 1, borderColor: 'divider', px: { xs: 1.5, sm: 2.5 }, pb: 1 }}>
